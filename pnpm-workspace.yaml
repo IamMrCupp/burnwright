@@ -1,0 +1,5 @@
+# Settings only; this is a single-package repo.
+overrides:
+  # GHSA-g3hv-75wg-m249 (ReDoS, dev-only via eslint). eslint and
+  # typescript-eslint still pin ^10; drop this once they move to >=11.0.1.
+  minimatch: ">=11.0.1"
