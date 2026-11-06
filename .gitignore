@@ -1,4 +1,25 @@
+# Build output
 target/
-node_modules/
 dist/
+dist-ssr/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.sw?
+*.local
+
+# OS
 .DS_Store
+
+# Tauri generated capability schemas
+/src-tauri/gen/schemas

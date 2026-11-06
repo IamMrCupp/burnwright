@@ -1,0 +1,10 @@
+[package]
+name = "minipro-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Phase 1 FFI bindings to libminipro (placeholder in Phase 0)"
+
+[dependencies]

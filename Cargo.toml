@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["src-tauri", "crates/engine", "crates/minipro-sys"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+authors = ["Aaron Cupp"]
+repository = "https://github.com/IamMrCupp/burnwright"
+
+# Release optimization (see https://tauri.app/concept/size/#cargo-configuration)
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
