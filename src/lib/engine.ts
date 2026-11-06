@@ -20,7 +20,17 @@ export interface DeviceInfo {
   chip: string | null;
 }
 
+/** Build/version info (mirrors `commands::AppInfo`). */
+export interface AppInfo {
+  /** burnwright's own version. */
+  version: string;
+  /** Version of the vendored minipro this build was compiled against. */
+  minipro: string;
+}
+
 export const engine = {
+  /** burnwright and bundled minipro versions. */
+  appInfo: (): Promise<AppInfo> => invoke("app_info"),
   /** Detect the connected programmer. */
   detect: (): Promise<DeviceInfo> => invoke("detect"),
   /** Read `kind` memory from `part`. */
