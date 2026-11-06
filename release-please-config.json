@@ -3,6 +3,7 @@
   "release-type": "node",
   "bump-minor-pre-major": true,
   "include-v-in-tag": true,
+  "include-component-in-tag": false,
   "packages": {
     ".": {
       "package-name": "burnwright",
@@ -21,7 +22,7 @@
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.source === undefined && (@.name === 'burnwright' || @.name === 'engine' || @.name === 'minipro-sys'))].version"
+          "jsonpath": "$.package[?(@.name.value=='burnwright' || @.name.value=='engine' || @.name.value=='minipro-sys')].version"
         }
       ]
     }
