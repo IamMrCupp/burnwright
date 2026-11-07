@@ -43,3 +43,46 @@ pub fn blank_check(part: String) -> Result<bool, String> {
 pub fn erase(part: String) -> Result<(), String> {
     engine::stub().erase(&part).map_err(|e| e.to_string())
 }
+
+/// Build/version info shown in the UI and quoted in bug reports.
+#[derive(Debug, serde::Serialize)]
+pub struct AppInfo {
+    /// burnwright's own version (kept in sync by release-please).
+    pub version: &'static str,
+    /// Version of the vendored minipro this build was compiled against.
+    pub minipro: &'static str,
+}
+
+fn app_info_value() -> AppInfo {
+    AppInfo {
+        version: env!("CARGO_PKG_VERSION"),
+        minipro: env!("BURNWRIGHT_MINIPRO_VERSION"),
+    }
+}
+
+#[tauri::command]
+pub fn app_info() -> AppInfo {
+    app_info_value()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_info_reports_versions() {
+        let info = app_info_value();
+        assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
+        // Either a dotted version from the submodule or the documented fallback.
+        assert!(
+            info.minipro == "unknown"
+                || info
+                    .minipro
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_digit()),
+            "unexpected minipro version: {}",
+            info.minipro
+        );
+    }
+}

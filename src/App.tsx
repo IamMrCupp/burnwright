@@ -1,10 +1,15 @@
-import { useState } from "react";
-import { engine, type DeviceInfo } from "./lib/engine";
+import { useEffect, useState } from "react";
+import { engine, type AppInfo, type DeviceInfo } from "./lib/engine";
 import "./App.css";
 
 function App() {
   const [status, setStatus] = useState("Idle");
   const [device, setDevice] = useState<DeviceInfo | null>(null);
+  const [info, setInfo] = useState<AppInfo | null>(null);
+
+  useEffect(() => {
+    engine.appInfo().then(setInfo, () => setInfo(null));
+  }, []);
 
   async function detect() {
     setStatus("Detecting…");
@@ -42,6 +47,14 @@ function App() {
           implemented” error until issue #6 wires them to minipro.
         </small>
       </p>
+
+      <footer>
+        <small>
+          {info
+            ? `burnwright v${info.version} · minipro ${info.minipro}`
+            : "burnwright"}
+        </small>
+      </footer>
     </main>
   );
 }
