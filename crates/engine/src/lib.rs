@@ -9,6 +9,10 @@
 //! the vendored minipro CLI behind this same trait; Phase 1 swaps in an
 //! FFI-backed engine via the `minipro-sys` crate — all behind [`Engine`].
 
+pub mod image;
+
+pub use image::{DEFAULT_FILL, ImageError, ImageFormat};
+
 use serde::{Deserialize, Serialize};
 
 /// Result alias for engine operations.

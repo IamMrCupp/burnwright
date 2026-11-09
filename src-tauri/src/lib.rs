@@ -11,6 +11,8 @@ pub fn run() {
             commands::verify,
             commands::blank_check,
             commands::erase,
+            commands::load_image,
+            commands::save_image,
             commands::app_info,
         ])
         .run(tauri::generate_context!())

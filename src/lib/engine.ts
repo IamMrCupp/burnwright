@@ -20,6 +20,12 @@ export interface DeviceInfo {
   chip: string | null;
 }
 
+/**
+ * On-disk image format (mirrors `engine::ImageFormat`). When omitted, the
+ * Rust side guesses from the file extension (`.hex`/`.ihx` → Intel HEX).
+ */
+export type ImageFormat = "bin" | "intel_hex";
+
 /** Build/version info (mirrors `commands::AppInfo`). */
 export interface AppInfo {
   /** burnwright's own version. */
@@ -47,4 +53,21 @@ export const engine = {
     invoke("blank_check", { part }),
   /** Erase `part`. */
   erase: (part: string): Promise<void> => invoke("erase", { part }),
+  /**
+   * Load a `.bin` or Intel HEX file as bytes from address 0. HEX gaps are
+   * filled with `fill` (default 0xFF). Parsing happens in Rust.
+   */
+  loadImage: (
+    path: string,
+    format?: ImageFormat,
+    fill?: number,
+  ): Promise<number[]> =>
+    invoke("load_image", { path, format: format ?? null, fill: fill ?? null }),
+  /** Save `data` (from address 0) as a `.bin` or Intel HEX file. */
+  saveImage: (
+    path: string,
+    data: number[],
+    format?: ImageFormat,
+  ): Promise<void> =>
+    invoke("save_image", { path, data, format: format ?? null }),
 };
