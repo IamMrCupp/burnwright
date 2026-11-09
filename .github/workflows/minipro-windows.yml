@@ -131,8 +131,8 @@ jobs:
           ./minipro.exe $db -q t48 -L 27C256
           ./minipro.exe $db -q t48 -d AT27C256@DIP28
           # No programmer is attached in CI. Note: -k exits 0 either way and
-          # reports presence on stdout, so callers must parse the text.
-          ./minipro.exe -k | tee presence.txt
+          # reports presence on stderr, so callers must parse the text.
+          ./minipro.exe -k 2>&1 | tee presence.txt
           grep -q "No programmer found" presence.txt
 
       - name: DLL dependencies (dynamic)
@@ -185,7 +185,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "$kind -l exited $LASTEXITCODE" }
             Write-Host "$kind lists $($devices.Count) devices"
             if ($devices.Count -lt 1000) { throw "$kind device list too short" }
-            $presence = (.\minipro.exe -k) -join "`n"
+            $presence = (cmd /c "minipro.exe -k 2>&1") -join "`n"
             Write-Host "presence check: '$presence' (exit $LASTEXITCODE)"
             if ($presence -notmatch 'No programmer found') { throw "$kind -k gave unexpected output" }
             Pop-Location
