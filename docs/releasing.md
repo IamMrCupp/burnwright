@@ -13,8 +13,8 @@ Don't tag or create releases by hand — release-please owns both.
 
 | Platform | Runner | Installer |
 |---|---|---|
-| macOS arm64 | `macos-15` | `.dmg` (plus the `.app.tar.gz` tauri-action adds) |
-| macOS x86_64 | `macos-15-intel` | `.dmg` (plus `.app.tar.gz`) |
+| macOS arm64 | `macos-15` | `.dmg` |
+| macOS x86_64 | `macos-15-intel` | `.dmg` |
 | Linux x86_64 | `ubuntu-22.04` | `.deb`, `.AppImage` |
 | Windows x86_64 | `windows-latest` | NSIS `-setup.exe` |
 

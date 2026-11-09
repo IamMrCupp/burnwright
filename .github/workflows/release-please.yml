@@ -137,7 +137,6 @@ jobs:
           name: installers-${{ matrix.os }}
           path: |
             target/release/bundle/dmg/*.dmg
-            target/release/bundle/macos/*.app.tar.gz
             target/release/bundle/deb/*.deb
             target/release/bundle/appimage/*.AppImage
             target/release/bundle/nsis/*.exe
@@ -168,6 +167,13 @@ jobs:
           pattern: installers-*
           path: dist
           merge-multiple: true
+      - name: Flatten artifact folders (dry run)
+        if: needs.prepare.outputs.tag == ''
+        # upload-artifact keeps the bundle/<kind>/ folders; release assets
+        # are flat, so match that before hashing.
+        run: |
+          find dist -mindepth 2 -type f -exec mv -t dist {} +
+          find dist -mindepth 1 -type d -empty -delete
       - name: Hash
         working-directory: dist
         run: |
