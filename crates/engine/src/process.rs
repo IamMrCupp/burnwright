@@ -457,9 +457,11 @@ mod tests {
             }
             "hang" => {
                 // A write that never finishes: redraws progress forever.
-                for i in 0u64.. {
-                    write!(err, "\r\x1b[KWriting  Code...  {:2}%", i % 100).unwrap();
+                let mut percent = 0u8;
+                loop {
+                    write!(err, "\r\x1b[KWriting  Code...  {percent:2}%").unwrap();
                     err.flush().unwrap();
+                    percent = (percent + 1) % 100;
                     thread::sleep(Duration::from_millis(30));
                 }
             }
