@@ -81,7 +81,7 @@ jobs:
             pkgconf:p
             zlib:p
             ntldd:p
-            libusb:p
+            ${{ matrix.backend == 'libusb' && 'libusb:p' || '' }}
 
       - name: Check out upstream master
         if: matrix.ref == 'master'
@@ -130,8 +130,10 @@ jobs:
           test "$(wc -l < devices.txt)" -gt 1000
           ./minipro.exe $db -q t48 -L 27C256
           ./minipro.exe $db -q t48 -d AT27C256@DIP28
-          # No programmer is attached in CI, so these must fail cleanly.
-          ./minipro.exe -k && exit 1 || echo "presence check failed as expected (exit $?)"
+          # No programmer is attached in CI. Note: -k exits 0 either way and
+          # reports presence on stdout, so callers must parse the text.
+          ./minipro.exe -k | tee presence.txt
+          grep -q "No programmer found" presence.txt
 
       - name: DLL dependencies (dynamic)
         working-directory: vendor/minipro
@@ -183,8 +185,9 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "$kind -l exited $LASTEXITCODE" }
             Write-Host "$kind lists $($devices.Count) devices"
             if ($devices.Count -lt 1000) { throw "$kind device list too short" }
-            .\minipro.exe -k
-            Write-Host "presence check exit code: $LASTEXITCODE (non-zero expected, no programmer)"
+            $presence = (.\minipro.exe -k) -join "`n"
+            Write-Host "presence check: '$presence' (exit $LASTEXITCODE)"
+            if ($presence -notmatch 'No programmer found') { throw "$kind -k gave unexpected output" }
             Pop-Location
           }
           # Default database location on Windows is %ProgramData%\minipro\.
