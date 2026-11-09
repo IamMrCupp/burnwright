@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { HexView } from "./components/hexview";
 import { engine, type AppInfo, type DeviceInfo } from "./lib/engine";
+import { makeSampleBuffer } from "./lib/sampleBuffer";
 import "./App.css";
 
 function App() {
   const [status, setStatus] = useState("Idle");
   const [device, setDevice] = useState<DeviceInfo | null>(null);
   const [info, setInfo] = useState<AppInfo | null>(null);
+  const sample = useMemo(() => makeSampleBuffer(), []);
 
   useEffect(() => {
     engine.appInfo().then(setInfo, () => setInfo(null));
@@ -40,6 +43,16 @@ function App() {
       <p>{status}</p>
 
       {device && <pre>{JSON.stringify(device, null, 2)}</pre>}
+
+      <section className="hex-demo">
+        <h2>Buffer</h2>
+        <p>
+          <small>
+            Generated 16&nbsp;MiB sample, not read from a device.
+          </small>
+        </p>
+        <HexView data={sample} height={360} aria-label="Sample buffer" />
+      </section>
 
       <p>
         <small>

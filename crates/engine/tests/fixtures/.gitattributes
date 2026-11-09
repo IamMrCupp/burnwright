@@ -1,0 +1,3 @@
+# Image fixtures are compared byte for byte; keep checkout from rewriting them.
+*.hex -text
+*.bin binary

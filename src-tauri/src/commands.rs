@@ -8,7 +8,7 @@
 //! Errors are surfaced to the frontend as strings (the `Err` arm of the JS
 //! `invoke` promise). The TS mirror of this surface lives in `src/lib/engine.ts`.
 
-use engine::{DeviceInfo, Engine, MemoryKind};
+use engine::{DeviceInfo, Engine, ImageFormat, MemoryKind};
 
 #[tauri::command]
 pub fn detect() -> Result<DeviceInfo, String> {
@@ -42,6 +42,27 @@ pub fn blank_check(part: String) -> Result<bool, String> {
 #[tauri::command]
 pub fn erase(part: String) -> Result<(), String> {
     engine::stub().erase(&part).map_err(|e| e.to_string())
+}
+
+/// Load an image file (raw `.bin` or Intel HEX) as a flat byte buffer
+/// starting at address 0. `format` defaults to a guess from the extension;
+/// `fill` (default `0xFF`) fills addresses a HEX file leaves out. All parsing
+/// happens here in Rust: the frontend only ever gets bytes.
+#[tauri::command]
+pub fn load_image(
+    path: String,
+    format: Option<ImageFormat>,
+    fill: Option<u8>,
+) -> Result<Vec<u8>, String> {
+    engine::image::load(&path, format, fill.unwrap_or(engine::DEFAULT_FILL))
+        .map_err(|e| e.to_string())
+}
+
+/// Save a byte buffer (address 0 upward) as raw `.bin` or Intel HEX.
+/// `format` defaults to a guess from the extension.
+#[tauri::command]
+pub fn save_image(path: String, data: Vec<u8>, format: Option<ImageFormat>) -> Result<(), String> {
+    engine::image::save(&path, &data, format).map_err(|e| e.to_string())
 }
 
 /// Build/version info shown in the UI and quoted in bug reports.

@@ -17,15 +17,17 @@ dev:
 build-minipro:
     make -C vendor/minipro
 
-# Run Rust (and, later, TS) tests
+# Run Rust and frontend tests
 test:
     cargo test --workspace
+    pnpm test
 
 # Format + lint + typecheck gates (mirrors CI)
 check:
     cargo fmt --all --check
     cargo clippy --workspace --all-targets -- -D warnings
     pnpm exec tsc --noEmit
+    pnpm lint
 
 # Produce installable bundles for the current OS
 bundle:

@@ -9,9 +9,11 @@
 //! the vendored minipro CLI behind this same trait; Phase 1 swaps in an
 //! FFI-backed engine via the `minipro-sys` crate — all behind [`Engine`].
 
+pub mod image;
 pub mod process;
 pub mod progress;
 
+pub use image::{DEFAULT_FILL, ImageError, ImageFormat};
 pub use process::{
     CancelHandle, DeviceState, MiniproCommand, MiniproProcess, ProcessError, ProcessOutput,
 };

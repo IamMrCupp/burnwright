@@ -48,6 +48,8 @@ jobs:
         run: pnpm exec tsc --noEmit
       - name: eslint
         run: pnpm lint
+      - name: vitest
+        run: pnpm test
 
   build:
     name: Build & bundle · ${{ matrix.os }}
