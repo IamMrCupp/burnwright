@@ -11,10 +11,6 @@
 * **hexview:** add a virtualised hex viewer component with Vitest tests ([62a7a17](https://github.com/IamMrCupp/burnwright/commit/62a7a17114ed4e40a7d9c3bcd62f279319d34b68))
 
 
-### Bug Fixes
-
-* **engine:** replace unbounded range loop in the fake minipro test helper ([b6d32ce](https://github.com/IamMrCupp/burnwright/commit/b6d32ced35fe44287bada2e8b3279174c9cc5f98))
-
 ## [0.2.0](https://github.com/IamMrCupp/burnwright/compare/v0.1.0...v0.2.0) (2026-11-09)
 
 
