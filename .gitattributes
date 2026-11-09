@@ -1,0 +1,2 @@
+# minipro stderr fixtures carry raw \r and ESC bytes; never normalise line endings.
+crates/engine/fixtures/minipro/*.stderr -text

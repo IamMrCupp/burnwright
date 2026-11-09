@@ -9,6 +9,14 @@
 //! the vendored minipro CLI behind this same trait; Phase 1 swaps in an
 //! FFI-backed engine via the `minipro-sys` crate — all behind [`Engine`].
 
+pub mod process;
+pub mod progress;
+
+pub use process::{
+    CancelHandle, DeviceState, MiniproCommand, MiniproProcess, ProcessError, ProcessOutput,
+};
+pub use progress::{Operation, ProgressEvent, ProgressParser, Stage};
+
 use serde::{Deserialize, Serialize};
 
 /// Result alias for engine operations.
