@@ -1,0 +1,74 @@
+/* Diff highlighting for HexDiffView. Theme through the --hv-diff-* custom
+   properties; the classes land on HexView's byte cells via decorateByte. */
+
+.hexdiff {
+  --hv-diff-changed-bg: #ffd7d5;
+  --hv-diff-changed-fg: #a1150d;
+  --hv-diff-extra-bg: #fff0c2;
+  --hv-diff-extra-fg: #7a5600;
+  --hv-diff-missing-bg: #e4e4e8;
+  --hv-diff-missing-fg: #6e6e74;
+  --hv-diff-current: #396cd8;
+
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  min-height: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .hexdiff {
+    --hv-diff-changed-bg: #5c1f1c;
+    --hv-diff-changed-fg: #ffb4ae;
+    --hv-diff-extra-bg: #4d3d0f;
+    --hv-diff-extra-fg: #ffd97a;
+    --hv-diff-missing-bg: #34343a;
+    --hv-diff-missing-fg: #9a9aa0;
+    --hv-diff-current: #7aa2ff;
+  }
+}
+
+.hexdiff-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5em 1em;
+  text-align: left;
+}
+
+.hexdiff-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.hexdiff-position {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.875em;
+}
+
+.hexview .hv-diff-changed {
+  background: var(--hv-diff-changed-bg);
+  color: var(--hv-diff-changed-fg);
+}
+
+.hexview .hv-diff-extra {
+  background: var(--hv-diff-extra-bg);
+  color: var(--hv-diff-extra-fg);
+}
+
+/* Missing bytes show the reference's value, struck through: they are not in
+   the buffer being viewed. */
+.hexview .hv-diff-missing {
+  background: var(--hv-diff-missing-bg);
+  color: var(--hv-diff-missing-fg);
+  text-decoration: line-through;
+}
+
+/* The difference the navigation is on: a bar under each of its bytes, which
+   reads as one underline across a run. */
+.hexview .hv-diff-current {
+  box-shadow: inset 0 -2px 0 var(--hv-diff-current);
+}
