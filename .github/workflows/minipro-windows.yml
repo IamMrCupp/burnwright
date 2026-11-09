@@ -15,11 +15,13 @@ on:
     paths:
       - vendor/minipro
       - .github/workflows/minipro-windows.yml
+      - .github/minipro-windows/**
   push:
     branches: [main]
     paths:
       - vendor/minipro
       - .github/workflows/minipro-windows.yml
+      - .github/minipro-windows/**
   workflow_dispatch:
 
 concurrency:
@@ -31,7 +33,7 @@ permissions:
 
 jobs:
   build:
-    name: minipro ${{ matrix.ref }} · ${{ matrix.msystem }}
+    name: minipro ${{ matrix.ref }} · ${{ matrix.msystem }} · ${{ matrix.backend }}
     runs-on: windows-latest
     timeout-minutes: 30
     strategy:
@@ -41,10 +43,29 @@ jobs:
         # "master" = upstream master tip, to see whether T76 support builds too.
         ref: [pinned, master]
         msystem: [UCRT64, MINGW64]
+        # winusb = upstream's Windows default (src/usb_win.c, SetupAPI +
+        #          WinUSB, finds devices by XGecu's interface GUIDs).
+        # libusb = upstream's POSIX backend (src/usb_nix.c) built on Windows,
+        #          finds devices by VID:PID under any WinUSB binding.
+        backend: [winusb]
+        include:
+          - { ref: pinned, msystem: UCRT64, backend: libusb }
+          - { ref: master, msystem: UCRT64, backend: libusb }
+    env:
+      # Force-include our compat shim (see the header). Passed via the
+      # environment so the Makefile's own CPPFLAGS += still appends. Relative
+      # to vendor/minipro, where make runs.
+      CPPFLAGS: -include ../../.github/minipro-windows/compat.h
     defaults:
       run:
         shell: msys2 {0}
     steps:
+      # Without this the runner's autocrlf=true leaves the submodule
+      # looking dirty to MSYS2's git, which blocks checking out master.
+      - name: Disable CRLF conversion
+        shell: pwsh
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v7
         with:
           submodules: recursive
@@ -60,13 +81,14 @@ jobs:
             pkgconf:p
             zlib:p
             ntldd:p
+            libusb:p
 
       - name: Check out upstream master
         if: matrix.ref == 'master'
         working-directory: vendor/minipro
         run: |
           git fetch --no-tags origin master
-          git checkout --detach FETCH_HEAD
+          git checkout --force --detach FETCH_HEAD
 
       - name: Record source revision
         working-directory: vendor/minipro
@@ -76,9 +98,23 @@ jobs:
           gcc --version | head -1 | tee -a "$GITHUB_STEP_SUMMARY"
 
       # 1. Upstream build as-is: dynamic link, upstream's default CFLAGS.
+      - name: Select USB backend
+        run: |
+          if [ "${{ matrix.backend }}" = libusb ]; then
+            # Command-line USB= overrides the Makefile's Windows choice;
+            # its "override LIBS +=" still appends -lsetupapi -lwinusb -lz.
+            echo "BACKEND_ARGS=USB=src/usb_nix.o" >> "$GITHUB_ENV"
+            echo "BACKEND_CFLAGS=$(pkg-config --cflags libusb-1.0)" >> "$GITHUB_ENV"
+            echo "BACKEND_LIBS=$(pkg-config --libs libusb-1.0)" >> "$GITHUB_ENV"
+            echo "BACKEND_LIBS_STATIC=$(pkg-config --static --libs libusb-1.0)" >> "$GITHUB_ENV"
+          fi
+
       - name: Build (dynamic, upstream defaults)
         working-directory: vendor/minipro
-        run: make -j"$(nproc)"
+        run: |
+          make -j"$(nproc)" $BACKEND_ARGS \
+            CFLAGS="-g -O0 -Wall -Wextra -W -Wno-sign-compare -Wno-unused-parameter $BACKEND_CFLAGS" \
+            LIBS="$BACKEND_LIBS"
 
       - name: Smoke test (dynamic, inside MSYS2)
         working-directory: vendor/minipro
@@ -108,8 +144,8 @@ jobs:
           mkdir -p "$out"
           cp minipro.exe infoic.xml logicic.xml ntldd-dynamic.txt "$out/"
           # Copy every non-system DLL ntldd resolved from the MSYS2 prefix.
-          prefix="$(cygpath -m "$MINGW_PREFIX")"
-          grep -i "=> ${prefix}" ntldd-dynamic.txt | awk '{print $3}' | sort -u | while read -r dll; do
+          prefix="$(cygpath -w "$MINGW_PREFIX")"
+          grep -iF "$prefix" ntldd-dynamic.txt | awk '{print $3}' | sort -u | while read -r dll; do
             cp "$(cygpath -u "$dll")" "$out/"
           done
           ls -l "$out"
@@ -119,9 +155,11 @@ jobs:
         working-directory: vendor/minipro
         run: |
           make clean
-          make -j"$(nproc)" CFLAGS="-O2 -Wall" LDFLAGS="-static"
+          make -j"$(nproc)" $BACKEND_ARGS \
+            CFLAGS="-O2 -Wall $BACKEND_CFLAGS" LDFLAGS="-static" \
+            LIBS="$BACKEND_LIBS_STATIC"
           ntldd -R minipro.exe | tee ntldd-static.txt
-          if grep -i "=> $(cygpath -m "$MINGW_PREFIX")" ntldd-static.txt; then
+          if grep -iF "$(cygpath -w "$MINGW_PREFIX")" ntldd-static.txt; then
             echo "::error::static build still depends on MSYS2 DLLs"
             exit 1
           fi
@@ -159,6 +197,6 @@ jobs:
       - name: Upload bundles
         uses: actions/upload-artifact@v7
         with:
-          name: minipro-windows-${{ matrix.ref }}-${{ matrix.msystem }}
+          name: minipro-windows-${{ matrix.ref }}-${{ matrix.msystem }}-${{ matrix.backend }}
           path: out/
           if-no-files-found: error
