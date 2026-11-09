@@ -91,6 +91,11 @@ button {
   outline: none;
 }
 
+.hex-demo {
+  width: min(100% - 2rem, 80ch);
+  margin: 0 auto;
+}
+
 #greet-input {
   margin-right: 5px;
 }
