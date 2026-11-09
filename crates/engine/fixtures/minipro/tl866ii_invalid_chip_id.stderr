@@ -1,0 +1,6 @@
+Found TL866II+ 04.2.132 (0x284)
+Device code: 39C68E4A
+Serial code: 6Y8A1OY4LDT3B7C9O3DF7123
+USB speed: 12Mbps (USB 1.1)
+Invalid Chip ID: expected 0xEF4016, got 0xC22016 (MX25L3206E)
+(use '-y' to continue anyway at your own risk)

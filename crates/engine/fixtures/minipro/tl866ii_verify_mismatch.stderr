@@ -1,0 +1,8 @@
+Found TL866II+ 04.2.132 (0x284)
+Device code: 39C68E4A
+Serial code: 6Y8A1OY4LDT3B7C9O3DF7123
+USB speed: 12Mbps (USB 1.1)
+Chip ID: 0xEF4016  OK
+Found Intel hex file.
+[KReading Code...   0%[KReading Code...  25%[KReading Code...  50%[KReading Code...  75%[KReading Code...  1.80Sec  OK
+Verification failed at address 0x0010: File=0x3C, Device=0xFF

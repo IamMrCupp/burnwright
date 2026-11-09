@@ -10,8 +10,14 @@
 //! FFI-backed engine via the `minipro-sys` crate — all behind [`Engine`].
 
 pub mod image;
+pub mod process;
+pub mod progress;
 
 pub use image::{DEFAULT_FILL, ImageError, ImageFormat};
+pub use process::{
+    CancelHandle, DeviceState, MiniproCommand, MiniproProcess, ProcessError, ProcessOutput,
+};
+pub use progress::{Operation, ProgressEvent, ProgressParser, Stage};
 
 use serde::{Deserialize, Serialize};
 
