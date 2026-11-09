@@ -5,7 +5,6 @@
 
 ### Features
 
-* **app:** show burnwright and minipro versions in the UI ([32391a8](https://github.com/IamMrCupp/burnwright/commit/32391a8b40546c23c193455dd6a08cb3b8fe341a))
 * **app:** show burnwright and minipro versions in the UI ([4798cba](https://github.com/IamMrCupp/burnwright/commit/4798cbaaabe6bcd43facaf5b5e7a4b1598c98268))
 * **scaffold:** app shell, rust workspace, minipro 0.7.4 submodule, engine command contract ([00ec15c](https://github.com/IamMrCupp/burnwright/commit/00ec15c62b6c410c9be8ac774ccea82b472010bd))
 
