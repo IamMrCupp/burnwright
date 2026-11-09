@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/IamMrCupp/burnwright/compare/v0.2.0...v0.3.0) (2026-11-09)
+
+
+### Features
+
+* **app:** show a generated sample buffer in the hex viewer ([3a556dc](https://github.com/IamMrCupp/burnwright/commit/3a556dc4fd8924e5a087710dc3b736a880c18dad))
+* **engine:** load and save raw bin and Intel HEX images ([b8b9e96](https://github.com/IamMrCupp/burnwright/commit/b8b9e968a36a00e94b0e85cf5e1c70d18d9616b6))
+* **engine:** spawn minipro and parse its stderr progress with cancellation ([6a41651](https://github.com/IamMrCupp/burnwright/commit/6a4165146e1d0c6f965d52731eed921b6f188ba9))
+* **hexview:** add a virtualised hex viewer component with Vitest tests ([62a7a17](https://github.com/IamMrCupp/burnwright/commit/62a7a17114ed4e40a7d9c3bcd62f279319d34b68))
+
+
 ## [0.2.0](https://github.com/IamMrCupp/burnwright/compare/v0.1.0...v0.2.0) (2026-11-09)
 
 

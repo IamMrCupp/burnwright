@@ -3,7 +3,7 @@ resolver = "2"
 members = ["src-tauri", "crates/engine", "crates/minipro-sys"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
 authors = ["Aaron Cupp"]
