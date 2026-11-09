@@ -5,8 +5,8 @@
  *
  * MinGW-w64's CRT headers don't declare POSIX stpcpy(), which
  * src/database.c uses. GCC 14+ makes implicit declarations a hard error.
- * Candidate upstream fix: guard a local stpcpy() in database.c with
- * #ifdef _WIN32, or replace the call with strcpy() + strlen().
+ * Upstream fix pending as minipro MR !301 (strcpy() + strlen()); drop
+ * this shim once the submodule pin includes it.
  */
 #ifndef BURNWRIGHT_MINIPRO_COMPAT_H
 #define BURNWRIGHT_MINIPRO_COMPAT_H
