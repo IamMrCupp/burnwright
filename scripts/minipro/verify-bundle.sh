@@ -104,7 +104,7 @@ check_deb_scripts() {
   local deb="$1" listing="$2" ctl="$scratch/control"
   section "udev rules and maintainer scripts in $(basename "$deb")"
   grep -E "(\./)?${UDEV_RULES_PATH#/}\$" <<<"$listing" || die "deb lacks $UDEV_RULES_PATH"
-  grep -E "^-rw-r--r-- root/root .*(\./)?${UDEV_RULES_PATH#/}\$" <<<"$listing" >/dev/null \
+  grep -E "^-rw-r--r-- (root/root|0/0) .*(\./)?${UDEV_RULES_PATH#/}\$" <<<"$listing" >/dev/null \
     || die "$UDEV_RULES_PATH isn't a 0644 root-owned file in the deb"
   dpkg-deb -e "$deb" "$ctl"
   for s in postinst postrm; do
