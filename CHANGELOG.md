@@ -11,10 +11,6 @@
 * **ui:** explain why no programmer was found ([cde70d7](https://github.com/IamMrCupp/burnwright/commit/cde70d77a5eec7a25598ac6ff357fe15b1347baa))
 
 
-### Bug Fixes
-
-* **ci:** accept the numeric 0/0 owner dpkg-deb lists for the udev rules ([503c06d](https://github.com/IamMrCupp/burnwright/commit/503c06dc941f9af7be0c8203165f70bbc65a7670))
-
 ## [0.5.0](https://github.com/IamMrCupp/burnwright/compare/v0.4.0...v0.5.0) (2026-11-10)
 
 
