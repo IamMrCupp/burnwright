@@ -1,0 +1,205 @@
+# Spike for #12: does upstream minipro build and run on Windows?
+#
+# Builds vendor/minipro under MSYS2 on windows-latest, for the pinned tag and
+# for upstream master, with both the MINGW64 (msvcrt) and UCRT64 toolchains.
+# All glue lives here; the submodule is never patched.
+#
+# Upstream's Makefile already has a Windows branch: when OS=Windows_NT it links
+# src/usb_win.c (native WinUSB + SetupAPI) instead of src/usb_nix.c (libusb),
+# so libusb is not a build or runtime dependency on Windows.
+
+name: minipro · Windows
+
+on:
+  pull_request:
+    paths:
+      - vendor/minipro
+      - .github/workflows/minipro-windows.yml
+      - .github/minipro-windows/**
+  push:
+    branches: [main]
+    paths:
+      - vendor/minipro
+      - .github/workflows/minipro-windows.yml
+      - .github/minipro-windows/**
+  workflow_dispatch:
+
+concurrency:
+  group: minipro-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: minipro ${{ matrix.ref }} · ${{ matrix.msystem }} · ${{ matrix.backend }}
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # "pinned" = whatever commit the submodule is pinned to (tag 0.7.4).
+        # "master" = upstream master tip, to see whether T76 support builds too.
+        ref: [pinned, master]
+        msystem: [UCRT64, MINGW64]
+        # winusb = upstream's Windows default (src/usb_win.c, SetupAPI +
+        #          WinUSB, finds devices by XGecu's interface GUIDs).
+        # libusb = upstream's POSIX backend (src/usb_nix.c) built on Windows,
+        #          finds devices by VID:PID under any WinUSB binding.
+        backend: [winusb]
+        include:
+          - { ref: pinned, msystem: UCRT64, backend: libusb }
+          - { ref: master, msystem: UCRT64, backend: libusb }
+    env:
+      # Force-include our compat shim (see the header). Passed via the
+      # environment so the Makefile's own CPPFLAGS += still appends. Relative
+      # to vendor/minipro, where make runs.
+      CPPFLAGS: -include ../../.github/minipro-windows/compat.h
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      # Without this the runner's autocrlf=true leaves the submodule
+      # looking dirty to MSYS2's git, which blocks checking out master.
+      - name: Disable CRLF conversion
+        shell: pwsh
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: ${{ matrix.msystem }}
+          update: true
+          install: git make
+          pacboy: >-
+            gcc:p
+            pkgconf:p
+            zlib:p
+            ntldd:p
+            ${{ matrix.backend == 'libusb' && 'libusb:p' || '' }}
+
+      - name: Check out upstream master
+        if: matrix.ref == 'master'
+        working-directory: vendor/minipro
+        run: |
+          git fetch --no-tags origin master
+          git checkout --force --detach FETCH_HEAD
+
+      - name: Record source revision
+        working-directory: vendor/minipro
+        run: |
+          git config --global --add safe.directory '*'
+          echo "minipro $(git describe --tags --always) ($(git rev-parse HEAD))" | tee -a "$GITHUB_STEP_SUMMARY"
+          gcc --version | head -1 | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # 1. Upstream build as-is: dynamic link, upstream's default CFLAGS.
+      - name: Select USB backend
+        run: |
+          if [ "${{ matrix.backend }}" = libusb ]; then
+            # Command-line USB= overrides the Makefile's Windows choice;
+            # its "override LIBS +=" still appends -lsetupapi -lwinusb -lz.
+            echo "BACKEND_ARGS=USB=src/usb_nix.o" >> "$GITHUB_ENV"
+            echo "BACKEND_CFLAGS=$(pkg-config --cflags libusb-1.0)" >> "$GITHUB_ENV"
+            echo "BACKEND_LIBS=$(pkg-config --libs libusb-1.0)" >> "$GITHUB_ENV"
+            echo "BACKEND_LIBS_STATIC=$(pkg-config --static --libs libusb-1.0)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build (dynamic, upstream defaults)
+        working-directory: vendor/minipro
+        run: |
+          make -j"$(nproc)" $BACKEND_ARGS \
+            CFLAGS="-g -O0 -Wall -Wextra -W -Wno-sign-compare -Wno-unused-parameter $BACKEND_CFLAGS" \
+            LIBS="$BACKEND_LIBS"
+
+      - name: Smoke test (dynamic, inside MSYS2)
+        working-directory: vendor/minipro
+        run: |
+          set -x
+          db="--infoic infoic.xml --logicic logicic.xml"
+          ./minipro.exe $db --version
+          # -q picks the database without a programmer attached; without it
+          # minipro prompts on stdin.
+          ./minipro.exe $db -q tl866ii -l > devices.txt
+          wc -l devices.txt
+          head -5 devices.txt
+          test "$(wc -l < devices.txt)" -gt 1000
+          ./minipro.exe $db -q t48 -L 27C256
+          ./minipro.exe $db -q t48 -d AT27C256@DIP28
+          # No programmer is attached in CI. Note: -k exits 0 either way and
+          # reports presence on stderr, so callers must parse the text.
+          ./minipro.exe -k 2>&1 | tee presence.txt
+          grep -q "No programmer found" presence.txt
+
+      - name: DLL dependencies (dynamic)
+        working-directory: vendor/minipro
+        run: ntldd -R minipro.exe | tee ntldd-dynamic.txt
+
+      - name: Stage dynamic bundle
+        working-directory: vendor/minipro
+        run: |
+          out="$GITHUB_WORKSPACE/out/dynamic"
+          mkdir -p "$out"
+          cp minipro.exe infoic.xml logicic.xml ntldd-dynamic.txt "$out/"
+          # Copy every non-system DLL ntldd resolved from the MSYS2 prefix.
+          prefix="$(cygpath -w "$MINGW_PREFIX")"
+          grep -iF "$prefix" ntldd-dynamic.txt | awk '{print $3}' | sort -u | while read -r dll; do
+            cp "$(cygpath -u "$dll")" "$out/"
+          done
+          ls -l "$out"
+
+      # 2. Static build: the shape a Tauri sidecar wants (one .exe, no DLLs).
+      - name: Build (static)
+        working-directory: vendor/minipro
+        run: |
+          make clean
+          make -j"$(nproc)" $BACKEND_ARGS \
+            CFLAGS="-O2 -Wall $BACKEND_CFLAGS" LDFLAGS="-static" \
+            LIBS="$BACKEND_LIBS_STATIC"
+          ntldd -R minipro.exe | tee ntldd-static.txt
+          if grep -iF "$(cygpath -w "$MINGW_PREFIX")" ntldd-static.txt; then
+            echo "::error::static build still depends on MSYS2 DLLs"
+            exit 1
+          fi
+          out="$GITHUB_WORKSPACE/out/static"
+          mkdir -p "$out"
+          cp minipro.exe infoic.xml logicic.xml ntldd-static.txt "$out/"
+
+      # 3. Run both bundles from plain PowerShell with no MSYS2 on PATH, the
+      #    way burnwright will spawn the sidecar on a user's machine.
+      - name: Smoke test outside MSYS2
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          foreach ($kind in 'dynamic', 'static') {
+            Push-Location "out/$kind"
+            Write-Host "== $kind =="
+            .\minipro.exe --infoic infoic.xml --logicic logicic.xml --version
+            if ($LASTEXITCODE -ne 0) { throw "$kind --version exited $LASTEXITCODE" }
+            $devices = .\minipro.exe --infoic infoic.xml --logicic logicic.xml -q tl866ii -l
+            if ($LASTEXITCODE -ne 0) { throw "$kind -l exited $LASTEXITCODE" }
+            Write-Host "$kind lists $($devices.Count) devices"
+            if ($devices.Count -lt 1000) { throw "$kind device list too short" }
+            $presence = (cmd /c "minipro.exe -k 2>&1") -join "`n"
+            Write-Host "presence check: '$presence' (exit $LASTEXITCODE)"
+            if ($presence -notmatch 'No programmer found') { throw "$kind -k gave unexpected output" }
+            Pop-Location
+          }
+          # Default database location on Windows is %ProgramData%\minipro\.
+          New-Item -ItemType Directory -Force "$env:ProgramData\minipro" | Out-Null
+          Copy-Item out/static/infoic.xml, out/static/logicic.xml "$env:ProgramData\minipro\"
+          $count = (out/static/minipro.exe -q tl866ii -l).Count
+          Write-Host "static, default DB path: $count devices"
+          if ($LASTEXITCODE -ne 0 -or $count -lt 1000) { throw "default DB path lookup failed" }
+
+      - name: Upload bundles
+        uses: actions/upload-artifact@v7
+        with:
+          name: minipro-windows-${{ matrix.ref }}-${{ matrix.msystem }}-${{ matrix.backend }}
+          path: out/
+          if-no-files-found: error
