@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0](https://github.com/IamMrCupp/burnwright/compare/v0.6.0...v0.7.0) (2026-11-10)
+
+
+### Features
+
+* **engine:** diagnose a T76 stuck on a USB 3 link on macOS ([2680c57](https://github.com/IamMrCupp/burnwright/commit/2680c575bc496b5f90ec9451227c54c7464860ca))
+* **engine:** report minipro's firmware and support warnings from detect ([3c2eb0c](https://github.com/IamMrCupp/burnwright/commit/3c2eb0c9b98d0128a5b7537c1d5e3bce563a6195))
+* **ui:** show firmware warnings after detect and the T76 USB 2.0 fix ([f5e70b1](https://github.com/IamMrCupp/burnwright/commit/f5e70b1825381fab918403b56cbf6defc6248d84))
+
 ## [0.6.0](https://github.com/IamMrCupp/burnwright/compare/v0.5.0...v0.6.0) (2026-11-10)
 
 
