@@ -63,6 +63,46 @@ fixtures = {
         + "Device code: 39C68E4A\nSerial code: 6Y8A1OY4LDT3B7C9O3DF7123\nUSB speed: 12Mbps (USB 1.1)\n",
     # nothing plugged in (usb_nix.c)
     "no_programmer.stderr": "No programmer found.\n",
+    # minipro -k  (print_connected_programmer_and_exit)
+    "k_t48.stderr": "t48: T48\n",
+    "k_none.stderr": "[No programmer found]\n",
+    # minipro -V  (print_version_and_exit, print_chip_count)
+    "version_t48.stderr": "Supported programmers: TL866A/CS, TL866II+, T48, T56\n" + T48
+        + "minipro version 0.7.4     A free and open TL866 series programmer\n"
+        + "Commit date:\t2025-06-14 10:21:43 +0200\nGit commit:\t3808aecb6a1dac9906a9691b93820ee1bd2b7a18\n"
+        + "Git branch:\tmaster\nShare dir:\t/usr/local/share/minipro\n"
+        + "TL866A/CS:\t 7185 devices, 0 custom\nTL866II+:\t15800 devices, 0 custom\n"
+        + "T48:\t\t 6224 devices, 0 custom\nT56:\t\t 8216 devices, 0 custom\n"
+        + "Logic:\t\t  283 devices, 0 custom\n",
+    # minipro -V with no infoic.xml: system info, then a database error
+    "version_t48_no_db.stderr": "Supported programmers: TL866A/CS, TL866II+, T48, T56\n" + T48
+        + "minipro version 0.7.4     A free and open TL866 series programmer\n"
+        + "Error opening file /usr/local/share/minipro/infoic.xml\n",
+    # minipro -p W25Q32BV@SOIC8 -D
+    "t48_read_id.stderr": T48 + CHIP,
+    "tl866ii_id_mismatch.stderr": TL866
+        + "Chip ID mismatch: expected 0xEF4016, got 0xC22016 (MX25L3206E)\n",
+    "t48_no_chip_id.stderr": T48 + "This chip doesn't have a chip ID!\n",
+    # minipro -p W25Q32BV@SOIC8 -D -z  (tl866iiplus.c minipro_pin_test)
+    "tl866ii_pins_ok_read_id.stderr": TL866 + "Pin test passed.\n" + CHIP,
+    "tl866ii_pins_bad.stderr": TL866 + "Bad contact on pin:3\nBad contact on pin:17\n",
+    "t48_pins_unsupported_read_id.stderr": T48 + "Pin test is not supported.\n" + CHIP,
+    # minipro -p W25Q32BV@SOIC8 -m -  (verify_page_file, match)
+    "t48_verify_ok.stderr": T48 + CHIP + read_pass("Code", 4, 1.12) + "Verification OK\n",
+    # minipro -p W25Q32BV@SOIC8 -b, chip not blank (verify_page_file)
+    "t48_not_blank.stderr": T48 + CHIP + read_pass("Code", 4, 1.12)
+        + "Verification failed at address 0x0000: File=0xFF, Device=0x3C\n",
+    # minipro -p W25Q32BV@SOIC8 -w -, read-back after the write differs
+    "tl866ii_write_verify_fail.stderr": TL866 + CHIP
+        + "Use -P if you want to write-protect this chip.\n"
+        + "Erasing... 2.10Sec OK\n"
+        + write_pass("Code", 8, 11.42)
+        + read_pass("Code", 8, 6.03)
+        + "Verification failed at address 0x0042: File=0x12, Device=0xFF\n",
+    # minipro -p W25Q32BV@SOIC8 -w -, image smaller than the chip (write_page_file)
+    "tl866ii_size_mismatch.stderr": TL866 + CHIP
+        + "Use -P if you want to write-protect this chip.\n"
+        + "Incorrect file size: 1024 (needed 4194304, use -s/S to ignore)\n",
 }
 for name, body in fixtures.items():
     with open(os.path.join(out, name), "wb") as f:

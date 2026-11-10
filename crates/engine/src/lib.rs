@@ -4,20 +4,27 @@
 //! layer (and, later, the UI) depend on. It has **no Tauri dependency**, so it
 //! stays unit-testable on its own.
 //!
-//! Phase 0 ships a [`StubEngine`] whose operations return
-//! [`EngineError::NotImplemented`]. Issues #5/#6 add a `CliEngine` that drives
-//! the vendored minipro CLI behind this same trait; Phase 1 swaps in an
-//! FFI-backed engine via the `minipro-sys` crate — all behind [`Engine`].
+//! [`MiniproEngine`] drives the vendored minipro CLI behind this trait, and
+//! [`MiniproLocator`] finds the binary it runs. [`StubEngine`] remains as a
+//! do-nothing placeholder. Phase 1 may swap in an FFI-backed engine via the
+//! `minipro-sys` crate, also behind [`Engine`].
 
+pub mod cli;
 pub mod image;
+pub mod locate;
 pub mod process;
 pub mod progress;
 
+pub use cli::{ChipCheck, ChipId, MiniproEngine, PinCheck};
 pub use image::{DEFAULT_FILL, ImageError, ImageFormat};
+pub use locate::{LocateError, MINIPRO_ENV, MiniproBinary, MiniproLocator, MiniproSource};
 pub use process::{
     CancelHandle, DeviceState, MiniproCommand, MiniproProcess, ProcessError, ProcessOutput,
 };
 pub use progress::{Operation, ProgressEvent, ProgressParser, Stage};
+
+use std::fmt;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -31,12 +38,62 @@ pub enum EngineError {
     /// The operation is not implemented in this build yet.
     #[error("not implemented yet: {0}")]
     NotImplemented(String),
-    /// The underlying minipro invocation failed.
+    /// The underlying minipro invocation failed. The message is the error
+    /// minipro printed.
     #[error("minipro error: {0}")]
     Minipro(String),
     /// No programmer was found / connected.
     #[error("no programmer detected")]
     NoProgrammer,
+    /// The minipro binary couldn't be found or started.
+    #[error("{0}")]
+    MiniproNotFound(String),
+    /// The chip doesn't match the data: a verify, or the read-back after a
+    /// write, found a different byte. The message is minipro's, with the
+    /// address and both values.
+    #[error("{0}")]
+    VerifyFailed(String),
+    /// The caller passed something minipro can't take (an empty part name,
+    /// say). Nothing was run.
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+    /// Another device operation is already running. The programmer handles
+    /// one at a time.
+    #[error("another device operation is already running")]
+    Busy,
+    /// The operation was cancelled. When `device_state` is
+    /// [`DeviceState::MayBeInconsistent`], a write or erase was cut short and
+    /// the chip may be partly programmed or partly erased.
+    #[error("{}", cancelled_message(*.operation, *.device_state))]
+    Cancelled {
+        operation: Operation,
+        device_state: DeviceState,
+    },
+}
+
+fn cancelled_message(operation: Operation, state: DeviceState) -> String {
+    match state {
+        DeviceState::Unchanged => format!("{} cancelled", operation.as_str()),
+        DeviceState::MayBeInconsistent => format!(
+            "{} cancelled: the device may be in an inconsistent state",
+            operation.as_str()
+        ),
+    }
+}
+
+impl EngineError {
+    /// True when a cancelled write or erase may have left the chip partly
+    /// modified. The UI should tell the user to erase or re-write the chip
+    /// before trusting it.
+    pub fn device_may_be_inconsistent(&self) -> bool {
+        matches!(
+            self,
+            EngineError::Cancelled {
+                device_state: DeviceState::MayBeInconsistent,
+                ..
+            }
+        )
+    }
 }
 
 /// A memory region of the target device.
@@ -47,8 +104,20 @@ pub enum MemoryKind {
     Code,
     /// Data / EEPROM memory (`-c data`).
     Data,
-    /// Fuses / configuration bits (`-c config`).
+    /// Fuses / configuration bits (`-c config`). minipro reads and writes
+    /// these as a small text file of `name = 0x…` lines, not raw bytes.
     Config,
+}
+
+impl MemoryKind {
+    /// The minipro `-c` argument for this region.
+    pub fn as_minipro_arg(self) -> &'static str {
+        match self {
+            MemoryKind::Code => "code",
+            MemoryKind::Data => "data",
+            MemoryKind::Config => "config",
+        }
+    }
 }
 
 /// Information about the connected programmer and (optionally) the chip.
@@ -62,33 +131,106 @@ pub struct DeviceInfo {
     pub chip: Option<String>,
 }
 
-/// The device operations burnwright needs from an engine backend.
+/// Receives progress events from a running operation, on a background thread.
+pub type ProgressSink = Arc<dyn Fn(ProgressEvent) + Send + Sync>;
+
+/// Per-operation plumbing: where progress goes and how to cancel.
 ///
-/// Implementations: [`StubEngine`] (Phase 0 scaffold), `CliEngine`
-/// (Phase 0 real — issue #6), and an FFI engine (Phase 1). The signatures here
-/// are the frozen contract the Tauri command layer wraps (issue #4).
-pub trait Engine {
-    /// Detect the connected programmer (minipro `-k` / `-D`).
-    fn detect(&self) -> EngineResult<DeviceInfo>;
-    /// Read `kind` memory from `part` into a byte buffer (minipro `-r`).
-    fn read(&self, part: &str, kind: MemoryKind) -> EngineResult<Vec<u8>>;
-    /// Write `data` to `kind` memory of `part` (minipro `-w`).
-    fn write(&self, part: &str, kind: MemoryKind, data: &[u8]) -> EngineResult<()>;
-    /// Verify `kind` memory of `part` against `data` (minipro `-m`).
-    fn verify(&self, part: &str, kind: MemoryKind, data: &[u8]) -> EngineResult<()>;
-    /// Blank-check `part` (minipro `-b`).
-    fn blank_check(&self, part: &str) -> EngineResult<bool>;
-    /// Erase `part` (minipro `-E`).
-    fn erase(&self, part: &str) -> EngineResult<()>;
+/// Clone the [`CancelHandle`] (via [`cancel_handle`](Self::cancel_handle))
+/// before starting the operation and call [`CancelHandle::cancel`] from any
+/// thread to stop it. The default context drops progress and is never
+/// cancelled.
+#[derive(Clone, Default)]
+pub struct OpContext {
+    progress: Option<ProgressSink>,
+    cancel: CancelHandle,
 }
 
-/// Phase 0 placeholder engine: every operation returns
-/// [`EngineError::NotImplemented`]. Replaced by a real minipro-CLI driver in
-/// issue #6.
+impl OpContext {
+    /// A context that drops progress and is never cancelled.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Send every progress event to `sink`.
+    pub fn with_progress(mut self, sink: impl Fn(ProgressEvent) + Send + Sync + 'static) -> Self {
+        self.progress = Some(Arc::new(sink));
+        self
+    }
+
+    /// Cancel through `cancel` instead of a fresh handle.
+    pub fn with_cancel(mut self, cancel: CancelHandle) -> Self {
+        self.cancel = cancel;
+        self
+    }
+
+    /// The handle that cancels operations run with this context.
+    pub fn cancel_handle(&self) -> CancelHandle {
+        self.cancel.clone()
+    }
+
+    /// Whether cancellation has been requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+
+    /// Forward one event to the sink, if there is one.
+    pub fn emit(&self, event: ProgressEvent) {
+        if let Some(sink) = &self.progress {
+            sink(event);
+        }
+    }
+}
+
+impl fmt::Debug for OpContext {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OpContext")
+            .field("progress", &self.progress.is_some())
+            .field("cancel", &self.cancel)
+            .finish()
+    }
+}
+
+/// The device operations burnwright needs from an engine backend.
+///
+/// Implementations: [`StubEngine`] (placeholder), [`MiniproEngine`] (minipro
+/// CLI, issue #6), and later an FFI engine (Phase 1). The Tauri command layer
+/// wraps these one-to-one. Every operation takes an [`OpContext`] for
+/// progress and cancellation.
+pub trait Engine {
+    /// Detect the connected programmer (minipro `-k`, plus `-V` for the
+    /// firmware version).
+    fn detect(&self, ctx: &OpContext) -> EngineResult<DeviceInfo>;
+    /// Check the chip in the socket against `part` by its ID (minipro `-D`),
+    /// optionally running the pin-contact test first (`-z`).
+    fn check_chip(&self, part: &str, pin_check: bool, ctx: &OpContext) -> EngineResult<ChipCheck>;
+    /// Read `kind` memory from `part` into a byte buffer (minipro `-r`).
+    fn read(&self, part: &str, kind: MemoryKind, ctx: &OpContext) -> EngineResult<Vec<u8>>;
+    /// Write `data` to `kind` memory of `part` (minipro `-w`). minipro erases
+    /// first when the chip needs it and reads the chip back to verify.
+    fn write(&self, part: &str, kind: MemoryKind, data: &[u8], ctx: &OpContext)
+    -> EngineResult<()>;
+    /// Verify `kind` memory of `part` against `data` (minipro `-m`).
+    fn verify(
+        &self,
+        part: &str,
+        kind: MemoryKind,
+        data: &[u8],
+        ctx: &OpContext,
+    ) -> EngineResult<()>;
+    /// Blank-check every memory region of `part` (minipro `-b`). `Ok(false)`
+    /// means the chip isn't blank; `Err` means the check couldn't run.
+    fn blank_check(&self, part: &str, ctx: &OpContext) -> EngineResult<bool>;
+    /// Erase `part` (minipro `-E`).
+    fn erase(&self, part: &str, ctx: &OpContext) -> EngineResult<()>;
+}
+
+/// Placeholder engine: every operation returns
+/// [`EngineError::NotImplemented`].
 #[derive(Debug, Default, Clone, Copy)]
 pub struct StubEngine;
 
-/// Convenience constructor for the Phase 0 [`StubEngine`].
+/// Convenience constructor for the [`StubEngine`].
 pub fn stub() -> StubEngine {
     StubEngine
 }
@@ -100,22 +242,37 @@ impl StubEngine {
 }
 
 impl Engine for StubEngine {
-    fn detect(&self) -> EngineResult<DeviceInfo> {
+    fn detect(&self, _ctx: &OpContext) -> EngineResult<DeviceInfo> {
         Self::todo("detect")
     }
-    fn read(&self, _part: &str, _kind: MemoryKind) -> EngineResult<Vec<u8>> {
+    fn check_chip(&self, _part: &str, _pin: bool, _ctx: &OpContext) -> EngineResult<ChipCheck> {
+        Self::todo("check_chip")
+    }
+    fn read(&self, _part: &str, _kind: MemoryKind, _ctx: &OpContext) -> EngineResult<Vec<u8>> {
         Self::todo("read")
     }
-    fn write(&self, _part: &str, _kind: MemoryKind, _data: &[u8]) -> EngineResult<()> {
+    fn write(
+        &self,
+        _part: &str,
+        _kind: MemoryKind,
+        _data: &[u8],
+        _ctx: &OpContext,
+    ) -> EngineResult<()> {
         Self::todo("write")
     }
-    fn verify(&self, _part: &str, _kind: MemoryKind, _data: &[u8]) -> EngineResult<()> {
+    fn verify(
+        &self,
+        _part: &str,
+        _kind: MemoryKind,
+        _data: &[u8],
+        _ctx: &OpContext,
+    ) -> EngineResult<()> {
         Self::todo("verify")
     }
-    fn blank_check(&self, _part: &str) -> EngineResult<bool> {
+    fn blank_check(&self, _part: &str, _ctx: &OpContext) -> EngineResult<bool> {
         Self::todo("blank_check")
     }
-    fn erase(&self, _part: &str) -> EngineResult<()> {
+    fn erase(&self, _part: &str, _ctx: &OpContext) -> EngineResult<()> {
         Self::todo("erase")
     }
 }
@@ -126,7 +283,7 @@ mod tests {
 
     #[test]
     fn stub_detect_is_not_implemented() {
-        let err = stub().detect().unwrap_err();
+        let err = stub().detect(&OpContext::new()).unwrap_err();
         assert_eq!(err, EngineError::NotImplemented("detect".to_string()));
     }
 
@@ -140,5 +297,40 @@ mod tests {
     fn engine_error_is_adjacently_tagged() {
         let json = serde_json::to_string(&EngineError::NotImplemented("read".into())).unwrap();
         assert_eq!(json, r#"{"kind":"not_implemented","message":"read"}"#);
+    }
+
+    #[test]
+    fn cancelled_write_is_flagged_inconsistent() {
+        let err = EngineError::Cancelled {
+            operation: Operation::Write,
+            device_state: DeviceState::MayBeInconsistent,
+        };
+        assert!(err.device_may_be_inconsistent());
+        assert_eq!(
+            err.to_string(),
+            "write cancelled: the device may be in an inconsistent state"
+        );
+        let read = EngineError::Cancelled {
+            operation: Operation::Read,
+            device_state: DeviceState::Unchanged,
+        };
+        assert!(!read.device_may_be_inconsistent());
+        assert_eq!(read.to_string(), "read cancelled");
+    }
+
+    #[test]
+    fn op_context_forwards_progress_and_cancel() {
+        use std::sync::Mutex;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        let ctx = OpContext::new().with_progress(move |e| sink.lock().unwrap().push(e));
+        ctx.emit(ProgressEvent::Info {
+            message: "hi".into(),
+        });
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        let handle = ctx.cancel_handle();
+        assert!(!ctx.is_cancelled());
+        handle.cancel();
+        assert!(ctx.clone().is_cancelled());
     }
 }

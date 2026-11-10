@@ -14,5 +14,19 @@ unsigned installers for macOS (`.dmg`, arm64 and x86_64), Linux (`.deb`,
 releases are built, and how to cut a test build without shipping it, is in
 [docs/releasing.md](docs/releasing.md).
 
+## Finding minipro
+
+burnwright drives the `minipro` CLI (0.7.x) rather than talking USB itself. It
+looks for the binary in this order and uses the first one it finds:
+
+1. The minipro path set in the app.
+2. `BURNWRIGHT_MINIPRO`, either a full path or a program name to look up on
+   `PATH`.
+3. `minipro` on `PATH`.
+
+If you set a path and nothing's there, burnwright stops with an error instead
+of quietly running some other minipro. A bundled minipro is planned and will go
+between steps 2 and 3.
+
 ## License
 GPL-3.0-or-later (inherited from libminipro).
