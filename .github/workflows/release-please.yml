@@ -3,16 +3,34 @@ name: Release Please
 on:
   push:
     branches: [main]
+  # Manual test path; never ships anything to users. See docs/releasing.md.
+  #   draft-release=false (default): build all four OSes and keep the
+  #     installers + SHA256SUMS as workflow artifacts only.
+  #   draft-release=true: also upload them to a new *draft* pre-release
+  #     tagged test-<run id>. Drafts are invisible to users and create no
+  #     git tag until published; delete the draft when you're done.
+  workflow_dispatch:
+    inputs:
+      draft-release:
+        description: Upload the test build to a draft pre-release
+        type: boolean
+        default: false
 
-permissions:
-  contents: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   release-please:
+    if: github.event_name == 'push'
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v5
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
@@ -21,3 +39,156 @@ jobs:
           # RELEASE_PLEASE_TOKEN repo secret (a PAT or app token) to fix that;
           # until then this falls back to GITHUB_TOKEN.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+  # Works out where the installers go. Tags made with GITHUB_TOKEN don't
+  # trigger other workflows, so the build has to live here, gated on
+  # release_created rather than on a tag push.
+  prepare:
+    needs: release-please
+    if: >-
+      !cancelled() && (
+        needs.release-please.outputs.release_created == 'true' ||
+        github.event_name == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # creates the draft release on the dispatch path
+    outputs:
+      tag: ${{ steps.target.outputs.tag }}
+      release_id: ${{ steps.target.outputs.release_id }}
+    steps:
+      - id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
+          DRAFT: ${{ inputs.draft-release }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          REF: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = push ]; then
+            tag="$RELEASE_TAG"
+          elif [ "$DRAFT" = true ]; then
+            tag="test-$RUN_ID"
+            gh release create "$tag" --draft --prerelease --target "$SHA" \
+              --title "Test build $RUN_ID ($REF) - do not publish" \
+              --notes "Unsigned test build from $REF @ $SHA. Delete this draft when done."
+          else
+            echo "Dry run: installers stay as workflow artifacts."
+            exit 0
+          fi
+          # Upload by release id, not tag: tauri-action's tag path rewrites
+          # the release body, which would wipe release-please's notes.
+          id=$(gh release view "$tag" --json databaseId --jq .databaseId)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+          echo "Uploading to $tag (release id $id)"
+
+  build:
+    name: Build installers · ${{ matrix.os }}
+    needs: prepare
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Same runners as ci.yml: macos-15 = arm64, macos-15-intel = x86_64.
+        os: [macos-15, macos-15-intel, ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # tauri-action uploads the bundles to the release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Install JS deps
+        run: pnpm install --frozen-lockfile
+      - name: Build & upload
+        uses: tauri-apps/tauri-action@v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          # Empty on a dry run, which makes tauri-action skip all uploads.
+          releaseId: ${{ needs.prepare.outputs.release_id }}
+          # No updater configured yet, so no latest.json.
+          uploadUpdaterJson: false
+          retryAttempts: 1
+      - name: Keep installers as workflow artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: installers-${{ matrix.os }}
+          path: |
+            target/release/bundle/dmg/*.dmg
+            target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
+            target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+
+  checksums:
+    name: SHA256SUMS
+    needs: [prepare, build]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # uploads SHA256SUMS to the release
+    steps:
+      # Hash what's actually on the release, so the names match exactly.
+      - name: Download release assets
+        if: needs.prepare.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          gh release download "$TAG" --dir dist
+          rm -f dist/SHA256SUMS
+      - name: Download workflow artifacts (dry run)
+        if: needs.prepare.outputs.tag == ''
+        uses: actions/download-artifact@v8
+        with:
+          pattern: installers-*
+          path: dist
+          merge-multiple: true
+      - name: Flatten artifact folders (dry run)
+        if: needs.prepare.outputs.tag == ''
+        # upload-artifact keeps the bundle/<kind>/ folders; release assets
+        # are flat, so match that before hashing.
+        run: |
+          find dist -mindepth 2 -type f -exec mv -t dist {} +
+          find dist -mindepth 1 -type d -empty -delete
+      - name: Hash
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum -- * > ../SHA256SUMS
+          cat ../SHA256SUMS
+      - name: Upload SHA256SUMS to the release
+        if: needs.prepare.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" SHA256SUMS --clobber
+      - name: Keep SHA256SUMS as a workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: SHA256SUMS
+          path: SHA256SUMS
