@@ -20,6 +20,10 @@ databases under `resource_dir()/minipro/`. Pass those with `--infoic` /
 `--logicic`. minipro's built-in default (`/usr/local/share/minipro`, or
 `%ProgramData%\minipro` on Windows) isn't populated by any installer.
 
+On Linux the sidecar also needs udev rules before an ordinary user can open
+the programmer. The `.deb` installs them; AppImage users copy them in by hand.
+See [linux.md](linux.md).
+
 It's called `burnwright-minipro`, not `minipro`, because Tauri puts sidecars in
 `/usr/bin` on the `.deb`. A plain `minipro` there would collide with the distro's
 own package and shadow whatever the user already has on `PATH`.
@@ -92,7 +96,13 @@ After bundling, `scripts/minipro/verify-bundle.sh` (macOS and Linux) and
   anything outside `/usr/lib` and `/System`.
 - **Linux:** `dpkg-deb -I` / `-c`, then `apt install` the `.deb` and run
   `/usr/bin/burnwright-minipro`. Extract the AppImage and run the copy inside it.
-  `ldd` must show no libusb and nothing unresolved.
+  `ldd` must show no libusb and nothing unresolved. The `.deb` is also checked
+  for its udev rules: the file is installed, matches
+  `packaging/linux/udev/`, flags all three USB IDs and parses (`udevadm verify`
+  where it exists, otherwise `udevadm test`'s log); the package ends up fully
+  configured; the postinst and postrm exit 0 with no `udevadm` and with a failing
+  one, and run the reload and both triggers with a working one; and
+  `apt remove` / `purge` take the rules and the sidecar with them.
 - **Windows:** silently install the NSIS installer per-user, then run the sidecar
   from the install folder with `PATH` cut down to System32.
 
@@ -100,5 +110,6 @@ Each run passes the bundled databases by path, from an empty working directory
 with no `PATH`. It must print the version and database counts, list over a
 thousand chips with `-q tl866ii -l`, and report `No programmer found` for `-k`.
 
-CI has no programmer attached, so none of this proves a read or write. That
+CI has no programmer attached, so none of this proves a read or write, or that
+the udev rules grant access to a real device. That
 still needs a real T48 or TL866II+ on each OS.
