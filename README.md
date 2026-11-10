@@ -9,10 +9,23 @@ macOS · Linux · Windows. No closed-source vendor software required.
 ## Releases
 
 Each [GitHub release](https://github.com/IamMrCupp/burnwright/releases) carries
-unsigned installers for macOS (`.dmg`, arm64 and x86_64), Linux (`.deb`,
-`.AppImage`) and Windows (NSIS `-setup.exe`), plus a `SHA256SUMS` file. How
-releases are built, and how to cut a test build without shipping it, is in
+installers for macOS (`.dmg`, arm64 and x86_64), Linux (`.deb`, `.AppImage`) and
+Windows (NSIS `-setup.exe`), plus a `SHA256SUMS` file. How releases are built, and
+how to cut a test build without shipping it, is in
 [docs/releasing.md](docs/releasing.md).
+
+**Are they signed?** The Linux and Windows installers aren't — Windows SmartScreen
+will warn. A macOS `.dmg` is signed with a Developer ID and notarized by Apple if
+its release was built with the project's signing secrets, and unsigned if it
+wasn't (early releases, and anything built from a fork). Ask the file:
+
+```bash
+spctl -a -t open --context context:primary-signature -vv burnwright_<version>_aarch64.dmg
+```
+
+`source=Notarized Developer ID` means it opens like any other Mac app. `rejected`
+means it's unsigned: open it once, let macOS refuse, then allow it under System
+Settings → Privacy & Security → Open Anyway.
 
 Each installer carries its own build of minipro (with libusb linked in) and its
 chip databases, so there's nothing else to install. Building from source needs
