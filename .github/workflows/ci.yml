@@ -53,6 +53,9 @@ jobs:
         run: pnpm lint
       - name: vitest
         run: pnpm test
+      # No Apple secrets must mean an unsigned build, not a broken one.
+      - name: macOS signing gate
+        run: scripts/macos/test-signing-gate.sh
 
   build:
     name: Build & bundle · ${{ matrix.os }}
