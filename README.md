@@ -27,11 +27,14 @@ looks for the binary in this order and uses the first one it finds:
 1. The minipro path set in the app.
 2. `BURNWRIGHT_MINIPRO`, either a full path or a program name to look up on
    `PATH`.
-3. `minipro` on `PATH`.
+3. The minipro bundled with the app (`burnwright-minipro`), run with its own
+   chip databases.
+4. `minipro` on `PATH`.
 
-If you set a path and nothing's there, burnwright stops with an error instead
-of quietly running some other minipro. A bundled minipro is planned and will go
-between steps 2 and 3.
+An installed burnwright always has step 3, so steps 1 and 2 are for running a
+different minipro, such as a newer build from upstream. That one uses its own
+databases. If a path you set, or the bundled minipro, isn't there, burnwright
+stops with an error instead of quietly running some other minipro.
 
 ## License
 GPL-3.0-or-later (inherited from libminipro).

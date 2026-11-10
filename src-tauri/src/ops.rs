@@ -1,5 +1,6 @@
 //! Device-operation bookkeeping for the command layer: one operation at a
-//! time, cancel by operation id, and the configured minipro path.
+//! time, cancel by operation id, the configured minipro path and the bundled
+//! one.
 //!
 //! The frontend picks an id for every device operation and passes it along.
 //! `cancel_operation(id)` then reaches the running operation's
@@ -28,6 +29,35 @@ struct Inner {
     active: Option<(String, CancelHandle)>,
     early_cancels: VecDeque<String>,
     minipro_path: Option<PathBuf>,
+    bundled: Bundled,
+}
+
+/// Where the installer put minipro and its chip databases. Set once at
+/// startup from the app's own layout; empty in unit tests.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Bundled {
+    /// The `burnwright-minipro` sidecar.
+    pub sidecar: Option<PathBuf>,
+    /// The folder holding its `infoic.xml` and `logicic.xml`.
+    pub database: Option<PathBuf>,
+}
+
+impl Bundled {
+    /// The sidecar next to the running app, and its databases under the
+    /// app's resource folder. See `docs/minipro-sidecar.md` for where each
+    /// installer puts them.
+    pub fn beside(exe: &std::path::Path, resource_dir: Option<PathBuf>) -> Self {
+        let sidecar = exe.parent().map(|dir| {
+            dir.join(format!(
+                "burnwright-minipro{}",
+                std::env::consts::EXE_SUFFIX
+            ))
+        });
+        Self {
+            sidecar,
+            database: resource_dir.map(|dir| dir.join("minipro")),
+        }
+    }
 }
 
 /// Marks an operation as running. Dropping it frees the programmer for the
@@ -97,17 +127,60 @@ impl DeviceOps {
         self.lock().minipro_path = path.filter(|p| !p.as_os_str().is_empty());
     }
 
-    /// A locator over the configured path, `BURNWRIGHT_MINIPRO` and `PATH`.
-    /// The sidecar (issue #20) slots in here with
-    /// [`MiniproLocator::sidecar`].
+    /// Record where the installer put minipro.
+    pub fn set_bundled(&self, bundled: Bundled) {
+        self.lock().bundled = bundled;
+    }
+
+    /// A locator over the configured path, `BURNWRIGHT_MINIPRO`, the bundled
+    /// sidecar and `PATH`, in that order.
     pub fn locator(&self) -> MiniproLocator {
-        MiniproLocator::from_env().configured(self.minipro_path())
+        let bundled = self.lock().bundled.clone();
+        MiniproLocator::from_env()
+            .configured(self.minipro_path())
+            .sidecar(bundled.sidecar)
+            .sidecar_database(bundled.database)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundled_paths_follow_the_app_layout() {
+        let bundled = Bundled::beside(
+            std::path::Path::new("/opt/burnwright/burnwright"),
+            Some(PathBuf::from("/opt/burnwright/res")),
+        );
+        let exe = format!("burnwright-minipro{}", std::env::consts::EXE_SUFFIX);
+        assert_eq!(
+            bundled,
+            Bundled {
+                sidecar: Some(PathBuf::from("/opt/burnwright").join(exe)),
+                database: Some(PathBuf::from("/opt/burnwright/res/minipro")),
+            }
+        );
+    }
+
+    #[test]
+    fn the_locator_prefers_the_bundled_minipro_over_path() {
+        let dir = std::env::temp_dir().join(format!("burnwright-ops-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ops = DeviceOps::default();
+        ops.set_bundled(Bundled::beside(
+            &dir.join("burnwright"),
+            Some(dir.join("res")),
+        ));
+        // Not built in this test, so the bundled minipro is missing: that's
+        // an error, not a quiet fall back to whatever is on PATH.
+        let err = ops.locator().locate().unwrap_err();
+        assert!(
+            matches!(err, engine::LocateError::MissingSidecar { .. }),
+            "{err}"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn one_operation_at_a_time() {

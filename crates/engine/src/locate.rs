@@ -6,9 +6,9 @@
 //!    [`MiniproLocator::configured`].
 //! 2. **`BURNWRIGHT_MINIPRO`**: an environment override, read by
 //!    [`MiniproLocator::from_env`].
-//! 3. **Bundled sidecar**: a minipro shipped inside the app bundle, via
-//!    [`MiniproLocator::sidecar`]. Nothing sets this yet; it's the seam for
-//!    issue #20.
+//! 3. **Bundled sidecar**: the minipro shipped inside the app bundle, via
+//!    [`MiniproLocator::sidecar`]. Its chip databases, set with
+//!    [`MiniproLocator::sidecar_database`], are passed on every run.
 //! 4. **`PATH`**: a `minipro` (`minipro.exe` on Windows) on the search path.
 //!
 //! An override (1 or 2) that names a missing file is an error, not a reason
@@ -17,8 +17,9 @@
 //! (`minipro-git`), which is then looked up on `PATH`.
 //!
 //! The result is a [`MiniproBinary`]: the program plus any arguments and
-//! environment every run needs. A sidecar would use those to point minipro at
-//! its bundled database (`MINIPRO_HOME`, or `--infoic` / `--logicic`).
+//! environment every run needs. The sidecar uses those to point minipro at
+//! its bundled databases (`--infoic` / `--logicic`); a minipro from an
+//! override or `PATH` keeps its own.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
@@ -121,6 +122,15 @@ pub enum LocateError {
         /// Which override it came from.
         origin: MiniproSource,
     },
+    /// The app's bundled minipro isn't where the bundle puts it.
+    #[error(
+        "the minipro bundled with burnwright is missing ({}); reinstall burnwright or set a minipro path",
+        .path.display()
+    )]
+    MissingSidecar {
+        /// Where it should be.
+        path: PathBuf,
+    },
     /// Nothing configured and nothing on `PATH`.
     #[error(
         "minipro not found on PATH; install minipro 0.7 or set {MINIPRO_ENV} to the minipro binary"
@@ -132,8 +142,7 @@ fn origin_name(origin: MiniproSource) -> &'static str {
     match origin {
         MiniproSource::Configured => "the minipro path setting",
         MiniproSource::Env => MINIPRO_ENV,
-        MiniproSource::Sidecar => "the bundled sidecar",
-        MiniproSource::Path | MiniproSource::Explicit => "an override",
+        MiniproSource::Sidecar | MiniproSource::Path | MiniproSource::Explicit => "an override",
     }
 }
 
@@ -147,6 +156,7 @@ pub struct MiniproLocator {
     configured: Option<PathBuf>,
     env_override: Option<PathBuf>,
     sidecar: Option<PathBuf>,
+    sidecar_db: Option<PathBuf>,
     path: Option<OsString>,
 }
 
@@ -176,10 +186,20 @@ impl MiniproLocator {
         self
     }
 
-    /// A minipro bundled with the app (issue #20). Used when no override is
-    /// set; beats `PATH`.
+    /// A minipro bundled with the app. Used when no override is set; beats
+    /// `PATH`. If it's set but missing, that's an error: the bundle is
+    /// broken, and falling back to some other minipro would hide it.
     pub fn sidecar(mut self, path: Option<PathBuf>) -> Self {
         self.sidecar = non_empty(path);
+        self
+    }
+
+    /// The folder holding the sidecar's `infoic.xml` and `logicic.xml`. When
+    /// the sidecar is the binary found, every run gets `--infoic` and
+    /// `--logicic` pointing here. minipro's built-in default
+    /// (`/usr/local/share/minipro`) isn't populated by any installer.
+    pub fn sidecar_database(mut self, dir: Option<PathBuf>) -> Self {
+        self.sidecar_db = non_empty(dir);
         self
     }
 
@@ -199,12 +219,17 @@ impl MiniproLocator {
         }
         if let Some(path) = &self.sidecar {
             return if is_executable(path) {
-                Ok(MiniproBinary::found(path.clone(), MiniproSource::Sidecar))
+                let mut binary = MiniproBinary::found(path.clone(), MiniproSource::Sidecar);
+                if let Some(dir) = &self.sidecar_db {
+                    binary = binary
+                        .with_arg("--infoic")
+                        .with_arg(dir.join("infoic.xml"))
+                        .with_arg("--logicic")
+                        .with_arg(dir.join("logicic.xml"));
+                }
+                Ok(binary)
             } else {
-                Err(LocateError::MissingOverride {
-                    path: path.clone(),
-                    origin: MiniproSource::Sidecar,
-                })
+                Err(LocateError::MissingSidecar { path: path.clone() })
             };
         }
         self.search(OsStr::new("minipro"))
@@ -445,6 +470,57 @@ mod tests {
             .locate()
             .unwrap();
         assert_eq!(found.source(), MiniproSource::Path);
+    }
+
+    #[test]
+    fn the_sidecar_gets_its_databases() {
+        let s = Scratch::new("sidecar-db");
+        let sidecar = s.exe("app", "burnwright-minipro");
+        let db = s.dir("res/minipro");
+        let found = MiniproLocator::new()
+            .sidecar(Some(sidecar.clone()))
+            .sidecar_database(Some(db.clone()))
+            .locate()
+            .unwrap();
+        assert_eq!(found.source(), MiniproSource::Sidecar);
+        assert_eq!(found.program(), sidecar);
+        assert_eq!(
+            found.args,
+            [
+                OsString::from("--infoic"),
+                db.join("infoic.xml").into_os_string(),
+                OsString::from("--logicic"),
+                db.join("logicic.xml").into_os_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_override_keeps_its_own_databases() {
+        let s = Scratch::new("override-db");
+        let mine = s.exe("mine", "minipro");
+        let found = MiniproLocator::new()
+            .configured(Some(mine))
+            .sidecar(Some(s.exe("app", "burnwright-minipro")))
+            .sidecar_database(Some(s.dir("res/minipro")))
+            .locate()
+            .unwrap();
+        assert_eq!(found.source(), MiniproSource::Configured);
+        assert!(found.args.is_empty());
+    }
+
+    #[test]
+    fn a_missing_sidecar_is_an_error_not_a_fallthrough() {
+        let s = Scratch::new("sidecar-gone");
+        s.exe("bin", "minipro");
+        let gone = s.0.join("app").join("burnwright-minipro");
+        let err = MiniproLocator::new()
+            .sidecar(Some(gone.clone()))
+            .search_path(Some(s.path_of(&["bin"])))
+            .locate()
+            .unwrap_err();
+        assert_eq!(err, LocateError::MissingSidecar { path: gone });
+        assert!(err.to_string().contains("reinstall"), "{err}");
     }
 
     #[test]
