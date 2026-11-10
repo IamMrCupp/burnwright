@@ -41,6 +41,22 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 Then replug the programmer. What the rules cover, and why there's no `.rpm`,
 Flatpak or Snap, is in [docs/linux.md](docs/linux.md).
 
+## T76 on macOS
+
+On Apple Silicon Macs the T76 only answers over USB 2.0. On its own USB 3
+cable it links at 5 Gb/s, shows up in System Information, and then never
+answers a command — so minipro reports "No programmer found".
+
+The fix is a USB 2.0 path: connect the T76 through a USB 2.0 hub, or with a
+USB 2.0-only cable. It links at 480 Mb/s and works. burnwright checks for
+this — when detect finds nothing and a T76 is sitting on a USB 3 link, it
+says so and gives the same fix.
+
+The cause is USB 3 link power management. The T76's controller misses a wake
+handshake that Apple Silicon's USB host insists on, and macOS has no switch to
+turn that off for one device. Linux and Windows hosts are more forgiving. The
+evidence is in [#50](https://github.com/IamMrCupp/burnwright/issues/50).
+
 ## Finding minipro
 
 burnwright drives the `minipro` CLI (0.7.x) rather than talking USB itself. It
