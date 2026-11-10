@@ -20,3 +20,28 @@ export function makeSampleBuffer(size = 16 * 1024 * 1024): Uint8Array {
   }
   return data;
 }
+
+/**
+ * A made-up "device read" and "file" pair for eyeballing the diff view: the
+ * file is the read with a few bytes changed and 256 bytes short, like an
+ * image a little smaller than the chip.
+ */
+export function makeDiffSample(size = 16 * 1024 * 1024): {
+  read: Uint8Array;
+  file: Uint8Array;
+} {
+  const read = makeSampleBuffer(size);
+  const file = read.slice(0, Math.max(size - 0x100, 0));
+  const edits: Array<[number, number]> = [
+    [0x0b, 0x53], // "sample" -> "Sample"
+    [0x1234, 0x00],
+    [0x1235, 0x00],
+    [0x1236, 0x00],
+    [0x7f_fff0, 0xa5],
+    [0xa0_0000, 0x00],
+  ];
+  for (const [at, value] of edits) {
+    if (at < file.length) file[at] = value;
+  }
+  return { read, file };
+}

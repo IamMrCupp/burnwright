@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { HexView } from "./components/hexview";
+import { HexDiffView } from "./components/hexview";
 import { engine, type AppInfo, type DeviceInfo } from "./lib/engine";
-import { makeSampleBuffer } from "./lib/sampleBuffer";
+import { makeDiffSample } from "./lib/sampleBuffer";
 import "./App.css";
 
 function App() {
   const [status, setStatus] = useState("Idle");
   const [device, setDevice] = useState<DeviceInfo | null>(null);
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const sample = useMemo(() => makeSampleBuffer(), []);
+  const sample = useMemo(() => makeDiffSample(), []);
 
   useEffect(() => {
     engine.appInfo().then(setInfo, () => setInfo(null));
@@ -45,13 +45,20 @@ function App() {
       {device && <pre>{JSON.stringify(device, null, 2)}</pre>}
 
       <section className="hex-demo">
-        <h2>Buffer</h2>
+        <h2>Read vs file</h2>
         <p>
           <small>
-            Generated 16&nbsp;MiB sample, not read from a device.
+            Generated 16&nbsp;MiB samples, not read from a device: the “file”
+            differs in a few places and is 256&nbsp;bytes short.
           </small>
         </p>
-        <HexView data={sample} height={360} aria-label="Sample buffer" />
+        <HexDiffView
+          a={sample.read}
+          b={sample.file}
+          aLabel="Read"
+          bLabel="File"
+          height={360}
+        />
       </section>
 
       <p>
