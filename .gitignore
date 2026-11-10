@@ -42,3 +42,6 @@ pnpm-debug.log*
 *.swo
 *~
 # claude-project-kit — managed block END
+
+# minipro sidecar, built by scripts/minipro/build-sidecar.sh
+/src-tauri/binaries/

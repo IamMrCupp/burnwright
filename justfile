@@ -8,14 +8,14 @@ default:
 install:
     pnpm install
 
-# Run the app in dev mode (Vite + Tauri)
+# Run the app in dev mode (Vite + Tauri). Needs the sidecar: `just sidecar`.
 dev:
     pnpm tauri dev
 
-# Build the vendored upstream minipro CLI (needs libusb + pkg-config).
-# macOS: brew install libusb pkg-config   Debian/Ubuntu: apt install libusb-1.0-0-dev pkg-config
-build-minipro:
-    make -C vendor/minipro
+# Build the minipro sidecar for this machine (see docs/minipro-sidecar.md).
+# macOS: brew install pkgconf   Debian/Ubuntu: apt install build-essential pkg-config zlib1g-dev
+sidecar:
+    scripts/minipro/build-sidecar.sh
 
 # Run Rust and frontend tests
 test:
