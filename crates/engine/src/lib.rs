@@ -10,6 +10,7 @@
 //! `minipro-sys` crate, also behind [`Engine`].
 
 pub mod cli;
+pub mod diagnose;
 pub mod image;
 pub mod locate;
 pub mod process;
