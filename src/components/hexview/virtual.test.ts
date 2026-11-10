@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeWindow, scrollTopForRow } from "./virtual";
+import { computeWindow, scrollTopForRow, scrollTopToReveal } from "./virtual";
 
 const base = { rowHeight: 20, viewportHeight: 200, overscan: 2 };
 
@@ -82,5 +82,28 @@ describe("scrollTopForRow", () => {
     // Exact below the cap; within a row above it (float rounding, and the
     // browser rounds scrollTop to device pixels anyway).
     expect(Math.abs(w.startRow + base.overscan - target)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("scrollTopToReveal", () => {
+  const view = { rowHeight: 20, viewportHeight: 200, scale: 1 };
+
+  it("leaves a row that is already in view alone", () => {
+    expect(scrollTopToReveal(5, { ...view, scrollTop: 0 })).toBeNull();
+    expect(scrollTopToReveal(9, { ...view, scrollTop: 0 })).toBeNull();
+  });
+
+  it("scrolls a row above the viewport to the top edge", () => {
+    expect(scrollTopToReveal(3, { ...view, scrollTop: 200 })).toBe(60);
+  });
+
+  it("scrolls a row below the viewport to the bottom edge", () => {
+    expect(scrollTopToReveal(10, { ...view, scrollTop: 0 })).toBe(20);
+    expect(scrollTopToReveal(50, { ...view, scrollTop: 0 })).toBe(820);
+  });
+
+  it("maps through the scale past the height cap", () => {
+    expect(scrollTopToReveal(100, { ...view, scrollTop: 0, scale: 2 })).toBe(910);
+    expect(scrollTopToReveal(0, { ...view, scrollTop: 910, scale: 2 })).toBe(0);
   });
 });
