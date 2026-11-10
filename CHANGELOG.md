@@ -13,9 +13,6 @@
 
 ### Bug Fixes
 
-* **sidecar:** check the Windows build links the pinned zlib ([25efa38](https://github.com/IamMrCupp/burnwright/commit/25efa381223a2c4ec44f19cb4aa723d5c1d429a3))
-* **sidecar:** grep captured deb and ldd listings instead of pipes ([750fbbf](https://github.com/IamMrCupp/burnwright/commit/750fbbf389da3f3720abe644727dcf37a4ec1938))
-* **sidecar:** run under macOS bash 3.2 and match Tauri's deb paths ([926032b](https://github.com/IamMrCupp/burnwright/commit/926032b656cc37add033544aacc6c2310b9b4700))
 * **ui:** drop the stale note that engine commands are stubbed ([75e6d2b](https://github.com/IamMrCupp/burnwright/commit/75e6d2b8b7844b214d654cc80a943d7b753da560))
 
 ## [0.4.0](https://github.com/IamMrCupp/burnwright/compare/v0.3.0...v0.4.0) (2026-11-10)
