@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/IamMrCupp/burnwright/compare/v0.5.0...v0.6.0) (2026-11-10)
+
+
+### Features
+
+* **app:** add diagnose_programmer command ([bce4828](https://github.com/IamMrCupp/burnwright/commit/bce48289db0d7f435a4598bd8ee33e46b6317a81))
+* **deb:** install udev rules so a non-root user can open the programmer ([62ae7be](https://github.com/IamMrCupp/burnwright/commit/62ae7be7df1437a1671def55c29a0dd14d0ec31d))
+* **engine:** diagnose why no programmer was found ([1f091bd](https://github.com/IamMrCupp/burnwright/commit/1f091bdb433220bab644cd537f080a23154fb801))
+* **ui:** explain why no programmer was found ([cde70d7](https://github.com/IamMrCupp/burnwright/commit/cde70d77a5eec7a25598ac6ff357fe15b1347baa))
+
+
 ## [0.5.0](https://github.com/IamMrCupp/burnwright/compare/v0.4.0...v0.5.0) (2026-11-10)
 
 
