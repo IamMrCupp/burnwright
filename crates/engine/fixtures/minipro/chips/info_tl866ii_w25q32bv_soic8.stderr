@@ -1,0 +1,10 @@
+Using overridden database file /opt/burnwright/minipro/logicic.xml
+Using overridden database file /opt/burnwright/minipro/infoic.xml
+Name: W25Q32BV@SOIC8
+Available on: TL866II, T48, T56
+Memory: 4194304 Bytes
+Package: DIP8
+ICSP: ICP009.JPG
+Protocol: 0x03
+Read buffer size: 4096 Bytes
+Write buffer size: 256 Bytes

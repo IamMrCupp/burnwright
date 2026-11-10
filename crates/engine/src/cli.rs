@@ -13,6 +13,11 @@
 //! | verify         | `-p <part> -c <kind> -m -`           | stdin         |
 //! | blank check    | `-p <part> -b`                       |               |
 //! | erase          | `-p <part> -E`                       |               |
+//! | list chips     | `-q <programmer> -L ""`              | stdout        |
+//! | chip info      | `-q <programmer> -d <name>`          |               |
+//!
+//! The last two read minipro's chip database and never open a programmer;
+//! [`crate::chips`] has the details and the parsers.
 //!
 //! minipro sniffs piped input for Intel HEX and S-record text before treating
 //! it as raw binary (`open_file()` in `vendor/minipro/src/main.c`). An image
@@ -28,6 +33,7 @@ use std::ffi::OsString;
 
 use serde::{Deserialize, Serialize};
 
+use crate::chips::{self, ChipInfo, ChipList, Programmer};
 use crate::locate::MiniproBinary;
 use crate::process::{DeviceState, ProcessError, ProcessOutput};
 use crate::progress::{Operation, ProgressEvent, ProgressParser};
@@ -275,6 +281,96 @@ impl Engine for MiniproEngine {
         self.run(Operation::Erase, args, None, ctx)?;
         Ok(())
     }
+
+    fn list_chips(&self, programmer: Programmer, ctx: &OpContext) -> EngineResult<ChipList> {
+        // `-L ""` matches every name, so it prints what `-l` prints, without
+        // the pager `-l` starts on Windows.
+        let args = database_args(programmer, &["-L", ""]);
+        let output = self
+            .run_raw(Operation::Other, args, None, ctx)
+            .map_err(|err| database_error(programmer, None, err))?;
+        chips::list_from_output(programmer, &output.stdout, &stderr_lines(&output.stderr))
+    }
+
+    fn chip_info(
+        &self,
+        programmer: Programmer,
+        name: &str,
+        ctx: &OpContext,
+    ) -> EngineResult<ChipInfo> {
+        let name = name.trim();
+        check_part(name)?;
+        let mut info = self.describe(programmer, name, ctx)?;
+        // minipro 0.7.4 answers "Available on: TL866A/CS" for every chip
+        // when asked as a T48 or T56. The TL866II+ shares their database and
+        // gets the real line, so ask again as that. Nothing else differs.
+        if chips::availability_is_suspect(programmer, &info) {
+            info.available_on = match self.describe(Programmer::Tl866ii, name, ctx) {
+                Ok(again) => again.available_on,
+                Err(err @ EngineError::Cancelled { .. }) => return Err(err),
+                Err(_) => Vec::new(),
+            };
+        }
+        Ok(info)
+    }
+}
+
+impl MiniproEngine {
+    /// One `-d` run, parsed.
+    fn describe(
+        &self,
+        programmer: Programmer,
+        name: &str,
+        ctx: &OpContext,
+    ) -> EngineResult<ChipInfo> {
+        let args = database_args(programmer, &["-d", name]);
+        let output = self
+            .run_raw(Operation::Other, args, None, ctx)
+            .map_err(|err| database_error(programmer, Some(name), err))?;
+        let lines = stderr_lines(&output.stderr);
+        if let Some(problem) = chips::database_problem(&lines) {
+            return Err(EngineError::MissingDatabase(problem.to_string()));
+        }
+        ChipInfo::parse(&lines).ok_or_else(|| {
+            EngineError::Minipro(format!("minipro didn't describe {name}: no Name line"))
+        })
+    }
+}
+
+/// `-q <programmer>` followed by `rest`. With `-q`, minipro takes the model
+/// from the command line and never looks for a programmer, so these runs
+/// can't prompt and don't depend on what's plugged in.
+fn database_args(programmer: Programmer, rest: &[&str]) -> Vec<OsString> {
+    let mut args: Vec<OsString> = vec!["-q".into(), programmer.as_minipro_arg().into()];
+    args.extend(rest.iter().map(OsString::from));
+    args
+}
+
+/// Why a chip-database run failed. minipro exits non-zero for a model it
+/// doesn't know, for a chip it can't find, and sometimes for a database it
+/// can't open (which also makes every chip "not found", so that's checked
+/// first). `chip` is the name asked for, for `-d`.
+fn database_error(programmer: Programmer, chip: Option<&str>, err: ProcessError) -> EngineError {
+    if let ProcessError::Failed { stderr, .. } = &err {
+        let lines = stderr_lines(stderr);
+        if chips::is_unknown_programmer(&lines) {
+            return EngineError::UnsupportedProgrammer(programmer.label().to_string());
+        }
+        if let Some(problem) = chips::database_problem(&lines) {
+            return EngineError::MissingDatabase(problem.to_string());
+        }
+        if let Some(chip) = chip
+            && lines.iter().any(|l| is_device_not_found(l))
+        {
+            return EngineError::UnknownChip(chip.to_string());
+        }
+    }
+    err.into()
+}
+
+/// `"Device NOPE not found!"` (`get_device()` in `main.c`).
+fn is_device_not_found(line: &str) -> bool {
+    line.starts_with("Device ") && line.trim_end().ends_with(" not found!")
 }
 
 impl From<ProcessError> for EngineError {
@@ -748,6 +844,67 @@ mod tests {
             classify_failure("Device FOO not found!".into(), "Device FOO not found!\n"),
             EngineError::Minipro("Device FOO not found!".into())
         );
+    }
+
+    #[test]
+    fn database_runs_always_name_the_programmer() {
+        assert_eq!(
+            database_args(Programmer::T48, &["-L", ""]),
+            ["-q", "t48", "-L", ""].map(OsString::from).to_vec()
+        );
+        assert_eq!(
+            database_args(Programmer::Tl866a, &["-d", "AT28C256"]),
+            ["-q", "tl866a", "-d", "AT28C256"]
+                .map(OsString::from)
+                .to_vec()
+        );
+    }
+
+    fn failed(stderr: &str) -> ProcessError {
+        ProcessError::Failed {
+            code: Some(1),
+            message: stderr.lines().last().unwrap_or_default().to_string(),
+            stderr: stderr.to_string(),
+        }
+    }
+
+    #[test]
+    fn database_failures_are_told_apart() {
+        let unknown = fixture("chips/info_t48_unknown.stderr");
+        assert_eq!(
+            database_error(Programmer::T48, Some("NOSUCHCHIP"), failed(&unknown)),
+            EngineError::UnknownChip("NOSUCHCHIP".into())
+        );
+        // No database: minipro says "not found" about every chip. The
+        // missing file is the real answer.
+        let no_db = fixture("chips/info_t48_no_database.stderr");
+        assert_eq!(
+            database_error(Programmer::T48, Some("AT28C256"), failed(&no_db)),
+            EngineError::MissingDatabase(
+                "/opt/burnwright/missing/logicic.xml: No such file or directory".into()
+            )
+        );
+        let t76 = fixture("chips/list_t76_unsupported.stderr");
+        assert_eq!(
+            database_error(Programmer::T76, None, failed(&t76)),
+            EngineError::UnsupportedProgrammer("T76".into())
+        );
+        // Anything else stays minipro's own message.
+        assert_eq!(
+            database_error(
+                Programmer::T48,
+                Some("AT28C256E"),
+                failed("An error occurred while parsing XML database.\n")
+            ),
+            EngineError::Minipro("An error occurred while parsing XML database.".into())
+        );
+        // A list has no chip to be unknown.
+        assert_eq!(
+            database_error(Programmer::T48, None, failed("Device  not found!\n")),
+            EngineError::Minipro("Device  not found!".into())
+        );
+        assert!(is_device_not_found("Device W25Q32 not found!"));
+        assert!(!is_device_not_found("TSOP adapter not found!"));
     }
 
     #[test]
