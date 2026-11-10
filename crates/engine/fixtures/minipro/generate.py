@@ -29,6 +29,20 @@ TL866 = ("Found TL866II+ 04.2.132 (0x284)\n"
          "Device code: 39C68E4A\nSerial code: 6Y8A1OY4LDT3B7C9O3DF7123\n"
          "USB speed: 12Mbps (USB 1.1)\n")
 CHIP = "Chip ID: 0xEF4016  OK\n"
+VERSION_HEAD = "Supported programmers: TL866A/CS, TL866II+, T48, T56\n"
+VERSION_TAIL = ("minipro version 0.7.4     A free and open TL866 series programmer\n"
+        "Commit date:\t2025-06-14 10:21:43 +0200\nGit commit:\t3808aecb6a1dac9906a9691b93820ee1bd2b7a18\n"
+        "Git branch:\tmaster\nShare dir:\t/usr/local/share/minipro\n"
+        "TL866A/CS:\t 7185 devices, 0 custom\nTL866II+:\t15800 devices, 0 custom\n"
+        "T48:\t\t 6224 devices, 0 custom\nT56:\t\t 8216 devices, 0 custom\n"
+        "Logic:\t\t  283 devices, 0 custom\n")
+
+def t48_mismatch(warning, found, code):   # minipro_print_system_info, firmware != expected
+    return ("Found T48 %s (%s)\n" % (found, code)
+            + "Warning: T48 support is not yet complete!\n"
+            + "Warning: %s\n  Expected  01.1.32 (0x120)\n  Found     %s (%s)\n" % (warning, found, code)
+            + "Device code: 46A16257\nSerial code: HSSCVO9LARFMOYKYOMVE5123\n"
+            + "USB speed: 480Mbps (USB 2.0)\n")
 
 fixtures = {
     # minipro -p W25Q32BV@SOIC8 -r -
@@ -61,6 +75,19 @@ fixtures = {
     "tl866ii_firmware_outdated.stderr": "Found TL866II+ 04.2.131 (0x283)\n"
         + "Warning: Firmware is out of date.\n  Expected  04.2.132 (0x284)\n  Found     04.2.131 (0x283)\n"
         + "Device code: 39C68E4A\nSerial code: 6Y8A1OY4LDT3B7C9O3DF7123\nUSB speed: 12Mbps (USB 1.1)\n",
+    # minipro -V on a real T48 with factory firmware 1.03 (bundled 0.7.4, macOS,
+    # 2026-11-10, issue #48). Device and serial codes are the placeholders above.
+    "version_t48_firmware_outdated.stderr": VERSION_HEAD
+        + t48_mismatch("Firmware is out of date.", "00.1.03", "0x103") + VERSION_TAIL,
+    # the same T48 after its update to 1.35: 0.7.4 still expects 1.32
+    "version_t48_firmware_newer.stderr": VERSION_HEAD
+        + t48_mismatch("Firmware is newer than expected.", "00.1.35", "0x123") + VERSION_TAIL,
+    # a real T76 over USB 2.0, upstream master 3e2f491 (issue #50). 0.7.4 has no
+    # T76 support, so this is the programmer block only, as upstream prints it.
+    "t76_firmware_outdated.stderr": "Found T76 00.1.07 (0x107)\n"
+        + "Warning: T76 support is experimental!\n"
+        + "Warning: Firmware is out of date.\n  Expected  00.1.17 (0x111)\n  Found     00.1.07 (0x107)\n"
+        + "Manufactured: 2025-04-29\nUSB speed: 480Mbps (USB 2.0)\nSupply voltage: 5.14 V (USB)\n",
     # nothing plugged in (usb_nix.c)
     "no_programmer.stderr": "No programmer found.\n",
     # minipro -k  (print_connected_programmer_and_exit)

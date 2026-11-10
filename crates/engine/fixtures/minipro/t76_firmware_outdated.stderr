@@ -1,0 +1,8 @@
+Found T76 00.1.07 (0x107)
+Warning: T76 support is experimental!
+Warning: Firmware is out of date.
+  Expected  00.1.17 (0x111)
+  Found     00.1.07 (0x107)
+Manufactured: 2025-04-29
+USB speed: 480Mbps (USB 2.0)
+Supply voltage: 5.14 V (USB)

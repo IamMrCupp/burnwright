@@ -1,0 +1,19 @@
+Supported programmers: TL866A/CS, TL866II+, T48, T56
+Found T48 00.1.35 (0x123)
+Warning: T48 support is not yet complete!
+Warning: Firmware is newer than expected.
+  Expected  01.1.32 (0x120)
+  Found     00.1.35 (0x123)
+Device code: 46A16257
+Serial code: HSSCVO9LARFMOYKYOMVE5123
+USB speed: 480Mbps (USB 2.0)
+minipro version 0.7.4     A free and open TL866 series programmer
+Commit date:	2025-06-14 10:21:43 +0200
+Git commit:	3808aecb6a1dac9906a9691b93820ee1bd2b7a18
+Git branch:	master
+Share dir:	/usr/local/share/minipro
+TL866A/CS:	 7185 devices, 0 custom
+TL866II+:	15800 devices, 0 custom
+T48:		 6224 devices, 0 custom
+T56:		 8216 devices, 0 custom
+Logic:		  283 devices, 0 custom

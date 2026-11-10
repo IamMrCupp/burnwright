@@ -21,8 +21,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use engine::{
-    ChipCheck, ChipId, DeviceInfo, DeviceState, Engine, EngineError, MemoryKind, MiniproBinary,
-    MiniproEngine, OpContext, Operation, PinCheck, ProgressEvent, Stage,
+    ChipCheck, ChipId, DeviceInfo, DeviceState, Engine, EngineError, FirmwareStatus, MemoryKind,
+    MiniproBinary, MiniproEngine, OpContext, Operation, PinCheck, ProgressEvent, Stage,
 };
 
 const FAKE: &str = "BURNWRIGHT_FAKE_MINIPRO";
@@ -43,6 +43,14 @@ fn main() {
         (
             "detect_reports_model_and_firmware",
             detect_reports_model_and_firmware,
+        ),
+        (
+            "detect_reports_out_of_date_firmware",
+            detect_reports_out_of_date_firmware,
+        ),
+        (
+            "detect_reports_newer_firmware",
+            detect_reports_newer_firmware,
         ),
         ("detect_without_a_programmer", detect_without_a_programmer),
         (
@@ -274,9 +282,46 @@ fn detect_reports_model_and_firmware() {
             programmer: "T48".into(),
             firmware: Some("01.1.32".into()),
             chip: None,
+            firmware_status: None,
+            firmware_expected: None,
+            support_warning: Some("T48 support is not yet complete!".into()),
         }
     );
     assert_eq!(fake.calls(), vec![args(&["-k"]), args(&["-V"])]);
+}
+
+fn detect_reports_out_of_date_firmware() {
+    let fake = Fake::new("detect-outdated")
+        .fixture("-k=k_t48.stderr;-V=version_t48_firmware_outdated.stderr");
+    let info = fake.engine().detect(&ctx()).unwrap();
+    assert_eq!(
+        info,
+        DeviceInfo {
+            programmer: "T48".into(),
+            firmware: Some("00.1.03".into()),
+            chip: None,
+            firmware_status: Some(FirmwareStatus::OutOfDate),
+            firmware_expected: Some("01.1.32".into()),
+            support_warning: Some("T48 support is not yet complete!".into()),
+        }
+    );
+}
+
+fn detect_reports_newer_firmware() {
+    let fake =
+        Fake::new("detect-newer").fixture("-k=k_t48.stderr;-V=version_t48_firmware_newer.stderr");
+    let info = fake.engine().detect(&ctx()).unwrap();
+    assert_eq!(
+        info,
+        DeviceInfo {
+            programmer: "T48".into(),
+            firmware: Some("00.1.35".into()),
+            chip: None,
+            firmware_status: Some(FirmwareStatus::NewerThanExpected),
+            firmware_expected: Some("01.1.32".into()),
+            support_warning: Some("T48 support is not yet complete!".into()),
+        }
+    );
 }
 
 fn detect_without_a_programmer() {
@@ -305,6 +350,8 @@ fn check_chip_reports_a_match() {
                 programmer: "T48".into(),
                 firmware: Some("01.1.32".into()),
                 chip: Some(PART.into()),
+                support_warning: Some("T48 support is not yet complete!".into()),
+                ..Default::default()
             },
             chip_id: Some(ChipId::Match {
                 id: "0xEF4016".into()
