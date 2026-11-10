@@ -93,8 +93,8 @@ verify_linux() {
   dpkg-deb -I "$deb"
   section "dpkg-deb -c $(basename "$deb")"
   dpkg-deb -c "$deb"
-  dpkg-deb -c "$deb" | grep -q "\./usr/bin/$SIDECAR_NAME\$" || die "deb lacks /usr/bin/$SIDECAR_NAME"
-  dpkg-deb -c "$deb" | grep -q "\./usr/lib/burnwright/minipro/infoic.xml\$" \
+  dpkg-deb -c "$deb" | grep -qE "(\./)?usr/bin/$SIDECAR_NAME\$" || die "deb lacks /usr/bin/$SIDECAR_NAME"
+  dpkg-deb -c "$deb" | grep -qE "(\./)?usr/lib/burnwright/minipro/infoic\.xml\$" \
     || die "deb lacks /usr/lib/burnwright/minipro/infoic.xml"
   dpkg-deb -f "$deb" Depends | grep -q zlib1g || die "deb doesn't declare zlib1g"
 

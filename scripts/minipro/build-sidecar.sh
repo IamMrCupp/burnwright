@@ -143,7 +143,7 @@ prefix="$work/libusb-prefix"
 libusb_args=(--prefix="$prefix" --disable-shared --enable-static)
 case "$os" in
   linux) libusb_args+=(--disable-udev) ;;
-  macos) libusb_args+=("${host_args[@]}") ;;
+  macos) libusb_args+=(${host_args[@]+"${host_args[@]}"}) ;;
 esac
 (
   cd "$work/libusb-$LIBUSB_VERSION"
