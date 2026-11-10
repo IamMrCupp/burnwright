@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { HexDiffView } from "./components/hexview";
-import { engine, type AppInfo, type DeviceInfo } from "./lib/engine";
+import {
+  engine,
+  errorMessage,
+  type AppInfo,
+  type DeviceInfo,
+} from "./lib/engine";
 import { makeDiffSample } from "./lib/sampleBuffer";
 import "./App.css";
 
@@ -21,8 +26,7 @@ function App() {
       setDevice(await engine.detect());
       setStatus("Device detected");
     } catch (err) {
-      // Expected in Phase 0: the engine command is still a stub.
-      setStatus(`Engine not wired yet — ${String(err)}`);
+      setStatus(`Detect failed — ${errorMessage(err)}`);
     }
   }
 
