@@ -26,7 +26,18 @@ fn device((vendor_id, product_id): (u16, u16), access: AccessFacts) -> UsbDevice
         vendor_id,
         product_id,
         location: "1-2".into(),
+        link_speed_bps: None,
         access,
+    }
+}
+
+const HIGH_SPEED: u64 = 480_000_000;
+
+/// A device on a Mac, linked at `bps`.
+fn mac_device(id: (u16, u16), bps: Option<u64>) -> UsbDeviceFacts {
+    UsbDeviceFacts {
+        link_speed_bps: bps,
+        ..device(id, AccessFacts::Unrestricted)
     }
 }
 
@@ -473,7 +484,126 @@ fn splits_multi_strings() {
     assert!(split_multi_sz(&[0, 0]).is_empty());
 }
 
+// --- macOS mapping: the T76 on a USB 3 link (#50) ------------------------
+
+fn t76_supported() -> bool {
+    known_programmer(T76.0, T76.1).unwrap().supported
+}
+
+#[test]
+fn a_t76_at_superspeed_on_macos_is_a_usb3_link() {
+    let facts = host(HostOs::Macos, vec![mac_device(T76, Some(SUPERSPEED_BPS))]);
+    assert_eq!(
+        only_state(&facts),
+        ProgrammerState::Usb3Link {
+            link_speed_bps: 5_000_000_000,
+            model_supported: t76_supported(),
+        }
+    );
+    // Anything faster is still a USB 3 link.
+    let facts = host(HostOs::Macos, vec![mac_device(T76, Some(10_000_000_000))]);
+    assert!(matches!(
+        only_state(&facts),
+        ProgrammerState::Usb3Link {
+            link_speed_bps: 10_000_000_000,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn a_t76_at_high_speed_on_macos_is_not_a_usb3_link() {
+    for speed in [Some(HIGH_SPEED), Some(12_000_000), None] {
+        let facts = host(HostOs::Macos, vec![mac_device(T76, speed)]);
+        assert!(
+            !matches!(only_state(&facts), ProgrammerState::Usb3Link { .. }),
+            "{speed:?}"
+        );
+    }
+}
+
+#[test]
+fn only_the_t76_gets_the_usb3_diagnosis() {
+    // The other programmers are USB 2.0 devices; even a wrong speed reading
+    // mustn't send their owners hunting for a hub.
+    for id in [TL866II, TL866A] {
+        let facts = host(HostOs::Macos, vec![mac_device(id, Some(SUPERSPEED_BPS))]);
+        assert_eq!(
+            only_state(&facts),
+            ProgrammerState::Ready {
+                driver: None,
+                xgpro_compatible: None,
+            }
+        );
+    }
+}
+
+#[test]
+fn the_usb3_diagnosis_is_macos_only() {
+    // Linux and Windows hosts talk to a T76 at SuperSpeed.
+    for (os, access) in [
+        (HostOs::Linux, linux(NodeOpen::Ok, None, false)),
+        (HostOs::Windows, AccessFacts::Windows(winusb(&[]))),
+        (HostOs::Other, AccessFacts::Unrestricted),
+    ] {
+        let facts = host(
+            os,
+            vec![UsbDeviceFacts {
+                link_speed_bps: Some(SUPERSPEED_BPS),
+                ..device(T76, access)
+            }],
+        );
+        assert!(
+            !matches!(only_state(&facts), ProgrammerState::Usb3Link { .. }),
+            "{os:?}"
+        );
+    }
+}
+
+#[test]
+fn ioreg_output_for_a_t76_on_usb3_maps_to_the_usb3_diagnosis() {
+    let facts = host(HostOs::Macos, parse_ioreg(IOREG_SPEEDS));
+    let diagnosis = diagnose_facts(&facts);
+    let t76 = diagnosis
+        .programmers
+        .iter()
+        .find(|r| r.usb_id == "a466:1a86")
+        .expect("the T76");
+    assert_eq!(t76.models, "T76");
+    assert_eq!(t76.location, "0x00224000");
+    assert_eq!(
+        t76.state,
+        ProgrammerState::Usb3Link {
+            link_speed_bps: 5_000_000_000,
+            model_supported: t76_supported(),
+        }
+    );
+    // The T48 on the USB 2.0 hub next to it is fine.
+    let t48 = diagnosis
+        .programmers
+        .iter()
+        .find(|r| r.usb_id == "a466:0a53")
+        .expect("the T48");
+    assert!(matches!(t48.state, ProgrammerState::Ready { .. }));
+}
+
 // --- serialization: the UI's contract ----------------------------------
+
+#[test]
+fn usb3_link_serializes_for_the_ui() {
+    assert_eq!(
+        serde_json::to_value(ProgrammerState::Usb3Link {
+            link_speed_bps: SUPERSPEED_BPS,
+            model_supported: false,
+        })
+        .unwrap(),
+        serde_json::json!({
+            "kind": "usb3_link",
+            "link_speed_bps": 5_000_000_000_u64,
+            "model_supported": false,
+        })
+    );
+}
 
 #[test]
 fn diagnosis_serializes_for_the_ui() {
@@ -752,15 +882,120 @@ fn parses_ioreg_output() {
                 vendor_id: 0xa466,
                 product_id: 0x0a53,
                 location: "0x02200000".into(),
+                link_speed_bps: None,
                 access: AccessFacts::Unrestricted,
             },
             UsbDeviceFacts {
                 vendor_id: 0x04d8,
                 product_id: 0xe11c,
                 location: String::new(),
+                link_speed_bps: None,
                 access: AccessFacts::Unrestricted,
             },
         ]
     );
     assert!(parse_ioreg("").is_empty());
+}
+
+/// `ioreg -r -d 1 -c IOUSBHostDevice -l -w0` on macOS 26 (M4 Pro). The hub
+/// and the T48 are real output, the T48 in full. No T76 was on USB 3 when
+/// this was captured, so its entry is built from a real SuperSpeed device's
+/// properties with the T76's IDs; the last entry is an older macOS without
+/// `UsbLinkSpeed`.
+const IOREG_SPEEDS: &str = r#"+-o USB3.0 Hub@00220000  <class IOUSBHostDevice, id 0x10000b3fb, registered, matched, active, busy 0 (696 ms), retain 36>
+    {
+      "UsbLinkSpeed" = 5000000000
+      "USBSpeed" = 4
+      "kUSBProductString" = "USB3.0 Hub"
+      "USB Product Name" = "USB3.0 Hub"
+      "idVendor" = 8457
+      "Device Speed" = 3
+      "idProduct" = 2071
+      "locationID" = 2228224
+    }
+
++-o XGecu T48@00140000  <class IOUSBHostDevice, id 0x10000b617, registered, matched, active, busy 0 (26 ms), retain 28>
+    {
+      "sessionID" = 1664305293008
+      "USBSpeed" = 3
+      "UsbLinkSpeed" = 480000000
+      "idProduct" = 2643
+      "iManufacturer" = 1
+      "bDeviceClass" = 0
+      "IOPowerManagement" = {"PowerOverrideOn"=Yes,"DevicePowerState"=2,"CurrentPowerState"=2,"CapabilityFlags"=32768,"MaxPowerState"=2,"DriverPowerState"=0}
+      "bcdDevice" = 256
+      "bMaxPacketSize0" = 64
+      "iProduct" = 2
+      "iSerialNumber" = 0
+      "bNumConfigurations" = 1
+      "UsbDeviceSignature" = <66a4530a0001000000ffffff>
+      "USB Product Name" = "XGecu T48"
+      "locationID" = 1310720
+      "bDeviceSubClass" = 0
+      "bcdUSB" = 512
+      "USB Address" = 4
+      "kUSBCurrentConfiguration" = 1
+      "IOCFPlugInTypes" = {"9dc7b780-9ec0-11d4-a54f-000a27052861"="IOUSBHostFamily.kext/Contents/PlugIns/IOUSBLib.bundle"}
+      "bDeviceProtocol" = 0
+      "USBPortType" = 0
+      "IOServiceDEXTEntitlements" = (("com.apple.developer.driverkit.transport.usb"))
+      "USB Vendor Name" = "XGecu.com"
+      "Device Speed" = 2
+      "idVendor" = 42086
+      "kUSBProductString" = "XGecu T48"
+      "kUSBAddress" = 4
+      "kUSBVendorString" = "XGecu.com"
+    }
+
++-o XGecu T76@00224000  <class IOUSBHostDevice, id 0x10000b42b, registered, matched, active, busy 0 (256 ms), retain 29>
+    {
+      "USBSpeed" = 4
+      "UsbLinkSpeed" = 5000000000
+      "idProduct" = 6790
+      "USB Product Name" = "XGecu T76"
+      "locationID" = 2244608
+      "Device Speed" = 3
+      "idVendor" = 42086
+    }
+
++-o XGecu T76@00300000  <class IOUSBHostDevice, id 0x10000b500, registered, matched, active, busy 0 (12 ms), retain 20>
+    {
+      "idProduct" = 6790
+      "locationID" = 3145728
+      "Device Speed" = 3
+      "idVendor" = 42086
+    }
+
+"#;
+
+#[test]
+fn parses_link_speeds_from_ioreg() {
+    let devices = parse_ioreg(IOREG_SPEEDS);
+    assert_eq!(
+        devices,
+        vec![
+            UsbDeviceFacts {
+                vendor_id: 0xa466,
+                product_id: 0x0a53,
+                location: "0x00140000".into(),
+                link_speed_bps: Some(HIGH_SPEED),
+                access: AccessFacts::Unrestricted,
+            },
+            UsbDeviceFacts {
+                vendor_id: 0xa466,
+                product_id: 0x1a86,
+                location: "0x00224000".into(),
+                link_speed_bps: Some(SUPERSPEED_BPS),
+                access: AccessFacts::Unrestricted,
+            },
+            // No "UsbLinkSpeed": the "Device Speed" code stands in.
+            UsbDeviceFacts {
+                vendor_id: 0xa466,
+                product_id: 0x1a86,
+                location: "0x00300000".into(),
+                link_speed_bps: Some(SUPERSPEED_BPS),
+                access: AccessFacts::Unrestricted,
+            },
+        ]
+    );
 }

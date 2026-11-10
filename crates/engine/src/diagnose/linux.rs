@@ -93,6 +93,7 @@ impl super::UsbProbe for LinuxProbe {
                 vendor_id: usb.vendor_id,
                 product_id: usb.product_id,
                 location: entry.file_name().to_string_lossy().into_owned(),
+                link_speed_bps: None,
                 access: AccessFacts::Linux(self.access(node, &groups, &my_gids)),
             });
         }

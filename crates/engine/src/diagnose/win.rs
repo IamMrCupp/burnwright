@@ -82,6 +82,7 @@ impl UsbProbe for WindowsProbe {
                 vendor_id,
                 product_id,
                 location,
+                link_speed_bps: None,
                 access: AccessFacts::Windows(driver),
             });
         }

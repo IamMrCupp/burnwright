@@ -1,8 +1,10 @@
-//! macOS probe: presence only.
+//! macOS probe: presence and link speed.
 //!
 //! libusb needs no driver or permission on macOS, so "plugged in or not" is
-//! all there is to say. The probe runs `/usr/sbin/ioreg` and reads its text
-//! output: no IOKit bindings, no extra dependencies.
+//! nearly all there is to say. The one extra is the USB link speed: on Apple
+//! Silicon a T76 linked at USB 3 enumerates but never answers (issue #50).
+//! The probe runs `/usr/sbin/ioreg` and reads its text output: no IOKit
+//! bindings, no extra dependencies.
 
 #[cfg(target_os = "macos")]
 use super::HostOs;
@@ -39,13 +41,16 @@ impl super::UsbProbe for MacProbe {
 
 /// Known programmers in `ioreg -l` output. Each object starts with a `+-o`
 /// line; its `"idVendor"`, `"idProduct"` and `"locationID"` follow as
-/// decimal numbers.
+/// decimal numbers. The link speed comes from `"UsbLinkSpeed"` (bits per
+/// second) or, on a macOS without it, from the `"Device Speed"` code.
 pub fn parse_ioreg(output: &str) -> Vec<UsbDeviceFacts> {
     #[derive(Default)]
     struct Object {
         vendor: Option<u16>,
         product: Option<u16>,
         location: Option<u64>,
+        link_speed: Option<u64>,
+        speed_code: Option<u64>,
     }
 
     fn finish(object: Object, out: &mut Vec<UsbDeviceFacts>) {
@@ -59,6 +64,9 @@ pub fn parse_ioreg(output: &str) -> Vec<UsbDeviceFacts> {
                     .location
                     .map(|l| format!("0x{l:08x}"))
                     .unwrap_or_default(),
+                link_speed_bps: object
+                    .link_speed
+                    .or_else(|| object.speed_code.and_then(device_speed_bps)),
                 access: AccessFacts::Unrestricted,
             });
         }
@@ -83,6 +91,8 @@ pub fn parse_ioreg(output: &str) -> Vec<UsbDeviceFacts> {
             "\"idVendor\"" => object.vendor = value.parse().ok(),
             "\"idProduct\"" => object.product = value.parse().ok(),
             "\"locationID\"" => object.location = value.parse().ok(),
+            "\"UsbLinkSpeed\"" => object.link_speed = value.parse().ok(),
+            "\"Device Speed\"" => object.speed_code = value.parse().ok(),
             _ => {}
         }
     }
@@ -90,4 +100,17 @@ pub fn parse_ioreg(output: &str) -> Vec<UsbDeviceFacts> {
         finish(object, &mut devices);
     }
     devices
+}
+
+/// Bits per second for IOUSBHostFamily's `"Device Speed"` code: 0 low,
+/// 1 full, 2 high, 3 SuperSpeed, 4 SuperSpeed Plus.
+fn device_speed_bps(code: u64) -> Option<u64> {
+    match code {
+        0 => Some(1_500_000),
+        1 => Some(12_000_000),
+        2 => Some(480_000_000),
+        3 => Some(5_000_000_000),
+        4 => Some(10_000_000_000),
+        _ => None,
+    }
 }
