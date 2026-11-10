@@ -46,7 +46,12 @@
       "deb": {
         "depends": [
           "zlib1g"
-        ]
+        ],
+        "files": {
+          "/usr/lib/udev/rules.d/60-burnwright-minipro.rules": "../packaging/linux/udev/60-burnwright-minipro.rules"
+        },
+        "postInstallScript": "../packaging/linux/deb/postinst",
+        "postRemoveScript": "../packaging/linux/deb/postrm"
       }
     }
   }
