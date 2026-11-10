@@ -38,6 +38,9 @@ jobs:
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      # tauri-build won't compile src-tauri without the sidecar it bundles.
+      - name: Build minipro sidecar
+        uses: ./.github/actions/minipro-sidecar
       - name: rustfmt
         run: cargo fmt --all --check
       - name: clippy
@@ -85,8 +88,23 @@ jobs:
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - name: Install JS deps
         run: pnpm install --frozen-lockfile
+      - name: Build minipro sidecar
+        uses: ./.github/actions/minipro-sidecar
       - name: Build & bundle
         run: pnpm tauri build
+      # Run the sidecar from each installed bundle, not the build tree.
+      - name: Verify sidecar (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/minipro/verify-bundle.sh macos target/release/bundle/dmg/*.dmg
+      - name: Verify sidecar (Linux)
+        if: runner.os == 'Linux'
+        run: >-
+          scripts/minipro/verify-bundle.sh linux
+          target/release/bundle/deb/*.deb target/release/bundle/appimage/*.AppImage
+      - name: Verify sidecar (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/minipro/verify-bundle.ps1 (Get-Item target/release/bundle/nsis/*-setup.exe).FullName
       - name: Upload bundles
         uses: actions/upload-artifact@v7
         with:

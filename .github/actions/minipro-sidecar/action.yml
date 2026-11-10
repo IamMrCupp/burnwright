@@ -1,0 +1,45 @@
+name: Build the minipro sidecar
+description: >-
+  Builds vendor/minipro (plus static libusb, and zlib on Windows) into
+  src-tauri/binaries/ for Tauri's externalBin and resources, using
+  scripts/minipro/build-sidecar.sh. Needs the repo checked out with submodules.
+
+runs:
+  using: composite
+  steps:
+    - name: Sidecar build deps (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends pkg-config zlib1g-dev
+
+    - name: Sidecar build deps (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      run: command -v pkg-config || brew install pkgconf
+
+    - name: Build the sidecar
+      if: runner.os != 'Windows'
+      shell: bash
+      run: scripts/minipro/build-sidecar.sh
+
+    # Windows: MSYS2 UCRT64, the toolchain #12 / #38 proved out. No zlib
+    # package: the script builds a pinned zlib itself.
+    - name: Set up MSYS2
+      if: runner.os == 'Windows'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        update: true
+        install: git make
+        pacboy: >-
+          gcc:p
+          pkgconf:p
+
+    - name: Build the sidecar (MSYS2)
+      if: runner.os == 'Windows'
+      shell: msys2 {0}
+      run: |
+        git config --global --add safe.directory '*'
+        scripts/minipro/build-sidecar.sh --target x86_64-pc-windows-msvc
