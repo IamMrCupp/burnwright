@@ -64,6 +64,13 @@ try {
   Write-Host "-q tl866ii -l: $($devices.Count) devices"
   if ($devices.Count -lt 1000) { Fail "-l listed only $($devices.Count) devices" }
 
+  # The app lists chips with -L "" (the whole list, without the pager -l
+  # starts here). It has to print what -l prints.
+  $all = & $bin @db -q tl866ii -L ''
+  if ($LASTEXITCODE -ne 0) { Fail "-L '' exited $LASTEXITCODE" }
+  Write-Host "-q tl866ii -L '': $($all.Count) devices"
+  if ($all.Count -ne $devices.Count) { Fail "-L '' listed $($all.Count) devices, -l listed $($devices.Count)" }
+
   & $bin @db -q t48 -d AT27C256@DIP28 | Out-Null
   if ($LASTEXITCODE -ne 0) { Fail "-d AT27C256@DIP28 exited $LASTEXITCODE" }
 
