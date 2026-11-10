@@ -1,0 +1,34 @@
+# udev rules for XGecu / MiniPRO programmers, shipped with burnwright.
+#
+# They let an ordinary user open the programmer without sudo:
+#   - TAG+="uaccess": the user logged in at the local seat gets an ACL on the
+#     device (systemd-logind). This is what a desktop user relies on.
+#   - GROUP="plugdev", MODE="0660": members of plugdev get access from any
+#     session, including SSH or a headless box with no seat.
+#
+# The .deb installs this file to /usr/lib/udev/rules.d/. AppImage users copy it
+# to /etc/udev/rules.d/ by hand: see docs/linux.md.
+#
+# Based on minipro's udev/60-minipro.rules, 61-minipro-uaccess.rules and
+# 61-minipro-plugdev.rules (GPL-3.0-or-later), merged into one file. The T76
+# entry is burnwright's own: minipro 0.7.4's rules don't list it, and it hasn't
+# been tested on real hardware yet.
+#
+# The number keeps it ahead of systemd's 73-seat-late.rules, which turns the
+# uaccess tag into an ACL. ID_MINIPRO is set the same way upstream sets it, so a
+# distro minipro package's 61-minipro-*.rules see the T76 too.
+
+ACTION!="add|change", GOTO="burnwright_minipro_end"
+SUBSYSTEM!="usb", GOTO="burnwright_minipro_end"
+ENV{DEVTYPE}!="usb_device", GOTO="burnwright_minipro_end"
+
+# TL866A / TL866CS
+ATTR{idVendor}=="04d8", ATTR{idProduct}=="e11c", ENV{ID_MINIPRO}="1"
+# TL866II+, T48, T56
+ATTR{idVendor}=="a466", ATTR{idProduct}=="0a53", ENV{ID_MINIPRO}="1"
+# T76 (untested)
+ATTR{idVendor}=="a466", ATTR{idProduct}=="1a86", ENV{ID_MINIPRO}="1"
+
+ENV{ID_MINIPRO}=="1", TAG+="uaccess", MODE="0660", GROUP="plugdev"
+
+LABEL="burnwright_minipro_end"

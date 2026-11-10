@@ -1,0 +1,24 @@
+#!/bin/sh
+# burnwright .deb postinst: have udev apply the programmer rules that were just
+# installed to /usr/lib/udev/rules.d/60-burnwright-minipro.rules, so a
+# programmer that's already plugged in works without a replug.
+#
+# Without a running udev (containers, chroots, some CI images) there's nothing
+# to reload. The rules apply on the next boot, so that's not an error.
+set -e
+
+reload_udev() {
+  command -v udevadm >/dev/null 2>&1 || return 0
+  udevadm control --reload-rules >/dev/null 2>&1 || return 0
+  # XGecu (TL866II+, T48, T56, T76) and Microchip (TL866A/CS).
+  for vendor in a466 04d8; do
+    udevadm trigger --action=change --subsystem-match=usb \
+      --attr-match=idVendor="$vendor" >/dev/null 2>&1 || true
+  done
+}
+
+case "$1" in
+  configure) reload_udev ;;
+esac
+
+exit 0

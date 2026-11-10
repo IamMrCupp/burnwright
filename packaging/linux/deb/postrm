@@ -1,0 +1,23 @@
+#!/bin/sh
+# burnwright .deb postrm: dpkg has removed
+# /usr/lib/udev/rules.d/60-burnwright-minipro.rules, so have udev drop it.
+# A programmer that's plugged in may keep its access until it's replugged.
+#
+# Without a running udev (containers, chroots, some CI images) there's nothing
+# to reload, and that's not an error.
+set -e
+
+reload_udev() {
+  command -v udevadm >/dev/null 2>&1 || return 0
+  udevadm control --reload-rules >/dev/null 2>&1 || return 0
+  for vendor in a466 04d8; do
+    udevadm trigger --action=change --subsystem-match=usb \
+      --attr-match=idVendor="$vendor" >/dev/null 2>&1 || true
+  done
+}
+
+case "$1" in
+  remove|purge) reload_udev ;;
+esac
+
+exit 0

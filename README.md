@@ -19,6 +19,28 @@ chip databases, so there's nothing else to install. Building from source needs
 that sidecar too: run `pnpm sidecar` once before `pnpm tauri dev`. See
 [docs/minipro-sidecar.md](docs/minipro-sidecar.md).
 
+## Linux: USB access
+
+Linux won't let an ordinary user open a programmer without a udev rule. The
+`.deb` installs one (`/usr/lib/udev/rules.d/60-burnwright-minipro.rules`) and
+reloads udev, so a plugged-in programmer just works. The AppImage can't install
+system files, so copy the rules in once yourself:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/IamMrCupp/burnwright/main/packaging/linux/udev/60-burnwright-minipro.rules
+```
+
+```bash
+sudo install -m 0644 60-burnwright-minipro.rules /etc/udev/rules.d/
+```
+
+```bash
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+Then replug the programmer. What the rules cover, and why there's no `.rpm`,
+Flatpak or Snap, is in [docs/linux.md](docs/linux.md).
+
 ## Finding minipro
 
 burnwright drives the `minipro` CLI (0.7.x) rather than talking USB itself. It

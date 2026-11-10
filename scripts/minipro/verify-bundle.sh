@@ -9,7 +9,9 @@
 #   sidecar's libraries with `otool -L` and rejects anything outside the OS.
 # Linux: shows the .deb's control fields and contents (`dpkg-deb -I`/`-c`),
 #   installs it with apt (needs sudo) and runs /usr/bin/burnwright-minipro;
-#   then extracts the AppImage and runs the sidecar from inside it.
+#   checks the udev rules and maintainer scripts the .deb ships, then removes
+#   it again and checks the rules went with it; then extracts the AppImage and
+#   runs the sidecar from inside it.
 #
 # Each sidecar must report its version and database counts, list more than a
 # thousand chips, and say "No programmer found" (CI has no hardware). The
@@ -93,6 +95,88 @@ check_libs() {
   if grep -q libusb <<<"$libs"; then die "$1 links a shared libusb"; fi
 }
 
+UDEV_RULES=60-burnwright-minipro.rules
+UDEV_RULES_PATH="/usr/lib/udev/rules.d/$UDEV_RULES"
+
+# check_deb_scripts <deb>: the .deb carries the udev rules and a postinst and
+# postrm that reload udev.
+check_deb_scripts() {
+  local deb="$1" listing="$2" ctl="$scratch/control"
+  section "udev rules and maintainer scripts in $(basename "$deb")"
+  grep -E "(\./)?${UDEV_RULES_PATH#/}\$" <<<"$listing" || die "deb lacks $UDEV_RULES_PATH"
+  grep -E "^-rw-r--r-- (root/root|0/0) .*(\./)?${UDEV_RULES_PATH#/}\$" <<<"$listing" >/dev/null \
+    || die "$UDEV_RULES_PATH isn't a 0644 root-owned file in the deb"
+  dpkg-deb -e "$deb" "$ctl"
+  for s in postinst postrm; do
+    [ -x "$ctl/$s" ] || die "deb has no executable $s"
+    grep -q "udevadm control --reload-rules" "$ctl/$s" || die "$s doesn't reload udev"
+    sh -n "$ctl/$s" || die "$s isn't valid sh"
+  done
+}
+
+# check_udev_rules <rules file>: the rules parse, and flag every programmer.
+check_udev_rules() {
+  local rules="$1" out
+  section "udev rules: $rules"
+  [ -f "$rules" ] || die "no udev rules at $rules"
+  cat "$rules"
+  cmp -s "$rules" "$here/../../packaging/linux/udev/$UDEV_RULES" \
+    || die "installed $UDEV_RULES differs from packaging/linux/udev/$UDEV_RULES"
+  local id
+  for id in 04d8:e11c a466:0a53 a466:1a86; do
+    grep -qE "ATTR\\{idVendor\\}==\"${id%:*}\", ATTR\\{idProduct\\}==\"${id#*:}\", ENV\\{ID_MINIPRO\\}=\"1\"" "$rules" \
+      || die "udev rules don't flag $id"
+  done
+  grep -qE '^ENV\{ID_MINIPRO\}=="1", TAG\+="uaccess", MODE="0660", GROUP="plugdev"$' "$rules" \
+    || die "udev rules don't grant uaccess/plugdev"
+  # Every rule line is key/value pairs udev knows; anything else is a typo.
+  if grep -vE '^[[:space:]]*(#|$)' "$rules" \
+      | grep -vE '^(ACTION|SUBSYSTEM|ENV\{[A-Z_]+\}|ATTR\{[a-zA-Z]+\}|TAG|MODE|GROUP|LABEL)[!=+]'; then
+    die "udev rules have a line that isn't a known rule"
+  fi
+
+  if udevadm verify --help >/dev/null 2>&1; then
+    # systemd 253+ (Ubuntu 24.04 and later).
+    out="$(udevadm verify "$rules" 2>&1)" || { echo "$out"; die "udevadm verify rejected $UDEV_RULES"; }
+    echo "udevadm verify: $out"
+  else
+    # Older udev (Ubuntu 22.04) has no verify, but `udevadm test` parses every
+    # rules file, logging any line it can't use with the file's name.
+    out="$(sudo udevadm test --action=change /sys/class/mem/null 2>&1)" || true
+    grep -F "$UDEV_RULES" <<<"$out" || true
+    if grep -F "$UDEV_RULES" <<<"$out" | grep -iE "invalid|ignor|unknown|fail|error|warn|deprecat"; then
+      die "udevadm test logged problems with $UDEV_RULES"
+    fi
+    grep -qF "$UDEV_RULES" <<<"$out" || echo "note: udevadm test didn't mention $UDEV_RULES (only syntax-grepped)"
+  fi
+}
+
+# check_maintainer_script <pkg> <postinst|postrm> <arg>: the installed script
+# exits 0 without udev and with a broken one, and reloads udev when it can.
+check_maintainer_script() {
+  local pkg="$1" name="$2" arg="$3" script="/var/lib/dpkg/info/$1.$2" stub="$scratch/stub-$2"
+  section "$name $arg"
+  [ -x "$script" ] || die "$script isn't installed"
+  mkdir -p "$stub"
+
+  sudo env -i PATH=/nonexistent /bin/sh "$script" "$arg" || die "$name $arg fails without udevadm"
+
+  printf '#!/bin/sh\nexit 1\n' >"$stub/udevadm"
+  chmod +x "$stub/udevadm"
+  sudo env -i PATH="$stub" /bin/sh "$script" "$arg" || die "$name $arg fails when udevadm does"
+
+  printf '#!/bin/sh\necho "$*" >>%s/calls\n' "$stub" >"$stub/udevadm"
+  sudo env -i PATH="$stub" /bin/sh "$script" "$arg" || die "$name $arg failed"
+  cat "$stub/calls"
+  grep -qx "control --reload-rules" "$stub/calls" || die "$name $arg didn't reload the rules"
+  local v
+  for v in a466 04d8; do
+    grep -qx -- "trigger --action=change --subsystem-match=usb --attr-match=idVendor=$v" "$stub/calls" \
+      || die "$name $arg didn't trigger idVendor=$v"
+  done
+  echo "$name $arg: OK"
+}
+
 verify_linux() {
   local deb="$1" appimage="$2"
   [ -f "$deb" ] || die "no such deb: $deb"
@@ -110,11 +194,31 @@ verify_linux() {
   grep -qE "(\./)?usr/lib/burnwright/minipro/infoic\.xml\$" <<<"$listing" \
     || die "deb lacks /usr/lib/burnwright/minipro/infoic.xml"
   grep -q zlib1g <<<"$(dpkg-deb -f "$deb" Depends)" || die "deb doesn't declare zlib1g"
+  check_deb_scripts "$deb" "$listing"
 
+  local pkg status
+  pkg="$(dpkg-deb -f "$deb" Package)"
   section "install the deb"
+  # apt fails if the postinst does; the status shows it finished configuring.
   sudo apt-get install -y --no-install-recommends "$(realpath "$deb")"
+  status="$(dpkg-query -W -f='${Status}' "$pkg")"
+  echo "$pkg: $status"
+  [ "$status" = "install ok installed" ] || die "$pkg isn't fully installed: $status"
   check_libs "/usr/bin/$SIDECAR_NAME"
   check_sidecar ".deb (installed)" "/usr/bin/$SIDECAR_NAME" /usr/lib/burnwright/minipro
+  check_udev_rules "$UDEV_RULES_PATH"
+  check_maintainer_script "$pkg" postinst configure
+  check_maintainer_script "$pkg" postrm remove
+
+  section "remove the deb"
+  sudo apt-get remove -y "$pkg"
+  sudo apt-get purge -y "$pkg"
+  status="$(dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null || true)"
+  echo "$pkg: ${status:-unknown to dpkg}"
+  case "$status" in *" installed"|*" config-files") die "$pkg is still on the system: $status" ;; esac
+  [ ! -e "$UDEV_RULES_PATH" ] || die "apt remove left $UDEV_RULES_PATH behind"
+  [ ! -e "/usr/bin/$SIDECAR_NAME" ] || die "apt remove left /usr/bin/$SIDECAR_NAME behind"
+  echo ".deb removed cleanly"
 
   section "extract $(basename "$appimage")"
   local x="$scratch/appimage"
