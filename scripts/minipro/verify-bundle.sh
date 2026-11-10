@@ -84,6 +84,15 @@ verify_macos() {
   check_sidecar "macOS .app" "$bin" "$app/Contents/Resources/minipro"
 }
 
+# check_libs <ELF>: every library resolves, and libusb isn't one of them.
+check_libs() {
+  local libs
+  libs="$(ldd "$1")"
+  echo "$libs"
+  if grep -q "not found" <<<"$libs"; then die "$1 has unresolved libraries"; fi
+  if grep -q libusb <<<"$libs"; then die "$1 links a shared libusb"; fi
+}
+
 verify_linux() {
   local deb="$1" appimage="$2"
   [ -f "$deb" ] || die "no such deb: $deb"
@@ -91,18 +100,20 @@ verify_linux() {
 
   section "dpkg-deb -I $(basename "$deb")"
   dpkg-deb -I "$deb"
+  # Capture listings before grepping them: `cmd | grep -q` under pipefail
+  # fails when grep exits early and cmd dies of SIGPIPE.
+  local listing
   section "dpkg-deb -c $(basename "$deb")"
-  dpkg-deb -c "$deb"
-  dpkg-deb -c "$deb" | grep -qE "(\./)?usr/bin/$SIDECAR_NAME\$" || die "deb lacks /usr/bin/$SIDECAR_NAME"
-  dpkg-deb -c "$deb" | grep -qE "(\./)?usr/lib/burnwright/minipro/infoic\.xml\$" \
+  listing="$(dpkg-deb -c "$deb")"
+  echo "$listing"
+  grep -qE "(\./)?usr/bin/$SIDECAR_NAME\$" <<<"$listing" || die "deb lacks /usr/bin/$SIDECAR_NAME"
+  grep -qE "(\./)?usr/lib/burnwright/minipro/infoic\.xml\$" <<<"$listing" \
     || die "deb lacks /usr/lib/burnwright/minipro/infoic.xml"
-  dpkg-deb -f "$deb" Depends | grep -q zlib1g || die "deb doesn't declare zlib1g"
+  grep -q zlib1g <<<"$(dpkg-deb -f "$deb" Depends)" || die "deb doesn't declare zlib1g"
 
   section "install the deb"
   sudo apt-get install -y --no-install-recommends "$(realpath "$deb")"
-  ldd "/usr/bin/$SIDECAR_NAME"
-  ldd "/usr/bin/$SIDECAR_NAME" | grep -q "not found" && die "deb sidecar has unresolved libraries"
-  ldd "/usr/bin/$SIDECAR_NAME" | grep -q libusb && die "deb sidecar links a shared libusb"
+  check_libs "/usr/bin/$SIDECAR_NAME"
   check_sidecar ".deb (installed)" "/usr/bin/$SIDECAR_NAME" /usr/lib/burnwright/minipro
 
   section "extract $(basename "$appimage")"
@@ -114,9 +125,7 @@ verify_linux() {
   local root="$x/squashfs-root"
   (cd "$root" && find . -path ./usr/share/icons -prune -o -type f -print | sort)
   local bin="$root/usr/bin/$SIDECAR_NAME"
-  ldd "$bin"
-  ldd "$bin" | grep -q "not found" && die "AppImage sidecar has unresolved libraries"
-  ldd "$bin" | grep -q libusb && die "AppImage sidecar links a shared libusb"
+  check_libs "$bin"
   check_sidecar "AppImage" "$bin" "$root/usr/lib/burnwright/minipro"
 }
 
