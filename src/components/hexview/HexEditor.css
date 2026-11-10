@@ -1,0 +1,125 @@
+/* Hex editor. Theme through the --hv-edit-* custom properties; the classes
+   land on HexView's byte cells via decorateByte. */
+
+.hexedit {
+  --hv-edit-edited-fg: #b5500b;
+  --hv-edit-edited-bg: #fff1e0;
+  --hv-edit-selected-bg: #d5e3ff;
+  --hv-edit-cursor: #396cd8;
+  --hv-edit-cursor-fg: #ffffff;
+  --hv-edit-cursor-dim: #b9c9ef;
+
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  min-height: 0;
+  text-align: left;
+}
+
+@media (prefers-color-scheme: dark) {
+  .hexedit {
+    --hv-edit-edited-fg: #ffb877;
+    --hv-edit-edited-bg: #47300f;
+    --hv-edit-selected-bg: #263d6b;
+    --hv-edit-cursor: #7aa2ff;
+    --hv-edit-cursor-fg: #10131a;
+    --hv-edit-cursor-dim: #3b4c74;
+  }
+}
+
+.hexedit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5em 1.5em;
+}
+
+.hexedit-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4em;
+}
+
+.hexedit-input {
+  width: 16ch;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
+}
+
+.hexedit-narrow {
+  width: 11ch;
+}
+
+.hexedit-tiny {
+  width: 5ch;
+}
+
+.hexedit-dirty {
+  color: var(--hv-edit-edited-fg);
+  font-weight: 600;
+}
+
+.hexedit-clean {
+  opacity: 0.7;
+}
+
+.hexedit-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25em 1.5em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.8125em;
+}
+
+.hexedit-notice {
+  opacity: 0.85;
+}
+
+/* Dragging selects bytes, not page text. */
+.hexedit .hexedit-view .hv-window {
+  user-select: none;
+  cursor: text;
+}
+
+.hexedit .hv-edited {
+  color: var(--hv-edit-edited-fg);
+  background: var(--hv-edit-edited-bg);
+  font-weight: 600;
+}
+
+.hexedit .hv-selected {
+  background: var(--hv-edit-selected-bg);
+}
+
+/* The cursor: solid in the pane being typed into, outlined in the other.
+   Dimmer while the grid does not have focus. */
+.hexedit .hv-cursor {
+  box-shadow: inset 0 0 0 1px var(--hv-edit-cursor);
+}
+
+.hexedit .hv-scroller:focus .hv-cursor {
+  box-shadow: inset 0 0 0 2px var(--hv-edit-cursor);
+}
+
+.hexedit-pane-hex .hv-scroller:focus .hv-byte.hv-cursor,
+.hexedit-pane-ascii .hv-scroller:focus .hv-char.hv-cursor {
+  color: var(--hv-edit-cursor-fg);
+  background: var(--hv-edit-cursor);
+}
+
+.hexedit-pane-hex .hv-byte.hv-cursor,
+.hexedit-pane-ascii .hv-char.hv-cursor {
+  background: var(--hv-edit-cursor-dim);
+}
+
+/* Half-typed byte: the high nibble is in, the low one is next. */
+.hexedit-pane-hex .hv-scroller:focus .hv-byte.hv-cursor-low {
+  color: var(--hv-fg);
+  background: linear-gradient(
+    to right,
+    var(--hv-edit-edited-bg) 50%,
+    var(--hv-edit-cursor) 50%
+  );
+}
