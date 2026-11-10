@@ -57,13 +57,6 @@ check_sidecar() {
   echo "-q tl866ii -l: $n devices"
   [ "$n" -gt 1000 ] || die "$label: -l listed only $n devices"
 
-  # The app lists chips with -L "" (the whole list, without the pager -l
-  # starts on Windows). It has to print what -l prints.
-  local m
-  m="$(run "${db[@]}" -q tl866ii -L "" 2>/dev/null | wc -l | tr -d ' ')"
-  echo "-q tl866ii -L \"\": $m devices"
-  [ "$m" -eq "$n" ] || die "$label: -L \"\" listed $m devices, -l listed $n"
-
   run "${db[@]}" -q t48 -d AT27C256@DIP28 >/dev/null 2>&1 || die "$label: -d AT27C256@DIP28 failed"
 
   out="$(run -k 2>&1 || true)"

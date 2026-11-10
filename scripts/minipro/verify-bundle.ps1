@@ -64,12 +64,20 @@ try {
   Write-Host "-q tl866ii -l: $($devices.Count) devices"
   if ($devices.Count -lt 1000) { Fail "-l listed only $($devices.Count) devices" }
 
-  # The app lists chips with -L "" (the whole list, without the pager -l
-  # starts here). It has to print what -l prints.
-  $all = & $bin @db -q tl866ii -L ''
-  if ($LASTEXITCODE -ne 0) { Fail "-L '' exited $LASTEXITCODE" }
-  Write-Host "-q tl866ii -L '': $($all.Count) devices"
-  if ($all.Count -ne $devices.Count) { Fail "-L '' listed $($all.Count) devices, -l listed $($devices.Count)" }
+  # minipro pipes every -l through a pager on Windows. The app names its own
+  # in PAGER (WINDOWS_LIST_PAGER in crates/engine/src/cli.rs): a filter that
+  # copies every line. It has to list the same names as the default pager.
+  $env:PAGER = 'findstr "^"'
+  try { $paged = & $bin @db -q tl866ii -l } finally { Remove-Item Env:PAGER }
+  if ($LASTEXITCODE -ne 0) { Fail "-l with PAGER set exited $LASTEXITCODE" }
+  $names = @($devices | Where-Object { $_ })
+  $pagedNames = @($paged | Where-Object { $_ })
+  Write-Host "-q tl866ii -l through findstr: $($pagedNames.Count) names (default pager: $($names.Count))"
+  $diff = @(Compare-Object $names $pagedNames -SyncWindow 0)
+  if ($diff.Count -ne 0) {
+    $diff | Select-Object -First 10 | Format-Table | Out-String | Write-Host
+    Fail "-l through findstr differs from the default pager in $($diff.Count) lines"
+  }
 
   & $bin @db -q t48 -d AT27C256@DIP28 | Out-Null
   if ($LASTEXITCODE -ne 0) { Fail "-d AT27C256@DIP28 exited $LASTEXITCODE" }
