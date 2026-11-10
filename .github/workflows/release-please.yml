@@ -75,7 +75,7 @@ jobs:
             tag="test-$RUN_ID"
             gh release create "$tag" --draft --prerelease --target "$SHA" \
               --title "Test build $RUN_ID ($REF) - do not publish" \
-              --notes "Unsigned test build from $REF @ $SHA. Delete this draft when done."
+              --notes "Test build from $REF @ $SHA. Delete this draft when done."
           else
             echo "Dry run: installers stay as workflow artifacts."
             exit 0
@@ -128,16 +128,45 @@ jobs:
       - name: Stop Spotlight indexing (macOS)
         if: runner.os == 'macOS'
         run: sudo mdutil -a -i off || true
+      # Signs and notarizes when the repo has the Apple secrets, and builds
+      # unsigned when it has none (forks, or before they're added). See
+      # "macOS signing and notarization" in docs/releasing.md.
+      - name: Set up signing (macOS)
+        id: signing
+        if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: scripts/macos/signing.sh setup
+      # With signing set up, Tauri signs the sidecar, the app binary and the
+      # .app (in that order, hardened runtime on), notarizes and staples the
+      # .app, then signs the .dmg. It picks all that up from the environment
+      # the step above exported.
       - name: Build & upload
         uses: tauri-apps/tauri-action@v1.0.0
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           # Empty on a dry run, which makes tauri-action skip all uploads.
-          releaseId: ${{ needs.prepare.outputs.release_id }}
+          # Also empty for a signed macOS build: that .dmg still has to be
+          # notarized and checked, and is uploaded further down.
+          releaseId: ${{ steps.signing.outputs.enabled != 'true' && needs.prepare.outputs.release_id || '' }}
           # No updater configured yet, so no latest.json.
           uploadUpdaterJson: false
           retryAttempts: 1
+      - name: Notarize and staple the dmg (macOS)
+        if: steps.signing.outputs.enabled == 'true'
+        run: scripts/macos/notarize-dmg.sh target/release/bundle/dmg/*.dmg
+      # Nothing after this needs the certificate or the API key.
+      - name: Remove the signing keychain and API key (macOS)
+        if: always() && runner.os == 'macOS'
+        run: scripts/macos/signing.sh cleanup
+      - name: Verify signature and notarization (macOS)
+        if: steps.signing.outputs.enabled == 'true'
+        run: scripts/macos/verify-signing.sh target/release/bundle/dmg/*.dmg
       # Same installed-layout checks as ci.yml, on the installers we ship.
       - name: Verify sidecar (macOS)
         if: runner.os == 'macOS'
@@ -151,6 +180,14 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: scripts/minipro/verify-bundle.ps1 (Get-Item target/release/bundle/nsis/*-setup.exe).FullName
+      # Same asset name tauri-action would have used: the bundle's file name.
+      - name: Upload the signed dmg (macOS)
+        if: steps.signing.outputs.enabled == 'true' && needs.prepare.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: gh release upload "$TAG" target/release/bundle/dmg/*.dmg --clobber
       - name: Keep installers as workflow artifacts
         uses: actions/upload-artifact@v7
         with:
