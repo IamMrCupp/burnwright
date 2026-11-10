@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.5.0](https://github.com/IamMrCupp/burnwright/compare/v0.4.0...v0.5.0) (2026-11-10)
+
+
+### Features
+
+* **engine:** drive the minipro CLI for detect, read, write, verify, blank check and erase ([e1d8d12](https://github.com/IamMrCupp/burnwright/commit/e1d8d12d658b5fe6944eb46fb7562b6bf929ba4c))
+* **engine:** run the bundled minipro sidecar with its own chip databases ([2743ab3](https://github.com/IamMrCupp/burnwright/commit/2743ab3caf65343370ec7f197c3aaa4607d0f825))
+* **hexview:** in-app hex editor with undo/redo, find/replace and selection ([401b796](https://github.com/IamMrCupp/burnwright/commit/401b7965ba905a4d3f2ef764b9c17ce351ee1ff2))
+* **release:** ship minipro, its databases and licences inside every installer ([a62eace](https://github.com/IamMrCupp/burnwright/commit/a62eace5bab980fd05b7eb7a3080398e5ebb08b4))
+
+
+### Bug Fixes
+
+* **ui:** drop the stale note that engine commands are stubbed ([75e6d2b](https://github.com/IamMrCupp/burnwright/commit/75e6d2b8b7844b214d654cc80a943d7b753da560))
+
 ## [0.4.0](https://github.com/IamMrCupp/burnwright/compare/v0.3.0...v0.4.0) (2026-11-10)
 
 
