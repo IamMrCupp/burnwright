@@ -4,8 +4,9 @@ Releases are cut by [release-please](https://github.com/googleapis/release-pleas
 Merge its release PR and `.github/workflows/release-please.yml` does the rest:
 
 1. **release-please** tags `vX.Y.Z` and publishes the GitHub release with the changelog.
-2. **build** runs `tauri-apps/tauri-action` on four runners and uploads the installers to that release.
-3. **checksums** downloads every asset on the release and uploads a `SHA256SUMS` file next to them.
+2. **build** builds the minipro sidecar, runs `tauri-apps/tauri-action` on four runners, uploads the installers to that release, and checks the sidecar inside each one ([minipro-sidecar.md](minipro-sidecar.md)).
+3. **sources** uploads `minipro-sidecar-source_<version>.tar.gz`, the corresponding source for the bundled minipro.
+4. **checksums** downloads every asset on the release and uploads a `SHA256SUMS` file next to them.
 
 Don't tag or create releases by hand — release-please owns both.
 
@@ -35,8 +36,8 @@ Run the workflow by hand from the Actions tab (**Release Please → Run workflow
 pick a branch) or with `gh`. The release-please step is skipped on manual runs, so
 nothing gets tagged, versioned or published.
 
-Dry run — builds on all four OSes, keeps the installers and `SHA256SUMS` as workflow
-artifacts, touches no releases:
+Dry run — builds on all four OSes, keeps the installers, the sidecar source archive
+and `SHA256SUMS` as workflow artifacts, touches no releases:
 
 ```bash
 gh workflow run release-please.yml --ref <branch>
