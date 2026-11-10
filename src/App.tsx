@@ -72,13 +72,6 @@ function App() {
         />
       </section>
 
-      <p>
-        <small>
-          Engine commands are stubbed in this scaffold — they return a “not
-          implemented” error until issue #6 wires them to minipro.
-        </small>
-      </p>
-
       <footer>
         <small>
           {info
