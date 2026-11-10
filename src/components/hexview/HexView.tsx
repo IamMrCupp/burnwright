@@ -6,7 +6,9 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type CSSProperties,
+  type KeyboardEvent,
   type MouseEvent,
   type Ref,
   type UIEvent,
@@ -18,7 +20,12 @@ import {
   formatAddress,
   MIN_ADDRESS_DIGITS,
 } from "./format";
-import { computeWindow, MAX_SCROLL_HEIGHT, scrollTopForRow } from "./virtual";
+import {
+  computeWindow,
+  MAX_SCROLL_HEIGHT,
+  scrollTopForRow,
+  scrollTopToReveal,
+} from "./virtual";
 import "./HexView.css";
 
 /** Extra presentation for one byte, applied to its hex and ASCII cells. */
@@ -26,7 +33,19 @@ export interface ByteDecoration {
   className?: string;
   style?: CSSProperties;
   title?: string;
+  /** Accessible name for the byte's cells, e.g. for the cursor byte. */
+  label?: string;
 }
+
+/** Which column a byte cell is in. */
+export type HexPane = "hex" | "ascii";
+
+/** Mouse handler for a byte cell; `index` is the position in `data`. */
+export type ByteMouseHandler = (
+  index: number,
+  event: MouseEvent<HTMLElement>,
+  pane: HexPane,
+) => void;
 
 /**
  * Per-byte styling hook. Called only for bytes in rendered rows, so it can
@@ -43,6 +62,12 @@ export type ByteDecorator = (
 export interface HexViewHandle {
   /** Scroll so the row holding `data[index]` is at the top. */
   scrollToIndex(index: number): void;
+  /** Scroll as little as needed to bring `data[index]`'s row fully into view. */
+  revealIndex(index: number): void;
+  /** Whole rows that fit in the viewport (for paging). */
+  pageRows(): number;
+  /** Move keyboard focus to the grid. */
+  focus(): void;
 }
 
 export interface HexViewProps {
@@ -65,7 +90,19 @@ export interface HexViewProps {
   /** Per-byte styling hook; see {@link ByteDecorator}. */
   decorateByte?: ByteDecorator;
   /** Click on a byte, in either the hex grid or the ASCII gutter. */
-  onByteClick?: (index: number, event: MouseEvent<HTMLElement>) => void;
+  onByteClick?: ByteMouseHandler;
+  /** Mouse button pressed on a byte. */
+  onByteMouseDown?: ByteMouseHandler;
+  /** Pointer moved onto a byte (e.g. to extend a drag selection). */
+  onByteMouseEnter?: ByteMouseHandler;
+  /** Keys pressed while the grid has focus. */
+  onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
+  /** Copy while the grid has focus. */
+  onCopy?: (event: ClipboardEvent<HTMLDivElement>) => void;
+  /** Paste while the grid has focus. */
+  onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
+  /** Sets `aria-readonly` on the grid. Default true; editors pass false. */
+  readOnly?: boolean;
   className?: string;
   "aria-label"?: string;
   ref?: Ref<HexViewHandle>;
@@ -85,6 +122,12 @@ export function HexView({
   overscan = 4,
   decorateByte,
   onByteClick,
+  onByteMouseDown,
+  onByteMouseEnter,
+  onKeyDown,
+  onCopy,
+  onPaste,
+  readOnly = true,
   className,
   "aria-label": ariaLabel = "Hex view",
   ref,
@@ -157,17 +200,33 @@ export function HexView({
         el.scrollTop = top;
         setScrollTop(top);
       },
+      revealIndex(index: number) {
+        const el = scrollerRef.current;
+        if (!el || rowCount === 0) return;
+        const clamped = Math.min(Math.max(Math.floor(index), 0), data.length - 1);
+        const top = scrollTopToReveal(Math.floor(clamped / perRow), {
+          rowHeight,
+          viewportHeight,
+          scrollTop: el.scrollTop,
+          scale,
+        });
+        if (top === null) return;
+        el.scrollTop = top;
+        setScrollTop(top);
+      },
+      pageRows() {
+        return Math.max(1, Math.floor(viewportHeight / rowHeight));
+      },
+      focus() {
+        scrollerRef.current?.focus();
+      },
     }),
-    [data.length, perRow, rowCount, rowHeight, scale],
+    [data.length, perRow, rowCount, rowHeight, scale, viewportHeight],
   );
 
-  const onClick = useMemo(() => {
-    if (!onByteClick) return undefined;
-    return (e: MouseEvent<HTMLElement>) => {
-      const cell = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
-      if (cell?.dataset.index) onByteClick(Number(cell.dataset.index), e);
-    };
-  }, [onByteClick]);
+  const onClick = useMemo(() => byteDelegate(onByteClick), [onByteClick]);
+  const onMouseDown = useMemo(() => byteDelegate(onByteMouseDown), [onByteMouseDown]);
+  const onMouseOver = useMemo(() => byteDelegate(onByteMouseEnter), [onByteMouseEnter]);
 
   const rows = [];
   for (let r = win.startRow; r < win.endRow; r++) {
@@ -214,9 +273,12 @@ export function HexView({
         aria-label={ariaLabel}
         aria-rowcount={rowCount}
         aria-colcount={3}
-        aria-readonly="true"
+        aria-readonly={readOnly}
         tabIndex={0}
         onScroll={onScroll}
+        onKeyDown={onKeyDown}
+        onCopy={onCopy}
+        onPaste={onPaste}
       >
         {rowCount === 0 ? (
           <div className="hv-empty-state">No data</div>
@@ -230,6 +292,8 @@ export function HexView({
               className="hv-window"
               style={{ transform: `translateY(${win.top}px)` }}
               onClick={onClick}
+              onMouseDown={onMouseDown}
+              onMouseOver={onMouseOver}
             >
               {rows}
             </div>
@@ -279,6 +343,7 @@ const HexRow = memo(function HexRow({
         className={cellClass(`hv-byte${extra}`, col, groupSize)}
         style={deco?.style}
         title={deco?.title}
+        aria-label={deco?.label}
         data-index={index}
       >
         {byteToHex(value)}
@@ -290,6 +355,7 @@ const HexRow = memo(function HexRow({
         className={`hv-char${extra}`}
         style={deco?.style}
         title={deco?.title}
+        aria-label={deco?.label}
         data-index={index}
       >
         {byteToAscii(value)}
@@ -311,6 +377,17 @@ const HexRow = memo(function HexRow({
     </div>
   );
 });
+
+/** Event delegation: find the byte cell under the pointer and report it. */
+function byteDelegate(handler: ByteMouseHandler | undefined) {
+  if (!handler) return undefined;
+  return (e: MouseEvent<HTMLElement>) => {
+    const cell = (e.target as HTMLElement).closest<HTMLElement>("[data-index]");
+    if (!cell?.dataset.index) return;
+    const pane: HexPane = cell.classList.contains("hv-char") ? "ascii" : "hex";
+    handler(Number(cell.dataset.index), e, pane);
+  };
+}
 
 function cellClass(base: string, col: number, groupSize: number): string {
   return groupSize > 0 && col > 0 && col % groupSize === 0

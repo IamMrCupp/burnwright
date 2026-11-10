@@ -140,6 +140,7 @@ pub struct MiniproCommand {
     envs: Vec<(OsString, OsString)>,
     operation: Operation,
     stdin: Option<Vec<u8>>,
+    cancel: Option<CancelHandle>,
 }
 
 impl MiniproCommand {
@@ -153,6 +154,7 @@ impl MiniproCommand {
             envs: Vec::new(),
             operation,
             stdin: None,
+            cancel: None,
         }
     }
 
@@ -182,6 +184,13 @@ impl MiniproCommand {
     /// this, stdin is closed straight away.
     pub fn stdin_data(mut self, data: Vec<u8>) -> Self {
         self.stdin = Some(data);
+        self
+    }
+
+    /// Cancel the run through `cancel`, a handle the caller already holds.
+    /// Without this, [`MiniproProcess::cancel_handle`] hands out a fresh one.
+    pub fn cancel_handle(mut self, cancel: CancelHandle) -> Self {
+        self.cancel = Some(cancel);
         self
     }
 
@@ -238,7 +247,7 @@ impl MiniproCommand {
         Ok(MiniproProcess {
             child: Some(child),
             operation,
-            cancel: CancelHandle::default(),
+            cancel: self.cancel.unwrap_or_default(),
             stdin_thread,
             stdout_thread: Some(stdout_thread),
             stderr_thread: Some(stderr_thread),
@@ -627,6 +636,17 @@ mod tests {
             }
         ));
         assert_eq!(err.to_string(), "read cancelled");
+    }
+
+    #[test]
+    fn a_caller_supplied_cancel_handle_stops_the_run() {
+        let cancel = CancelHandle::default();
+        cancel.cancel();
+        let err = fake(Operation::Erase, "hang")
+            .cancel_handle(cancel.clone())
+            .run(|_| {})
+            .unwrap_err();
+        assert!(err.device_may_be_inconsistent(), "{err:?}");
     }
 
     #[test]

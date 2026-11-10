@@ -1,0 +1,10 @@
+Found TL866II+ 04.2.132 (0x284)
+Device code: 39C68E4A
+Serial code: 6Y8A1OY4LDT3B7C9O3DF7123
+USB speed: 12Mbps (USB 1.1)
+Chip ID: 0xEF4016  OK
+Use -P if you want to write-protect this chip.
+Erasing... 2.10Sec OK
+[KWriting  Code...   0%[KWriting  Code...  12%[KWriting  Code...  25%[KWriting  Code...  37%[KWriting  Code...  50%[KWriting  Code...  62%[KWriting  Code...  75%[KWriting  Code...  87%[KWriting Code...  11.42Sec  OK
+[KReading Code...   0%[KReading Code...  12%[KReading Code...  25%[KReading Code...  37%[KReading Code...  50%[KReading Code...  62%[KReading Code...  75%[KReading Code...  87%[KReading Code...  6.03Sec  OK
+Verification failed at address 0x0042: File=0x12, Device=0xFF
