@@ -1,0 +1,104 @@
+# The minipro sidecar
+
+Every installer carries its own minipro, so burnwright can talk to a programmer
+on a machine that's never seen Homebrew, a `-dev` package or MSYS2. It's built
+from the `vendor/minipro` submodule, never patched, and shipped as a Tauri
+sidecar (`bundle.externalBin`) with minipro's chip databases as resources.
+
+## Where things land
+
+| | Sidecar | Databases, licences, NOTICE |
+|---|---|---|
+| macOS `.app` | `Contents/MacOS/burnwright-minipro` | `Contents/Resources/minipro/` |
+| Linux `.deb` | `/usr/bin/burnwright-minipro` | `/usr/lib/burnwright/minipro/` |
+| AppImage | `usr/bin/burnwright-minipro` | `usr/lib/burnwright/minipro/` |
+| Windows (NSIS) | `burnwright-minipro.exe` next to `burnwright.exe` | `minipro\` in the install folder |
+| `pnpm tauri dev` | `target/debug/burnwright-minipro` | `target/debug/minipro/` |
+
+So the app finds it as `current_exe().parent()/burnwright-minipro[.exe]` and the
+databases under `resource_dir()/minipro/`. Pass those with `--infoic` /
+`--logicic`. minipro's built-in default (`/usr/local/share/minipro`, or
+`%ProgramData%\minipro` on Windows) isn't populated by any installer.
+
+It's called `burnwright-minipro`, not `minipro`, because Tauri puts sidecars in
+`/usr/bin` on the `.deb`. A plain `minipro` there would collide with the distro's
+own package and shadow whatever the user already has on `PATH`.
+
+## What's linked
+
+libusb is **statically linked on every platform**, built from a pinned,
+hash-checked upstream release (`scripts/minipro/versions.sh`). That beats
+bundling a dylib and rewriting install names: one file, no `@rpath` or re-signing
+dance, and the deployment target is ours to set (macOS 11.0 on arm64, 10.13 on
+x86_64) rather than whatever the Homebrew bottle was built for.
+
+| Platform | Runtime dependencies |
+|---|---|
+| macOS | `libSystem`, `libz`, `libobjc`, IOKit, CoreFoundation, Security: all part of macOS |
+| Linux | glibc and `libz.so.1` (the `.deb` declares `zlib1g`). libusb is built without udev, so there's no `libudev` either. |
+| Windows | Windows system DLLs only. A fully static `.exe` with the libusb backend; zlib is built from a pinned release as well. |
+
+The Windows build reuses the #12 spike's glue: MSYS2 UCRT64, `USB=src/usb_nix.o`
+(libusb rather than upstream's WinUSB backend, which has open read-corruption
+bugs), and `.github/minipro-windows/compat.h` for `stpcpy`.
+
+## Building it locally
+
+`pnpm tauri dev`, `pnpm tauri build` and `cargo build`/`test` all need the sidecar
+for your host, because tauri-build won't compile `src-tauri` without the files
+it bundles. Build it once, and again after bumping `vendor/minipro`:
+
+```bash
+git submodule update --init vendor/minipro
+pnpm sidecar
+```
+
+That runs `scripts/minipro/build-sidecar.sh`, which writes
+`src-tauri/binaries/burnwright-minipro-<target-triple>` and
+`src-tauri/binaries/minipro/` (both gitignored). It builds in
+`target/minipro-sidecar/`, so the submodule stays clean.
+
+- **macOS:** Xcode command-line tools and `pkg-config` (`brew install pkgconf`).
+  `--target x86_64-apple-darwin` cross-builds the Intel sidecar on Apple Silicon.
+- **Linux:** `build-essential pkg-config zlib1g-dev`.
+- **Windows:** run it in an MSYS2 UCRT64 shell with
+  `pacman -S git make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-pkgconf`,
+  passing `--target x86_64-pc-windows-msvc` if `rustc` isn't on that shell's PATH.
+
+## Licensing
+
+minipro is GPL-3.0-or-later, so is burnwright, and libusb (LGPL-2.1-or-later) and
+zlib are compatible. Each bundle's `minipro/` folder carries:
+
+- `LICENSE.minipro.txt` (GPL-3.0), `COPYING.libusb.txt` (LGPL-2.1) and, on
+  Windows, `LICENSE.zlib.txt`
+- `NOTICE.txt`: minipro's tag and commit, the libusb and zlib versions, URLs
+  and hashes, and the burnwright commit and scripts that built it
+
+Every release also gets `minipro-sidecar-source_<version>.tar.gz` (the `sources`
+job in `release-please.yml`): the minipro source at the pinned commit, the
+libusb and zlib tarballs with their signatures, and the build scripts. That's
+the corresponding source for the sidecar, offered from the same place as the
+installers.
+
+## How CI checks it
+
+`ci.yml` builds the sidecar in the checks job (so clippy and tests compile) and
+in each bundle job; `release-please.yml` does the same before `tauri-action`.
+After bundling, `scripts/minipro/verify-bundle.sh` (macOS and Linux) and
+`verify-bundle.ps1` (Windows) check it from an installed layout:
+
+- **macOS:** copy the `.app` out of the `.dmg`, `otool -L` the sidecar and fail on
+  anything outside `/usr/lib` and `/System`.
+- **Linux:** `dpkg-deb -I` / `-c`, then `apt install` the `.deb` and run
+  `/usr/bin/burnwright-minipro`. Extract the AppImage and run the copy inside it.
+  `ldd` must show no libusb and nothing unresolved.
+- **Windows:** silently install the NSIS installer per-user, then run the sidecar
+  from the install folder with `PATH` cut down to System32.
+
+Each run passes the bundled databases by path, from an empty working directory
+with no `PATH`. It must print the version and database counts, list over a
+thousand chips with `-q tl866ii -l`, and report `No programmer found` for `-k`.
+
+CI has no programmer attached, so none of this proves a read or write. That
+still needs a real T48 or TL866II+ on each OS.

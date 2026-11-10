@@ -14,6 +14,11 @@ unsigned installers for macOS (`.dmg`, arm64 and x86_64), Linux (`.deb`,
 releases are built, and how to cut a test build without shipping it, is in
 [docs/releasing.md](docs/releasing.md).
 
+Each installer carries its own build of minipro (with libusb linked in) and its
+chip databases, so there's nothing else to install. Building from source needs
+that sidecar too: run `pnpm sidecar` once before `pnpm tauri dev`. See
+[docs/minipro-sidecar.md](docs/minipro-sidecar.md).
+
 ## Finding minipro
 
 burnwright drives the `minipro` CLI (0.7.x) rather than talking USB itself. It

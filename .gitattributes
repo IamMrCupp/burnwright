@@ -1,2 +1,4 @@
 # minipro stderr fixtures carry raw \r and ESC bytes; never normalise line endings.
 crates/engine/fixtures/minipro/*.stderr -text
+# Build scripts run under bash on Windows too (MSYS2); keep them LF.
+*.sh text eol=lf
