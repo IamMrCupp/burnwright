@@ -1,11 +1,22 @@
 mod commands;
 mod ops;
 
+use tauri::Manager;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(ops::DeviceOps::default())
+        .setup(|app| {
+            // Without a path to our own binary there's no sidecar to find;
+            // the locator then falls back to PATH.
+            if let Ok(exe) = std::env::current_exe() {
+                let bundled = ops::Bundled::beside(&exe, app.path().resource_dir().ok());
+                app.state::<ops::DeviceOps>().set_bundled(bundled);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::detect,
             commands::check_chip,
