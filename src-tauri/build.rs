@@ -21,7 +21,11 @@ fn minipro_version() -> String {
 /// to build without them; say how to make them instead of its generic error.
 fn require_sidecar() {
     let target = std::env::var("TARGET").unwrap_or_default();
-    let exe = if target.contains("windows") { ".exe" } else { "" };
+    let exe = if target.contains("windows") {
+        ".exe"
+    } else {
+        ""
+    };
     let sidecar = format!("binaries/burnwright-minipro-{target}{exe}");
     println!("cargo:rerun-if-changed={sidecar}");
     println!("cargo:rerun-if-changed=binaries/minipro");
