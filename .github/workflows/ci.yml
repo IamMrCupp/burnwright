@@ -90,6 +90,11 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build minipro sidecar
         uses: ./.github/actions/minipro-sidecar
+      # Spotlight indexing the freshly mounted interstitial image makes
+      # bundle_dmg.sh's eject fail with "Resource busy" on hosted runners.
+      - name: Stop Spotlight indexing (macOS)
+        if: runner.os == 'macOS'
+        run: sudo mdutil -a -i off || true
       - name: Build & bundle
         run: pnpm tauri build
       # Run the sidecar from each installed bundle, not the build tree.
