@@ -112,7 +112,10 @@ pinned="$(git -C "$root" rev-parse -q --verify "HEAD:vendor/minipro" 2>/dev/null
 if [ -n "$pinned" ] && [ "$pinned" != "$minipro_commit" ]; then
   echo "warning: vendor/minipro is at $minipro_commit but the superproject pins $pinned" >&2
 fi
-if [ -n "$(git -C "$sub" status --porcelain --untracked-files=no)" ]; then
+# On Windows the checkout has CRLF line endings; compare the way that git does.
+crlf=false
+[ "$os" = windows ] && crlf=true
+if [ -n "$(git -C "$sub" -c core.autocrlf=$crlf status --porcelain --untracked-files=no)" ]; then
   echo "warning: vendor/minipro has local changes; building the committed HEAD only" >&2
 fi
 
@@ -225,6 +228,9 @@ case "$os" in
     fi
     ;;
   windows)
+    # MSYS2's toolchain drags in its own zlib; make sure ours won the link.
+    grep -qiF "zlib-prefix/lib" "$work/minipro/minipro.map" \
+      || die "minipro didn't link the pinned zlib $ZLIB_VERSION"
     objdump -p "$built" | grep 'DLL Name'
     if objdump -p "$built" | grep 'DLL Name' | grep -iE 'libusb|libz|zlib|libwinpthread|libgcc|msys-'; then
       die "sidecar isn't fully static"
