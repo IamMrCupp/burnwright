@@ -41,7 +41,9 @@ with_db=(--infoic "$db/infoic.xml" --logicic "$db/logicic.xml")
 list() { local name="$1" q="$2" filter="$3"; run "$name" "${with_db[@]}" -q "$q" -L "$filter"; }
 info() { local name="$1" q="$2" chip="$3"; run "$name" "${with_db[@]}" -q "$q" -d "$chip"; }
 
-# Lists: -L <filter> prints the same lines as the full list, filtered.
+# Lists: -L <filter> prints the same lines as -l (the full list, which the
+# engine asks for), filtered. The full list is 600 KB, so it stays out of
+# the repo.
 list list_t48_w25q32 t48 W25Q32
 list list_t48_at28c256 t48 AT28C256          # ends with three (custom) entries
 list list_t48_93lc46 t48 93LC46              # every name twice: two manufacturers
@@ -66,9 +68,9 @@ info info_tl866ii_sm59r03a1c tl866ii SM59R03A1C                      # "TL866II 
 info info_t48_unknown t48 NOSUCHCHIP
 
 # Trouble.
-run list_t76_unsupported "${with_db[@]}" -q t76 -L ""
+run list_t76_unsupported "${with_db[@]}" -q t76 -l
 run list_t48_no_infoic --infoic "$missing/infoic.xml" --logicic "$db/logicic.xml" -q t48 -L 7400
-run list_t48_no_database --infoic "$missing/infoic.xml" --logicic "$missing/logicic.xml" -q t48 -L ""
+run list_t48_no_database --infoic "$missing/infoic.xml" --logicic "$missing/logicic.xml" -q t48 -l
 run info_t48_no_database --infoic "$missing/infoic.xml" --logicic "$missing/logicic.xml" -q t48 -d AT28C256
 
 ls -l "$out"

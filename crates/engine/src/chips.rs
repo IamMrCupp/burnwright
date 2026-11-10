@@ -10,12 +10,13 @@
 //!
 //! | call          | minipro 0.7.4 arguments     | output                  |
 //! |---------------|-----------------------------|-------------------------|
-//! | list chips    | `-q <programmer> -L ""`     | stdout, a name per line |
+//! | list chips    | `-q <programmer> -l`        | stdout, a name per line |
 //! | chip info     | `-q <programmer> -d <name>` | stderr, `Label: value`  |
 //!
-//! `-L ""` prints exactly what `-l` prints (the filter is a substring match,
-//! and every name contains the empty string). It's used because `-l` pipes
-//! its output through `less` or `more` on Windows, even into a pipe.
+//! On Windows, minipro pipes every `-l` through a pager, even into a pipe.
+//! The engine names a pass-through one in `PAGER` for that run (see
+//! `WINDOWS_LIST_PAGER` in `cli.rs`), so the list arrives the same way on
+//! every OS.
 //!
 //! What minipro 0.7.4 does that the callers should know:
 //!
@@ -32,7 +33,7 @@
 //!   `TL866A/CS` for every chip unless the model is exactly `tl866ii`.
 //!   [`chip_info`](crate::Engine::chip_info) asks again as `tl866ii` when it
 //!   sees that.
-//! - **A missing database isn't always an error exit.** `-L` exits 0 with a
+//! - **A missing database isn't always an error exit.** `-l` exits 0 with a
 //!   short or empty list and a `…xml: No such file or directory` line on
 //!   stderr. That line is what [`database_problem`] looks for.
 //!
@@ -155,7 +156,7 @@ pub struct ChipList {
 }
 
 impl ChipList {
-    /// Parse the stdout of `minipro -q <programmer> -L ""`: one name per
+    /// Parse the stdout of `minipro -q <programmer> -l`: one name per
     /// line, in database order.
     ///
     /// A line that can't be a chip name (blank, containing whitespace or
@@ -280,7 +281,7 @@ impl ChipList {
     }
 }
 
-/// Whether a line of `-L` output can be a chip name. Real names have no
+/// Whether a line of `-l` output can be a chip name. Real names have no
 /// whitespace: minipro splits its name lists on commas and prints each token
 /// alone on a line.
 fn is_chip_name(name: &str) -> bool {
@@ -685,7 +686,7 @@ impl ChipCatalog {
     }
 }
 
-/// Turn a finished `-L` run into a list, or the reason there isn't one.
+/// Turn a finished `-l` run into a list, or the reason there isn't one.
 pub(crate) fn list_from_output(
     programmer: Programmer,
     stdout: &[u8],

@@ -13,7 +13,7 @@
 //! | verify         | `-p <part> -c <kind> -m -`           | stdin         |
 //! | blank check    | `-p <part> -b`                       |               |
 //! | erase          | `-p <part> -E`                       |               |
-//! | list chips     | `-q <programmer> -L ""`              | stdout        |
+//! | list chips     | `-q <programmer> -l`                 | stdout        |
 //! | chip info      | `-q <programmer> -d <name>`          |               |
 //!
 //! The last two read minipro's chip database and never open a programmer;
@@ -107,6 +107,19 @@ impl MiniproEngine {
         stdin: Option<&[u8]>,
         ctx: &OpContext,
     ) -> Result<ProcessOutput, ProcessError> {
+        self.run_raw_env(operation, args, &[], stdin, ctx)
+    }
+
+    /// [`run_raw`](Self::run_raw) with extra environment variables for this
+    /// run only.
+    fn run_raw_env(
+        &self,
+        operation: Operation,
+        args: Vec<OsString>,
+        envs: &[(&str, &str)],
+        stdin: Option<&[u8]>,
+        ctx: &OpContext,
+    ) -> Result<ProcessOutput, ProcessError> {
         if ctx.is_cancelled() {
             return Err(ProcessError::Cancelled {
                 operation,
@@ -118,6 +131,9 @@ impl MiniproEngine {
             .command(operation)
             .args(args)
             .cancel_handle(ctx.cancel_handle());
+        for (key, value) in envs {
+            command = command.env(key, value);
+        }
         if let Some(data) = stdin {
             command = command.stdin_data(data.to_vec());
         }
@@ -283,11 +299,10 @@ impl Engine for MiniproEngine {
     }
 
     fn list_chips(&self, programmer: Programmer, ctx: &OpContext) -> EngineResult<ChipList> {
-        // `-L ""` matches every name, so it prints what `-l` prints, without
-        // the pager `-l` starts on Windows.
-        let args = database_args(programmer, &["-L", ""]);
+        let args = database_args(programmer, &["-l"]);
+        let envs = list_env(cfg!(windows));
         let output = self
-            .run_raw(Operation::Other, args, None, ctx)
+            .run_raw_env(Operation::Other, args, &envs, None, ctx)
             .map_err(|err| database_error(programmer, None, err))?;
         chips::list_from_output(programmer, &output.stdout, &stderr_lines(&output.stderr))
     }
@@ -344,6 +359,28 @@ fn database_args(programmer: Programmer, rest: &[&str]) -> Vec<OsString> {
     let mut args: Vec<OsString> = vec!["-q".into(), programmer.as_minipro_arg().into()];
     args.extend(rest.iter().map(OsString::from));
     args
+}
+
+/// What minipro's Windows build pipes `-l` through, in place of `less` or
+/// `more`: a filter that copies every line and never waits for a key.
+///
+/// On Windows `print_devices_and_exit()` in `main.c` starts a pager for every
+/// `-l`, even when stdout is a pipe (it tests `_fileno(stdout)`, which is
+/// always 1), and takes the program from `PAGER`. Leaving that to chance
+/// means `less` if one is on `PATH`, else `more`, or whatever the user's own
+/// `PAGER` names. `-L ""` would skip the pager, but it lists nothing there:
+/// the Windows build matches names with `StrStrIA`, which never finds an
+/// empty string.
+const WINDOWS_LIST_PAGER: &str = "findstr \"^\"";
+
+/// The environment for a `-l` run: the pass-through pager on Windows,
+/// nothing elsewhere (minipro only pages into a terminal there).
+fn list_env(windows: bool) -> Vec<(&'static str, &'static str)> {
+    if windows {
+        vec![("PAGER", WINDOWS_LIST_PAGER)]
+    } else {
+        Vec::new()
+    }
 }
 
 /// Why a chip-database run failed. minipro exits non-zero for a model it
@@ -849,8 +886,8 @@ mod tests {
     #[test]
     fn database_runs_always_name_the_programmer() {
         assert_eq!(
-            database_args(Programmer::T48, &["-L", ""]),
-            ["-q", "t48", "-L", ""].map(OsString::from).to_vec()
+            database_args(Programmer::T48, &["-l"]),
+            ["-q", "t48", "-l"].map(OsString::from).to_vec()
         );
         assert_eq!(
             database_args(Programmer::Tl866a, &["-d", "AT28C256"]),
@@ -858,6 +895,12 @@ mod tests {
                 .map(OsString::from)
                 .to_vec()
         );
+    }
+
+    #[test]
+    fn a_list_gets_a_pass_through_pager_on_windows_only() {
+        assert_eq!(list_env(true), [("PAGER", "findstr \"^\"")]);
+        assert!(list_env(false).is_empty());
     }
 
     fn failed(stderr: &str) -> ProcessError {

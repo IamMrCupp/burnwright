@@ -266,7 +266,7 @@ pub trait Engine {
     fn blank_check(&self, part: &str, ctx: &OpContext) -> EngineResult<bool>;
     /// Erase `part` (minipro `-E`).
     fn erase(&self, part: &str, ctx: &OpContext) -> EngineResult<()>;
-    /// Every chip minipro lists for `programmer` (minipro `-q … -L ""`).
+    /// Every chip minipro lists for `programmer` (minipro `-q … -l`).
     /// Reads the chip database only: no programmer has to be connected, and
     /// one that is connected isn't touched. Runs minipro every time; go
     /// through a [`ChipCatalog`] to load each list once.

@@ -768,7 +768,7 @@ fn chip_stdout(name: &str) -> Vec<u8> {
     fs::read(&path).unwrap_or_else(|e| panic!("fixture {path}: {e}"))
 }
 
-/// A fake that answers `-L` with the captured W25Q32 list.
+/// A fake that answers `-l` with the captured W25Q32 list.
 fn listing_fake(name: &str) -> Fake {
     Fake::new(name)
         .fixture("chips/list_t48_w25q32.stderr")
@@ -783,15 +783,14 @@ fn list_chips_parses_what_minipro_prints() {
     let entry = list.get("w25q32bv@soic8").expect("W25Q32BV@SOIC8 listed");
     assert_eq!(entry.name, "W25Q32BV@SOIC8");
     assert_eq!(entry.package.as_deref(), Some("SOIC8"));
-    // -q always, so minipro never looks for a programmer; -L "" for the
-    // whole list without Windows' pager.
-    assert_eq!(fake.calls(), vec![args(&["-q", "t48", "-L", ""])]);
+    // -q always, so minipro never looks for a programmer.
+    assert_eq!(fake.calls(), vec![args(&["-q", "t48", "-l"])]);
 
     let fake = listing_fake("list-tl866a");
     fake.engine()
         .list_chips(Programmer::Tl866a, &ctx())
         .unwrap();
-    assert_eq!(fake.calls(), vec![args(&["-q", "tl866a", "-L", ""])]);
+    assert_eq!(fake.calls(), vec![args(&["-q", "tl866a", "-l"])]);
 }
 
 fn list_chips_reports_a_missing_database() {
@@ -823,7 +822,7 @@ fn list_chips_for_a_programmer_minipro_does_not_know() {
         fake.engine().list_chips(Programmer::T76, &ctx()),
         Err(EngineError::UnsupportedProgrammer("T76".into()))
     );
-    assert_eq!(fake.calls(), vec![args(&["-q", "t76", "-L", ""])]);
+    assert_eq!(fake.calls(), vec![args(&["-q", "t76", "-l"])]);
 }
 
 fn chip_info_parses_what_minipro_prints() {
@@ -968,10 +967,7 @@ fn the_catalog_runs_minipro_once_per_list() {
     catalog.list(&engine, Programmer::T56, &ctx()).unwrap();
     assert_eq!(
         fake.calls(),
-        vec![
-            args(&["-q", "t48", "-L", ""]),
-            args(&["-q", "t56", "-L", ""]),
-        ]
+        vec![args(&["-q", "t48", "-l"]), args(&["-q", "t56", "-l"]),]
     );
 
     catalog.clear();
