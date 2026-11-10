@@ -9,7 +9,6 @@
 * **hexview:** add a diff view with highlighting and difference navigation ([8edead9](https://github.com/IamMrCupp/burnwright/commit/8edead9456e1c434b0ff50c213f938da9d0cb353))
 * **hexview:** add a range-based byte buffer diff with fixture tests ([8edead9](https://github.com/IamMrCupp/burnwright/commit/8edead9456e1c434b0ff50c213f938da9d0cb353))
 * **release:** attach unsigned installers and SHA256SUMS to each GitHub release ([649275a](https://github.com/IamMrCupp/burnwright/commit/649275aed571323a67e1593267e902f649b5203d))
-* **release:** attach unsigned installers and SHA256SUMS to each GitHub release ([c23fee3](https://github.com/IamMrCupp/burnwright/commit/c23fee388f15b9b0f572607c75366bba0369fe73))
 
 ## [0.3.0](https://github.com/IamMrCupp/burnwright/compare/v0.2.0...v0.3.0) (2026-11-09)
 
