@@ -14,6 +14,7 @@ import {
   engine,
   errorMessage,
   isEngineError,
+  isNoProgrammer,
   mutatesDevice,
   type ProgressEvent,
 } from "./engine";
@@ -109,6 +110,15 @@ describe("device commands", () => {
   });
 });
 
+describe("diagnoseProgrammer", () => {
+  it("invokes diagnose_programmer with no arguments", async () => {
+    const diagnosis = { os: "linux", programmers: [], probe_error: null };
+    invoke.mockResolvedValueOnce(diagnosis);
+    await expect(engine.diagnoseProgrammer()).resolves.toEqual(diagnosis);
+    expect(invoke).toHaveBeenCalledWith("diagnose_programmer");
+  });
+});
+
 describe("errors", () => {
   const cancelledWrite = {
     kind: "cancelled",
@@ -138,6 +148,13 @@ describe("errors", () => {
     expect(errorMessage(cancelledWrite)).toBe(cancelledWrite.message);
     expect(errorMessage(new Error("bad"))).toBe("bad");
     expect(errorMessage("plain")).toBe("plain");
+  });
+
+  it("spots a missing programmer", () => {
+    const none = { kind: "no_programmer", message: "x", device_state: null };
+    expect(isNoProgrammer(none)).toBe(true);
+    expect(isNoProgrammer(cancelledWrite)).toBe(false);
+    expect(isNoProgrammer("no_programmer")).toBe(false);
   });
 
   it("knows which operations change the chip", () => {

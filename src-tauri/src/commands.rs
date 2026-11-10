@@ -17,6 +17,7 @@
 
 use std::path::PathBuf;
 
+use engine::diagnose::Diagnosis;
 use engine::{
     ChipCheck, DeviceInfo, DeviceState, Engine, EngineError, EngineResult, ImageFormat, MemoryKind,
     MiniproEngine, MiniproSource, OpContext, ProgressEvent,
@@ -195,6 +196,24 @@ pub async fn erase(
     .await
 }
 
+/// Why no programmer was found: ask the OS which known programmers are
+/// plugged in and what's in the way of each (driver, permissions, udev
+/// rules). The UI calls it after `detect` fails with `no_programmer`.
+///
+/// Read-only and never claims the programmer, so it doesn't take the
+/// one-operation lock. It doesn't fail: a probe that can't run says so in
+/// `probe_error`.
+#[tauri::command]
+pub async fn diagnose_programmer() -> Diagnosis {
+    tauri::async_runtime::spawn_blocking(engine::diagnose::diagnose)
+        .await
+        .unwrap_or_else(|e| Diagnosis {
+            os: engine::diagnose::HostOs::current(),
+            programmers: Vec::new(),
+            probe_error: Some(format!("diagnosis task failed: {e}")),
+        })
+}
+
 /// Cancel device operation `op_id`. Returns whether it was running. The UI
 /// should confirm before cancelling a write or erase: the chip is left
 /// partly programmed.
@@ -362,6 +381,13 @@ mod tests {
         let err = tauri::async_runtime::block_on(run_op(&ops, "op".into(), |_| {}, |_, _| Ok(())))
             .unwrap_err();
         assert_eq!(err.kind, "busy");
+    }
+
+    #[test]
+    fn diagnose_programmer_reports_this_os() {
+        let diagnosis = tauri::async_runtime::block_on(diagnose_programmer());
+        assert_eq!(diagnosis.os, engine::diagnose::HostOs::current());
+        assert_eq!(diagnosis.probe_error, None);
     }
 
     #[test]

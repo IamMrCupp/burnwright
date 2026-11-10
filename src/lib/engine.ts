@@ -111,6 +111,74 @@ export interface MiniproLocation {
   source: "configured" | "env" | "sidecar" | "path" | "explicit";
 }
 
+/** OS a diagnosis ran on (mirrors `engine::diagnose::HostOs`). */
+export type HostOs = "linux" | "windows" | "macos" | "other";
+
+/** Why a bound Windows driver is no use (mirrors `engine::diagnose::WrongDriverReason`). */
+export type WrongDriverReason = "not_winusb" | "libusbk_dll_missing";
+
+/** What's in the way of one programmer (mirrors `engine::diagnose::ProgrammerState`). */
+export type ProgrammerState =
+  /** Present and usable as far as the OS can tell: something else has it open. */
+  | {
+      kind: "ready";
+      /** Windows: the bound service, e.g. "WinUSB". */
+      driver: string | null;
+      /** Windows: XGecu's interface GUID is registered too, so Xgpro sees it. */
+      xgpro_compatible: boolean | null;
+    }
+  /** The bundled minipro doesn't support this model yet (T76). */
+  | { kind: "unsupported_model" }
+  /** Linux: no permission and no minipro udev rules. */
+  | {
+      kind: "udev_rules_missing";
+      node: string;
+      appimage: boolean;
+      install_command: string;
+    }
+  /** Linux: the device node belongs to a group the user isn't in. */
+  | { kind: "not_in_group"; node: string; group: string; command: string }
+  /** Linux: rules are installed but haven't applied to this device. */
+  | {
+      kind: "udev_rules_not_applied";
+      node: string;
+      rules_files: string[];
+      reload_command: string;
+    }
+  /** Linux: the device node is missing or won't open. */
+  | { kind: "node_unavailable"; node: string; error: string }
+  /** Windows: no driver bound (Code 28). */
+  | { kind: "no_driver" }
+  /** Windows: a driver libusb can't use. */
+  | {
+      kind: "wrong_driver";
+      service: string;
+      provider: string | null;
+      reason: WrongDriverReason;
+    }
+  /** Windows: the device has a problem code. */
+  | { kind: "device_problem"; code: number; service: string | null };
+
+/** One programmer found on USB (mirrors `engine::diagnose::ProgrammerReport`). */
+export interface ProgrammerReport {
+  /** e.g. "TL866II+ / T48 / T56". */
+  models: string;
+  /** "vvvv:pppp", lowercase hex. */
+  usb_id: string;
+  /** Where it's plugged in, in the OS's terms. */
+  location: string;
+  state: ProgrammerState;
+}
+
+/** Why no programmer was found (mirrors `engine::diagnose::Diagnosis`). */
+export interface Diagnosis {
+  os: HostOs;
+  /** Empty: nothing plugged in (unless `probe_error` is set or `os` is "other"). */
+  programmers: ProgrammerReport[];
+  /** The OS probe couldn't run, so `programmers` says nothing. */
+  probe_error: string | null;
+}
+
 /** On-disk image format (mirrors `engine::ImageFormat`). */
 export type ImageFormat = "bin" | "intel_hex";
 
@@ -146,6 +214,11 @@ export function isEngineError(err: unknown): err is EngineError {
     typeof (err as EngineError).kind === "string" &&
     typeof (err as EngineError).message === "string"
   );
+}
+
+/** True when `err` means minipro found no programmer: time to `diagnoseProgrammer`. */
+export function isNoProgrammer(err: unknown): boolean {
+  return isEngineError(err) && err.kind === "no_programmer";
 }
 
 /** True when `err` is a cancelled write or erase: the chip may be partly programmed. */
@@ -218,6 +291,12 @@ export const engine = {
    */
   setMiniproPath: (path: string | null): Promise<MiniproLocation> =>
     invoke("set_minipro_path", { path }),
+  /**
+   * Ask the OS why no programmer was found: which known programmers are on
+   * USB, and what's in the way of each. Call it after `detect` rejects with
+   * `no_programmer`. Never rejects; doesn't claim the programmer.
+   */
+  diagnoseProgrammer: (): Promise<Diagnosis> => invoke("diagnose_programmer"),
   /** Detect the connected programmer and its firmware. */
   detect: (options?: OperationOptions): Promise<DeviceInfo> =>
     deviceOp("detect", {}, options),

@@ -26,6 +26,7 @@ pub fn run() {
             commands::blank_check,
             commands::erase,
             commands::cancel_operation,
+            commands::diagnose_programmer,
             commands::minipro_location,
             commands::set_minipro_path,
             commands::load_image,

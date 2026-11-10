@@ -1,17 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import { DetectPanel } from "./components/detect";
 import { HexDiffView, HexEditor } from "./components/hexview";
-import {
-  engine,
-  errorMessage,
-  type AppInfo,
-  type DeviceInfo,
-} from "./lib/engine";
+import { engine, type AppInfo } from "./lib/engine";
 import { makeDiffSample } from "./lib/sampleBuffer";
 import "./App.css";
 
 function App() {
-  const [status, setStatus] = useState("Idle");
-  const [device, setDevice] = useState<DeviceInfo | null>(null);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const sample = useMemo(() => makeDiffSample(), []);
   const [edited, setEdited] = useState<Uint8Array | null>(null);
@@ -19,17 +13,6 @@ function App() {
   useEffect(() => {
     engine.appInfo().then(setInfo, () => setInfo(null));
   }, []);
-
-  async function detect() {
-    setStatus("Detecting…");
-    setDevice(null);
-    try {
-      setDevice(await engine.detect());
-      setStatus("Device detected");
-    } catch (err) {
-      setStatus(`Detect failed — ${errorMessage(err)}`);
-    }
-  }
 
   return (
     <main className="container">
@@ -39,15 +22,7 @@ function App() {
         scaffold.
       </p>
 
-      <div className="row">
-        <button type="button" onClick={detect}>
-          Detect device
-        </button>
-      </div>
-
-      <p>{status}</p>
-
-      {device && <pre>{JSON.stringify(device, null, 2)}</pre>}
+      <DetectPanel />
 
       <section className="hex-demo">
         <h2>Edit the read</h2>
