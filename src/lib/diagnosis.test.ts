@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { explainDiagnosis } from "./diagnosis";
+import {
+  explainDiagnosis,
+  formatLinkSpeed,
+  T76_USB3_ISSUE_URL,
+} from "./diagnosis";
 import type {
   Diagnosis,
   HostOs,
@@ -9,6 +13,7 @@ import type {
 
 const T48 = { models: "TL866II+ / T48 / T56", usb_id: "a466:0a53" };
 const TL866A = { models: "TL866A / TL866CS", usb_id: "04d8:e11c" };
+const T76 = { models: "T76", usb_id: "a466:1a86" };
 
 function diagnosis(
   os: HostOs,
@@ -224,12 +229,67 @@ describe("explainDiagnosis: Windows", () => {
 describe("explainDiagnosis: other cases", () => {
   it("says an unsupported model needs a newer minipro", () => {
     const e = only(
-      diagnosis("macos", [{ kind: "unsupported_model" }], {
-        models: "T76",
-        usb_id: "a466:1a86",
-      }),
+      diagnosis("macos", [{ kind: "unsupported_model" }], T76),
     );
     expect(e.title).toBe("The T76 isn't supported yet");
+  });
+
+  it("tells a Mac user to move a T76 off USB 3", () => {
+    const e = only(
+      diagnosis(
+        "macos",
+        [
+          {
+            kind: "usb3_link",
+            link_speed_bps: 5_000_000_000,
+            model_supported: true,
+          },
+        ],
+        T76,
+      ),
+    );
+    expect(e.title).toBe("The T76 is on a USB 3 link");
+    expect(e.detail).toContain("It's linked at 5 Gb/s.");
+    expect(e.detail).toMatch(/Apple Silicon/);
+    expect(e.detail).toMatch(
+      /through a USB 2\.0 hub or with a USB 2\.0-only cable/,
+    );
+    expect(e.detail).not.toMatch(/newer burnwright/);
+    expect(e.command).toBeNull();
+    expect(e.programmer).toBe("T76 (a466:1a86)");
+    expect(e.link?.url).toBe(T76_USB3_ISSUE_URL);
+    expect(e.link?.url).toMatch(/\/issues\/50$/);
+  });
+
+  it("adds that this minipro can't drive the T76 yet when it can't", () => {
+    const e = only(
+      diagnosis(
+        "macos",
+        [
+          {
+            kind: "usb3_link",
+            link_speed_bps: 5_000_000_000,
+            model_supported: false,
+          },
+        ],
+        T76,
+      ),
+    );
+    expect(e.detail).toMatch(/USB 2\.0 hub/);
+    expect(e.detail).toMatch(
+      /doesn't support the T76 yet either, so it also needs a newer burnwright/,
+    );
+  });
+
+  it("has no link on other explanations", () => {
+    expect(only(diagnosis("linux")).link).toBeUndefined();
+  });
+
+  it("formats link speeds", () => {
+    expect(formatLinkSpeed(5_000_000_000)).toBe("5 Gb/s");
+    expect(formatLinkSpeed(10_000_000_000)).toBe("10 Gb/s");
+    expect(formatLinkSpeed(480_000_000)).toBe("480 Mb/s");
+    expect(formatLinkSpeed(1_500_000)).toBe("1.5 Mb/s");
   });
 
   it("explains each programmer found", () => {

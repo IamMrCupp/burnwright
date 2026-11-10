@@ -13,7 +13,19 @@ export interface Explanation {
   command: string | null;
   /** Which programmer this is about, e.g. "TL866II+ / T48 / T56 (a466:0a53)". */
   programmer: string | null;
+  /** Somewhere to read the background, when there is one. */
+  link?: ExplanationLink;
 }
+
+/** A web page behind an explanation. */
+export interface ExplanationLink {
+  label: string;
+  url: string;
+}
+
+/** Why a T76 on an Apple Silicon Mac needs a USB 2.0 path. */
+export const T76_USB3_ISSUE_URL =
+  "https://github.com/IamMrCupp/burnwright/issues/50";
 
 /** The TL866A/CS: its own Windows driver isn't WinUSB, so switching costs the MiniPro app. */
 const TL866A_ID = "04d8:e11c";
@@ -78,6 +90,17 @@ function explainState(
         detail:
           "The bundled minipro doesn't know this programmer. It needs a newer minipro release.",
         command: null,
+      };
+    case "usb3_link":
+      return {
+        title: `The ${report.models} is on a USB 3 link`,
+        detail: `It's linked at ${formatLinkSpeed(state.link_speed_bps)}. On Apple Silicon Macs the ${report.models} shows up at USB 3 speed but never answers, so minipro can't find it. Connect it through a USB 2.0 hub or with a USB 2.0-only cable, then detect again.${
+          state.model_supported
+            ? ""
+            : ` The minipro in this build doesn't support the ${report.models} yet either, so it also needs a newer burnwright.`
+        }`,
+        command: null,
+        link: { label: "Background: burnwright issue #50", url: T76_USB3_ISSUE_URL },
       };
     case "udev_rules_missing":
       return {
@@ -159,4 +182,10 @@ function explainReady(
       "It's plugged in and you can open it, so another program probably has it: close any other minipro, then detect again. If you just plugged it in, give it a second.",
     command: null,
   };
+}
+
+/** "5 Gb/s", "480 Mb/s": a USB link speed the way people say it. */
+export function formatLinkSpeed(bps: number): string {
+  const trim = (n: number) => String(Math.round(n * 10) / 10);
+  return bps >= 1e9 ? `${trim(bps / 1e9)} Gb/s` : `${trim(bps / 1e6)} Mb/s`;
 }

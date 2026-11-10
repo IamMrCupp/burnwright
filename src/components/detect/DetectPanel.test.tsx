@@ -53,14 +53,57 @@ describe("DetectPanel", () => {
   it("shows the device when detect works", async () => {
     detect.mockResolvedValueOnce({
       programmer: "T48",
-      firmware: "01.1.31",
+      firmware: "01.1.32",
       chip: null,
+      firmware_status: null,
+      firmware_expected: null,
+      support_warning: null,
     });
     render(<DetectPanel />);
     clickDetect();
     expect(await screen.findByText("Device detected")).toBeInTheDocument();
     expect(screen.getByText(/"programmer": "T48"/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(diagnoseProgrammer).not.toHaveBeenCalled();
+  });
+
+  it("warns about out-of-date firmware after a detect", async () => {
+    detect.mockResolvedValueOnce({
+      programmer: "T48",
+      firmware: "00.1.03",
+      chip: null,
+      firmware_status: "out_of_date",
+      firmware_expected: "01.1.32",
+      support_warning: "T48 support is not yet complete!",
+    });
+    render(<DetectPanel />);
+    clickDetect();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Firmware is out of date");
+    expect(alert).toHaveTextContent(
+      "This T48 runs firmware 00.1.03, and minipro expects 01.1.32.",
+    );
+    expect(
+      screen.getByRole("heading", { name: /T48 support is not yet complete/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Device detected");
+  });
+
+  it("clears the firmware warning when detecting again", async () => {
+    detect.mockResolvedValueOnce({
+      programmer: "T48",
+      firmware: "00.1.03",
+      chip: null,
+      firmware_status: "out_of_date",
+      firmware_expected: "01.1.32",
+      support_warning: null,
+    });
+    render(<DetectPanel />);
+    clickDetect();
+    await screen.findByRole("alert");
+    detect.mockReturnValueOnce(new Promise(() => {}));
+    clickDetect();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("diagnoses a missing programmer and shows the fix", async () => {

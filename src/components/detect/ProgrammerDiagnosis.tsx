@@ -1,5 +1,10 @@
-import { useState } from "react";
-import { explainDiagnosis, type Explanation } from "../../lib/diagnosis";
+import { useState, type MouseEvent } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import {
+  explainDiagnosis,
+  type Explanation,
+  type ExplanationLink,
+} from "../../lib/diagnosis";
 import type { Diagnosis } from "../../lib/engine";
 import "./ProgrammerDiagnosis.css";
 
@@ -28,7 +33,30 @@ function ExplanationCard({ explanation }: { explanation: Explanation }) {
       )}
       <p>{explanation.detail}</p>
       {explanation.command && <CopyableCommand command={explanation.command} />}
+      {explanation.link && <BackgroundLink link={explanation.link} />}
     </article>
+  );
+}
+
+/** Opens in the system browser: the app's own window isn't one. */
+function BackgroundLink({ link }: { link: ExplanationLink }) {
+  const [failed, setFailed] = useState(false);
+
+  function open(event: MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    openUrl(link.url).then(
+      () => setFailed(false),
+      () => setFailed(true),
+    );
+  }
+
+  return (
+    <p className="diagnosis-link">
+      <a href={link.url} onClick={open}>
+        {link.label}
+      </a>
+      {failed && <span role="status"> Couldn't open it: {link.url}</span>}
+    </p>
   );
 }
 

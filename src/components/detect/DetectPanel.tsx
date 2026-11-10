@@ -6,11 +6,13 @@ import {
   type DeviceInfo,
   type Diagnosis,
 } from "../../lib/engine";
+import { DeviceNotices } from "./DeviceNotices";
 import { ProgrammerDiagnosis } from "./ProgrammerDiagnosis";
 
 /**
- * The Detect button and what it found. When minipro finds no programmer,
- * it asks the OS why and shows the fix.
+ * The Detect button and what it found, with any firmware or support warning
+ * minipro printed. When minipro finds no programmer, it asks the OS why and
+ * shows the fix.
  */
 export function DetectPanel() {
   const [status, setStatus] = useState("Idle");
@@ -48,6 +50,7 @@ export function DetectPanel() {
       <p role="status">{status}</p>
 
       {device && <pre>{JSON.stringify(device, null, 2)}</pre>}
+      {device && <DeviceNotices device={device} />}
       {diagnosis && <ProgrammerDiagnosis diagnosis={diagnosis} />}
     </>
   );
