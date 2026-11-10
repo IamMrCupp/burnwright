@@ -121,8 +121,21 @@ impl MemoryKind {
     }
 }
 
+/// How the programmer's firmware compares with the version minipro was
+/// written for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FirmwareStatus {
+    /// Older than minipro expects (`Warning: Firmware is out of date.`).
+    /// Reads and writes may fail or misbehave until it's updated.
+    OutOfDate,
+    /// Newer than minipro expects (`Warning: Firmware is newer than
+    /// expected.`). Informational: this minipro hasn't seen that version.
+    NewerThanExpected,
+}
+
 /// Information about the connected programmer and (optionally) the chip.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceInfo {
     /// Programmer model, e.g. `"TL866II+"`, `"T48"`, `"T56"`.
     pub programmer: String,
@@ -130,6 +143,19 @@ pub struct DeviceInfo {
     pub firmware: Option<String>,
     /// Inserted / selected chip, if known.
     pub chip: Option<String>,
+    /// How `firmware` compares with the version minipro expects. `None` when
+    /// they match, or when minipro didn't say.
+    #[serde(default)]
+    pub firmware_status: Option<FirmwareStatus>,
+    /// The firmware version minipro expects, e.g. `"01.1.32"`. Set only
+    /// alongside `firmware_status`.
+    #[serde(default)]
+    pub firmware_expected: Option<String>,
+    /// minipro's own note about how well it supports this model, without the
+    /// `Warning:` prefix: `"T48 support is not yet complete!"`,
+    /// `"T76 support is experimental!"`.
+    #[serde(default)]
+    pub support_warning: Option<String>,
 }
 
 /// Receives progress events from a running operation, on a background thread.
@@ -292,6 +318,43 @@ mod tests {
     fn memory_kind_serializes_lowercase() {
         let json = serde_json::to_string(&MemoryKind::Config).unwrap();
         assert_eq!(json, "\"config\"");
+    }
+
+    #[test]
+    fn device_info_serializes_firmware_warnings() {
+        let info = DeviceInfo {
+            programmer: "T48".into(),
+            firmware: Some("00.1.03".into()),
+            chip: None,
+            firmware_status: Some(FirmwareStatus::OutOfDate),
+            firmware_expected: Some("01.1.32".into()),
+            support_warning: Some("T48 support is not yet complete!".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(&info).unwrap(),
+            serde_json::json!({
+                "programmer": "T48",
+                "firmware": "00.1.03",
+                "chip": null,
+                "firmware_status": "out_of_date",
+                "firmware_expected": "01.1.32",
+                "support_warning": "T48 support is not yet complete!",
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(FirmwareStatus::NewerThanExpected).unwrap(),
+            "newer_than_expected"
+        );
+        // Older payloads without the new fields still load.
+        let old: DeviceInfo =
+            serde_json::from_str(r#"{"programmer":"T56","firmware":null,"chip":null}"#).unwrap();
+        assert_eq!(
+            old,
+            DeviceInfo {
+                programmer: "T56".into(),
+                ..Default::default()
+            }
+        );
     }
 
     #[test]

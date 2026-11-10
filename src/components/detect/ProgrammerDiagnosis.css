@@ -23,6 +23,11 @@
   color: #555555;
 }
 
+.diagnosis-link {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+}
+
 .diagnosis-command pre {
   overflow-x: auto;
   padding: 0.5rem 0.75rem;

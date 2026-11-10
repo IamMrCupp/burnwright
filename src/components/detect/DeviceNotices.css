@@ -1,0 +1,68 @@
+.device-notices {
+  max-width: 44rem;
+  margin: 1rem auto;
+  text-align: left;
+}
+
+.device-notice {
+  border: 1px solid #d0d0d0;
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  background: #ffffff;
+}
+
+.device-notice h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.05rem;
+}
+
+.device-notice p {
+  margin: 0;
+}
+
+.device-notice-tag {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #555555;
+}
+
+.device-notice-warning {
+  border-left-color: #b45309;
+  background: #fff8eb;
+}
+
+.device-notice-warning .device-notice-tag {
+  color: #92400e;
+}
+
+.device-notice-info {
+  border-left-color: #6b7280;
+}
+
+@media (prefers-color-scheme: dark) {
+  .device-notice {
+    border-color: #3a3a3a;
+    background: #1f1f1f;
+  }
+
+  .device-notice-tag {
+    color: #aaaaaa;
+  }
+
+  .device-notice-warning {
+    border-left-color: #f59e0b;
+    background: #2a2113;
+  }
+
+  .device-notice-warning .device-notice-tag {
+    color: #fbbf24;
+  }
+
+  .device-notice-info {
+    border-left-color: #9ca3af;
+  }
+}

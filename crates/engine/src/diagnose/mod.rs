@@ -11,8 +11,9 @@
 //! 1. A [`UsbProbe`] collects raw facts ([`HostFacts`]): the USB devices
 //!    whose IDs match a [`KnownProgrammer`], plus whatever the OS knows about
 //!    access to them (Linux: the `/dev/bus/usb` node and the udev rules;
-//!    Windows: the bound driver; macOS: nothing more than presence). This is
-//!    the only part that touches the OS, and it stays thin.
+//!    Windows: the bound driver; macOS: the USB link speed, because a T76
+//!    linked at USB 3 never answers there). This is the only part that
+//!    touches the OS, and it stays thin.
 //! 2. [`diagnose_facts`] maps those facts to a [`Diagnosis`]. It is pure, so
 //!    the mapping for every OS is unit-tested on every OS.
 //!
@@ -69,6 +70,13 @@ pub const KNOWN_PROGRAMMERS: [KnownProgrammer; 3] = [
     },
 ];
 
+/// The T76's USB ID. On Apple Silicon Macs it only answers over USB 2.0
+/// (issue #50).
+pub const T76_USB_ID: (u16, u16) = (0xa466, 0x1a86);
+
+/// The slowest USB 3 link, SuperSpeed: 5 Gb/s.
+pub const SUPERSPEED_BPS: u64 = 5_000_000_000;
+
 /// The known programmer with this USB ID, if any.
 pub fn known_programmer(vendor_id: u16, product_id: u16) -> Option<&'static KnownProgrammer> {
     KNOWN_PROGRAMMERS
@@ -122,6 +130,10 @@ pub struct UsbDeviceFacts {
     /// Where it's plugged in: a sysfs port path, a Windows location string or
     /// a macOS location ID.
     pub location: String,
+    /// The negotiated link speed in bits per second, when the probe reads
+    /// it: 480_000_000 for USB 2.0 High Speed, 5_000_000_000 for USB 3
+    /// SuperSpeed. Only the macOS probe does.
+    pub link_speed_bps: Option<u64>,
     pub access: AccessFacts,
 }
 
@@ -313,6 +325,16 @@ pub enum ProgrammerState {
     },
     /// The bundled minipro doesn't support this model yet.
     UnsupportedModel,
+    /// macOS: a T76 linked at USB 3 speed. On Apple Silicon it enumerates
+    /// but never answers a command, so minipro finds nothing. The fix is a
+    /// USB 2.0 hub or a USB 2.0-only cable (issue #50).
+    Usb3Link {
+        /// The link speed, in bits per second (5_000_000_000 for SuperSpeed).
+        link_speed_bps: u64,
+        /// Whether the bundled minipro knows the T76 at all. When it doesn't,
+        /// a USB 2.0 path alone won't be enough.
+        model_supported: bool,
+    },
     /// Linux: no permission, and no minipro udev rules are installed.
     UdevRulesMissing {
         node: String,
@@ -415,6 +437,14 @@ fn device_state(
     device: &UsbDeviceFacts,
     facts: &HostFacts,
 ) -> ProgrammerState {
+    // Checked before `supported`: the link is in the way whichever minipro
+    // runs, and the state carries both facts.
+    if let Some(link_speed_bps) = stuck_usb3_link(device, facts.os) {
+        return ProgrammerState::Usb3Link {
+            link_speed_bps,
+            model_supported: programmer.supported,
+        };
+    }
     if !programmer.supported {
         return ProgrammerState::UnsupportedModel;
     }
@@ -426,6 +456,17 @@ fn device_state(
         AccessFacts::Linux(access) => linux_state(access, facts),
         AccessFacts::Windows(driver) => windows_state(classify_driver(driver, programmer)),
     }
+}
+
+/// The link speed of a T76 that macOS linked at USB 3 (SuperSpeed or faster).
+/// Its CH569 misses the U1/U2 link-power wake handshake that Apple Silicon's
+/// xHCI insists on, so every transfer times out. Linux and Windows hosts are
+/// lenient, and at USB 2.0 speeds none of that machinery is used.
+fn stuck_usb3_link(device: &UsbDeviceFacts, os: HostOs) -> Option<u64> {
+    if os != HostOs::Macos || (device.vendor_id, device.product_id) != T76_USB_ID {
+        return None;
+    }
+    device.link_speed_bps.filter(|&bps| bps >= SUPERSPEED_BPS)
 }
 
 fn linux_state(access: &LinuxAccess, facts: &HostFacts) -> ProgrammerState {

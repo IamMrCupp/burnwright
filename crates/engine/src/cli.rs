@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use crate::locate::MiniproBinary;
 use crate::process::{DeviceState, ProcessError, ProcessOutput};
 use crate::progress::{Operation, ProgressEvent, ProgressParser};
-use crate::{DeviceInfo, Engine, EngineError, EngineResult, MemoryKind, OpContext};
+use crate::{DeviceInfo, Engine, EngineError, EngineResult, FirmwareStatus, MemoryKind, OpContext};
 
 /// Result of a pin-contact test (`-z`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -169,16 +169,16 @@ impl Engine for MiniproEngine {
         // chip database is missing, which doesn't matter here, so read its
         // stderr either way. The firmware is a nice-to-have: only a cancel
         // is fatal.
-        let firmware = match self.run_raw(Operation::Other, vec!["-V".into()], None, ctx) {
-            Ok(output) => parse_found(&output.stderr).and_then(|(_, fw)| fw),
-            Err(ProcessError::Failed { stderr, .. }) => parse_found(&stderr).and_then(|(_, fw)| fw),
+        let system = match self.run_raw(Operation::Other, vec!["-V".into()], None, ctx) {
+            Ok(output) => parse_system_info(&output.stderr),
+            Err(ProcessError::Failed { stderr, .. }) => parse_system_info(&stderr),
             Err(err @ ProcessError::Cancelled { .. }) => return Err(err.into()),
             Err(_) => None,
         };
+        // `-k` already named the model; keep its spelling.
         Ok(DeviceInfo {
             programmer,
-            firmware,
-            chip: None,
+            ..system.map(|s| s.into_device(None)).unwrap_or_default()
         })
     }
 
@@ -207,7 +207,7 @@ impl Engine for MiniproEngine {
         let lines = stderr_lines(&stderr);
         let pins = pin_check.then(|| parse_pins(&lines)).flatten();
         let chip_id = parse_chip_id(&lines);
-        let found = parse_found(&stderr);
+        let found = parse_system_info(&stderr);
 
         // A failure is a result only when we can say what it was: a chip ID
         // that doesn't match, or bad pin contact. Anything else (no
@@ -218,12 +218,8 @@ impl Engine for MiniproEngine {
             (_, None) => Err(EngineError::Minipro(
                 "minipro didn't report the programmer".into(),
             )),
-            (_, Some((programmer, firmware))) => Ok(ChipCheck {
-                device: DeviceInfo {
-                    programmer,
-                    firmware,
-                    chip: Some(part.to_string()),
-                },
+            (_, Some(system)) => Ok(ChipCheck {
+                device: system.into_device(Some(part.to_string())),
                 chip_id,
                 pins,
             }),
@@ -362,21 +358,94 @@ fn parse_presence(stderr: &str) -> EngineResult<String> {
     )))
 }
 
+/// What minipro prints about the programmer whenever it opens one
+/// (`minipro_print_system_info()` in `vendor/minipro/src/minipro.c`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SystemInfo {
+    model: String,
+    /// `None` in bootloader mode.
+    firmware: Option<String>,
+    firmware_status: Option<FirmwareStatus>,
+    firmware_expected: Option<String>,
+    support_warning: Option<String>,
+}
+
+impl SystemInfo {
+    fn into_device(self, chip: Option<String>) -> DeviceInfo {
+        DeviceInfo {
+            programmer: self.model,
+            firmware: self.firmware,
+            chip,
+            firmware_status: self.firmware_status,
+            firmware_expected: self.firmware_expected,
+            support_warning: self.support_warning,
+        }
+    }
+}
+
+/// The programmer block of minipro's stderr:
+///
+/// ```text
+/// Found T48 00.1.03 (0x103)
+/// Warning: T48 support is not yet complete!
+/// Warning: Firmware is out of date.
+///   Expected  01.1.32 (0x120)
+///   Found     00.1.03 (0x103)
+/// ```
+///
+/// Both warnings are optional, and the firmware one also comes as
+/// `Warning: Firmware is newer than expected.` with the same two lines under
+/// it. `"Found T48 in bootloader mode"` gives the model and no firmware.
+/// `None` when there's no `Found` line at all.
+fn parse_system_info(stderr: &str) -> Option<SystemInfo> {
+    let lines = stderr_lines(stderr);
+    let (start, mut info) = lines.iter().enumerate().find_map(|(i, line)| {
+        let (model, firmware) = parse_found_line(line)?;
+        Some((
+            i,
+            SystemInfo {
+                model,
+                firmware,
+                firmware_status: None,
+                firmware_expected: None,
+                support_warning: None,
+            },
+        ))
+    })?;
+    for line in &lines[start + 1..] {
+        if let Some(warning) = line.strip_prefix("Warning: ") {
+            if warning.starts_with("Firmware is out of date") {
+                info.firmware_status = Some(FirmwareStatus::OutOfDate);
+            } else if warning.starts_with("Firmware is newer than expected") {
+                info.firmware_status = Some(FirmwareStatus::NewerThanExpected);
+            } else if warning.contains(" support is ") && info.support_warning.is_none() {
+                info.support_warning = Some(warning.trim().to_string());
+            }
+        } else if info.firmware_status.is_some()
+            && info.firmware_expected.is_none()
+            && let Some(rest) = line.trim_start().strip_prefix("Expected ")
+        {
+            // "  Expected  01.1.32 (0x120)": the version, without the code.
+            info.firmware_expected = rest.split_whitespace().next().map(str::to_string);
+        }
+    }
+    Some(info)
+}
+
 /// `"Found T48 01.1.32 (0x120)"` → `("T48", Some("01.1.32"))`;
-/// `"Found T48 in bootloader mode"` → `("T48", None)`.
-fn parse_found(stderr: &str) -> Option<(String, Option<String>)> {
-    stderr_lines(stderr).into_iter().find_map(|line| {
-        let rest = line.strip_prefix("Found ")?;
-        if let Some(idx) = rest.find(" in bootloader mode") {
-            return Some((rest[..idx].to_string(), None));
-        }
-        let (head, code) = rest.rsplit_once(" (")?;
-        if !code.starts_with("0x") {
-            return None;
-        }
-        let (model, firmware) = head.rsplit_once(' ')?;
-        Some((model.to_string(), Some(firmware.to_string())))
-    })
+/// `"Found T48 in bootloader mode"` → `("T48", None)`. The indented
+/// `"  Found     00.1.03 (0x103)"` under a firmware warning doesn't match.
+fn parse_found_line(line: &str) -> Option<(String, Option<String>)> {
+    let rest = line.strip_prefix("Found ")?;
+    if let Some(idx) = rest.find(" in bootloader mode") {
+        return Some((rest[..idx].to_string(), None));
+    }
+    let (head, code) = rest.rsplit_once(" (")?;
+    if !code.starts_with("0x") {
+        return None;
+    }
+    let (model, firmware) = head.rsplit_once(' ')?;
+    Some((model.to_string(), Some(firmware.to_string())))
 }
 
 fn parse_pins(lines: &[String]) -> Option<PinCheck> {
@@ -479,18 +548,123 @@ mod tests {
         assert!(matches!(parse_presence(""), Err(EngineError::Minipro(_))));
     }
 
+    fn fixture(name: &str) -> String {
+        let path = format!("{}/fixtures/minipro/{name}", env!("CARGO_MANIFEST_DIR"));
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("fixture {path}: {e}"))
+    }
+
+    fn system(model: &str, firmware: &str) -> SystemInfo {
+        SystemInfo {
+            model: model.into(),
+            firmware: Some(firmware.into()),
+            firmware_status: None,
+            firmware_expected: None,
+            support_warning: None,
+        }
+    }
+
     #[test]
     fn found_line_gives_model_and_firmware() {
-        let stderr = "Found TL866II+ 04.2.131 (0x283)\nWarning: Firmware is out of date.\n  Expected  04.2.132 (0x284)\n  Found     04.2.131 (0x283)\n";
         assert_eq!(
-            parse_found(stderr),
-            Some(("TL866II+".into(), Some("04.2.131".into())))
+            parse_system_info("Found TL866II+ 04.2.132 (0x284)\nDevice code: 39C68E4A\n"),
+            Some(system("TL866II+", "04.2.132"))
         );
         assert_eq!(
-            parse_found("Found T48 in bootloader modein bootloader mode!\nExiting...\n"),
-            Some(("T48".into(), None))
+            parse_system_info("Found T48 in bootloader modein bootloader mode!\nExiting...\n"),
+            Some(SystemInfo {
+                firmware: None,
+                ..system("T48", "")
+            })
         );
-        assert_eq!(parse_found("No programmer found.\n"), None);
+        assert_eq!(parse_system_info("No programmer found.\n"), None);
+        // The indented "Found" under a firmware warning isn't a programmer.
+        assert_eq!(
+            parse_system_info("  Expected  01.1.32 (0x120)\n  Found     00.1.03 (0x103)\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn out_of_date_firmware_is_reported_with_the_expected_version() {
+        assert_eq!(
+            parse_system_info(&fixture("tl866ii_firmware_outdated.stderr")),
+            Some(SystemInfo {
+                firmware_status: Some(FirmwareStatus::OutOfDate),
+                firmware_expected: Some("04.2.132".into()),
+                ..system("TL866II+", "04.2.131")
+            })
+        );
+        // The user's T48 as it shipped, under the bundled 0.7.4.
+        assert_eq!(
+            parse_system_info(&fixture("version_t48_firmware_outdated.stderr")),
+            Some(SystemInfo {
+                firmware_status: Some(FirmwareStatus::OutOfDate),
+                firmware_expected: Some("01.1.32".into()),
+                support_warning: Some("T48 support is not yet complete!".into()),
+                ..system("T48", "00.1.03")
+            })
+        );
+    }
+
+    #[test]
+    fn newer_firmware_is_reported_as_newer() {
+        // The same T48 after the update to 1.35: 0.7.4 expects 1.32.
+        assert_eq!(
+            parse_system_info(&fixture("version_t48_firmware_newer.stderr")),
+            Some(SystemInfo {
+                firmware_status: Some(FirmwareStatus::NewerThanExpected),
+                firmware_expected: Some("01.1.32".into()),
+                support_warning: Some("T48 support is not yet complete!".into()),
+                ..system("T48", "00.1.35")
+            })
+        );
+    }
+
+    #[test]
+    fn t76_block_from_upstream_master_parses() {
+        assert_eq!(
+            parse_system_info(&fixture("t76_firmware_outdated.stderr")),
+            Some(SystemInfo {
+                firmware_status: Some(FirmwareStatus::OutOfDate),
+                firmware_expected: Some("00.1.17".into()),
+                support_warning: Some("T76 support is experimental!".into()),
+                ..system("T76", "00.1.07")
+            })
+        );
+    }
+
+    #[test]
+    fn support_warning_alone_leaves_the_firmware_fields_empty() {
+        assert_eq!(
+            parse_system_info(&fixture("version_t48.stderr")),
+            Some(SystemInfo {
+                support_warning: Some("T48 support is not yet complete!".into()),
+                ..system("T48", "01.1.32")
+            })
+        );
+        assert_eq!(
+            parse_system_info("Found T56 01.1.75 (0x14b)\nWarning: T56 support is experimental!\n"),
+            Some(SystemInfo {
+                support_warning: Some("T56 support is experimental!".into()),
+                ..system("T56", "01.1.75")
+            })
+        );
+    }
+
+    #[test]
+    fn a_firmware_warning_without_its_detail_lines_still_counts() {
+        assert_eq!(
+            parse_system_info("Found T48 00.1.03 (0x103)\nWarning: Firmware is out of date.\n"),
+            Some(SystemInfo {
+                firmware_status: Some(FirmwareStatus::OutOfDate),
+                ..system("T48", "00.1.03")
+            })
+        );
+        // An "Expected" line with no firmware warning above it is ignored.
+        assert_eq!(
+            parse_system_info("Found T48 01.1.32 (0x120)\n  Expected  01.1.32 (0x120)\n"),
+            Some(system("T48", "01.1.32"))
+        );
     }
 
     #[test]

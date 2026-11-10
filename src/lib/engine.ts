@@ -15,6 +15,13 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 /** Memory region of the target device (mirrors `engine::MemoryKind`). */
 export type MemoryKind = "code" | "data" | "config";
 
+/**
+ * How the programmer's firmware compares with the version minipro expects
+ * (mirrors `engine::FirmwareStatus`). `out_of_date` is worth acting on: reads
+ * and writes may misbehave. `newer_than_expected` is informational.
+ */
+export type FirmwareStatus = "out_of_date" | "newer_than_expected";
+
 /** Programmer / chip info (mirrors `engine::DeviceInfo`). */
 export interface DeviceInfo {
   /** Programmer model, e.g. "TL866II+", "T48", "T56". */
@@ -23,6 +30,12 @@ export interface DeviceInfo {
   firmware: string | null;
   /** Inserted / selected chip, if known. */
   chip: string | null;
+  /** `null` when the firmware is the version minipro expects, or it didn't say. */
+  firmware_status: FirmwareStatus | null;
+  /** The firmware version minipro expects, e.g. "01.1.32". Set only with `firmware_status`. */
+  firmware_expected: string | null;
+  /** minipro's own note on this model, e.g. "T48 support is not yet complete!". */
+  support_warning: string | null;
 }
 
 /** Pin-contact test result (mirrors `engine::PinCheck`). */
@@ -129,6 +142,17 @@ export type ProgrammerState =
     }
   /** The bundled minipro doesn't support this model yet (T76). */
   | { kind: "unsupported_model" }
+  /**
+   * macOS: a T76 linked at USB 3 speed. On Apple Silicon it never answers
+   * there; it needs a USB 2.0 hub or a USB 2.0-only cable (issue #50).
+   */
+  | {
+      kind: "usb3_link";
+      /** Bits per second: 5_000_000_000 for SuperSpeed. */
+      link_speed_bps: number;
+      /** `false`: the bundled minipro doesn't know the T76 either. */
+      model_supported: boolean;
+    }
   /** Linux: no permission and no minipro udev rules. */
   | {
       kind: "udev_rules_missing";
