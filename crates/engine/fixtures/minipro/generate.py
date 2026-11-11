@@ -93,6 +93,8 @@ fixtures = {
     # minipro -k  (print_connected_programmer_and_exit)
     "k_t48.stderr": "t48: T48\n",
     "k_none.stderr": "[No programmer found]\n",
+    # the T76 build only: upstream master 3e2f491 prints this for a T76
+    "k_t76.stderr": "t76: T76\n",
     # minipro -V  (print_version_and_exit, print_chip_count)
     "version_t48.stderr": "Supported programmers: TL866A/CS, TL866II+, T48, T56\n" + T48
         + "minipro version 0.7.4     A free and open TL866 series programmer\n"
