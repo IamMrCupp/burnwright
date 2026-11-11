@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use engine::diagnose::Diagnosis;
 use engine::{
     ChipCheck, DeviceInfo, DeviceState, Engine, EngineError, EngineResult, ImageFormat, MemoryKind,
-    MiniproEngine, MiniproSource, OpContext, ProgressEvent,
+    MiniproEngine, MiniproRoutes, MiniproSource, OpContext, ProgressEvent,
 };
 use serde::Serialize;
 use tauri::State;
@@ -63,25 +63,40 @@ impl From<EngineError> for CommandError {
 
 type CommandResult<T> = Result<T, CommandError>;
 
-/// Run one device operation: find minipro, claim the programmer, then run
-/// `op` on a blocking thread with progress going to `sink`.
+/// Run one device operation: find minipro (the build the last detected
+/// programmer needs), claim the programmer, then run `op` on a blocking
+/// thread with progress going to `sink`.
 async fn run_op<T, S, F>(ops: &DeviceOps, op_id: String, sink: S, op: F) -> CommandResult<T>
 where
     T: Send + 'static,
     S: Fn(ProgressEvent) + Send + Sync + 'static,
     F: FnOnce(&MiniproEngine, &OpContext) -> EngineResult<T> + Send + 'static,
 {
-    let binary = ops
-        .locator()
-        .locate()
-        .map_err(|e| EngineError::MiniproNotFound(e.to_string()))?;
+    let binary = locate_routes(ops)?.binary(ops.build()).clone();
+    let engine = MiniproEngine::new(binary);
+    run_blocking(ops, op_id, sink, move |ctx| op(&engine, ctx)).await
+}
+
+/// Claim the programmer, then run `op` on a blocking thread with progress
+/// going to `sink`.
+async fn run_blocking<T, S, F>(ops: &DeviceOps, op_id: String, sink: S, op: F) -> CommandResult<T>
+where
+    T: Send + 'static,
+    S: Fn(ProgressEvent) + Send + Sync + 'static,
+    F: FnOnce(&OpContext) -> EngineResult<T> + Send + 'static,
+{
     let (guard, cancel) = ops.begin(op_id)?;
     let ctx = OpContext::new().with_cancel(cancel).with_progress(sink);
-    let engine = MiniproEngine::new(binary);
-    let joined = tauri::async_runtime::spawn_blocking(move || op(&engine, &ctx)).await;
+    let joined = tauri::async_runtime::spawn_blocking(move || op(&ctx)).await;
     drop(guard);
     let result = joined.map_err(|e| EngineError::Minipro(format!("engine task failed: {e}")))?;
     Ok(result?)
+}
+
+fn locate_routes(ops: &DeviceOps) -> CommandResult<MiniproRoutes> {
+    ops.locator()
+        .locate_routes()
+        .map_err(|e| EngineError::MiniproNotFound(e.to_string()).into())
 }
 
 /// Forward progress to the frontend. A closed channel (the window went away)
@@ -92,17 +107,23 @@ fn channel_sink(channel: Channel<ProgressEvent>) -> impl Fn(ProgressEvent) + Sen
     }
 }
 
-/// Detect the connected programmer (minipro `-k`, then `-V`).
+/// Detect the connected programmer (minipro `-k`, then `-V`). When the
+/// stable minipro finds none, the T76 build gets a look too; whichever build
+/// the programmer needs drives every later operation (see
+/// `engine::route`).
 #[tauri::command]
 pub async fn detect(
     ops: State<'_, DeviceOps>,
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<DeviceInfo> {
-    run_op(&ops, op_id, channel_sink(on_progress), |e, ctx| {
-        e.detect(ctx)
+    let routes = locate_routes(&ops)?;
+    let (info, build) = run_blocking(&ops, op_id, channel_sink(on_progress), move |ctx| {
+        engine::route::detect(&routes, ctx)
     })
-    .await
+    .await?;
+    ops.set_build(build);
+    Ok(info)
 }
 
 /// Check the chip in the socket against `part` by ID (`-D`), optionally with

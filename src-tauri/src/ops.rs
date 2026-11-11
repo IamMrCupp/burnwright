@@ -1,6 +1,6 @@
 //! Device-operation bookkeeping for the command layer: one operation at a
-//! time, cancel by operation id, the configured minipro path and the bundled
-//! one.
+//! time, cancel by operation id, the configured minipro path, the bundled
+//! ones, and which bundled build the last detected programmer needs.
 //!
 //! The frontend picks an id for every device operation and passes it along.
 //! `cancel_operation(id)` then reaches the running operation's
@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use engine::{CancelHandle, EngineError, MiniproLocator};
+use engine::{CancelHandle, EngineError, MiniproBuild, MiniproLocator};
 
 /// How many early cancels to remember. Ids are random, so a stale one never
 /// matches a later operation; the cap only bounds memory.
@@ -30,6 +30,7 @@ struct Inner {
     early_cancels: VecDeque<String>,
     minipro_path: Option<PathBuf>,
     bundled: Bundled,
+    build: MiniproBuild,
 }
 
 /// Where the installer put minipro and its chip databases. Set once at
@@ -40,6 +41,10 @@ pub struct Bundled {
     pub sidecar: Option<PathBuf>,
     /// The folder holding its `infoic.xml` and `logicic.xml`.
     pub database: Option<PathBuf>,
+    /// The T76-only `burnwright-minipro-t76` sidecar.
+    pub t76_sidecar: Option<PathBuf>,
+    /// The folder holding the T76 sidecar's own databases.
+    pub t76_database: Option<PathBuf>,
 }
 
 impl Bundled {
@@ -47,15 +52,15 @@ impl Bundled {
     /// app's resource folder. See `docs/minipro-sidecar.md` for where each
     /// installer puts them.
     pub fn beside(exe: &std::path::Path, resource_dir: Option<PathBuf>) -> Self {
-        let sidecar = exe.parent().map(|dir| {
-            dir.join(format!(
-                "burnwright-minipro{}",
-                std::env::consts::EXE_SUFFIX
-            ))
-        });
+        let next_to_app = |name: &str| {
+            exe.parent()
+                .map(|dir| dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX)))
+        };
         Self {
-            sidecar,
-            database: resource_dir.map(|dir| dir.join("minipro")),
+            sidecar: next_to_app("burnwright-minipro"),
+            database: resource_dir.as_ref().map(|dir| dir.join("minipro")),
+            t76_sidecar: next_to_app("burnwright-minipro-t76"),
+            t76_database: resource_dir.map(|dir| dir.join("minipro-t76")),
         }
     }
 }
@@ -133,13 +138,26 @@ impl DeviceOps {
     }
 
     /// A locator over the configured path, `BURNWRIGHT_MINIPRO`, the bundled
-    /// sidecar and `PATH`, in that order.
+    /// sidecars and `PATH`, in that order.
     pub fn locator(&self) -> MiniproLocator {
         let bundled = self.lock().bundled.clone();
         MiniproLocator::from_env()
             .configured(self.minipro_path())
             .sidecar(bundled.sidecar)
             .sidecar_database(bundled.database)
+            .t76_sidecar(bundled.t76_sidecar)
+            .t76_sidecar_database(bundled.t76_database)
+    }
+
+    /// The bundled build the last detected programmer needs. Stable until a
+    /// detect finds a T76.
+    pub fn build(&self) -> MiniproBuild {
+        self.lock().build
+    }
+
+    /// Remember the build a detect picked.
+    pub fn set_build(&self, build: MiniproBuild) {
+        self.lock().build = build;
     }
 }
 
@@ -154,11 +172,14 @@ mod tests {
             Some(PathBuf::from("/opt/burnwright/res")),
         );
         let exe = format!("burnwright-minipro{}", std::env::consts::EXE_SUFFIX);
+        let t76_exe = format!("burnwright-minipro-t76{}", std::env::consts::EXE_SUFFIX);
         assert_eq!(
             bundled,
             Bundled {
                 sidecar: Some(PathBuf::from("/opt/burnwright").join(exe)),
                 database: Some(PathBuf::from("/opt/burnwright/res/minipro")),
+                t76_sidecar: Some(PathBuf::from("/opt/burnwright").join(t76_exe)),
+                t76_database: Some(PathBuf::from("/opt/burnwright/res/minipro-t76")),
             }
         );
     }
@@ -180,6 +201,14 @@ mod tests {
             "{err}"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_build_starts_stable_and_follows_detect() {
+        let ops = DeviceOps::default();
+        assert_eq!(ops.build(), MiniproBuild::Stable);
+        ops.set_build(MiniproBuild::T76);
+        assert_eq!(ops.build(), MiniproBuild::T76);
     }
 
     #[test]

@@ -346,7 +346,7 @@ fn parse_presence(stderr: &str) -> EngineResult<String> {
             ));
         }
         if let Some((id, model)) = line.split_once(": ")
-            && matches!(id, "tl866a" | "tl866ii" | "t48" | "t56")
+            && matches!(id, "tl866a" | "tl866ii" | "t48" | "t56" | "t76")
             && !model.trim().is_empty()
         {
             return Ok(model.trim().to_string());
@@ -526,6 +526,8 @@ mod tests {
             ("tl866ii: TL866II+\n", "TL866II+"),
             ("t48: T48\n", "T48"),
             ("t56: T56\n", "T56"),
+            // Only the T76 build prints this one (upstream main.c after 0.7.4).
+            ("t76: T76\n", "T76"),
         ] {
             assert_eq!(parse_presence(line).unwrap(), model);
         }
