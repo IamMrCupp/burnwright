@@ -30,9 +30,10 @@ section() { printf '\n=== %s ===\n' "$*"; }
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 
-# check_sidecar <label> <sidecar binary> <bundled minipro resource dir>
+# check_sidecar <label> <sidecar binary> <bundled minipro resource dir> [t76]
+# With "t76", the build must also count a T76 database.
 check_sidecar() {
-  local label="$1" bin="$2" res="$3" out
+  local label="$1" bin="$2" res="$3" variant="${4:-stable}" out
   section "$label: $bin"
   [ -x "$bin" ] || die "$label: no executable sidecar at $bin"
   for f in infoic.xml logicic.xml LICENSE.minipro.txt COPYING.libusb.txt NOTICE.txt; do
@@ -49,6 +50,9 @@ check_sidecar() {
   echo "$out"
   grep -q "minipro version" <<<"$out" || die "$label: --version didn't print a version"
   grep -qE "T48:[[:space:]]+[0-9]{4,} devices" <<<"$out" || die "$label: --version didn't count the T48 database"
+  if [ "$variant" = t76 ]; then
+    grep -qE "T76:[[:space:]]+[0-9]{4,} devices" <<<"$out" || die "$label: --version didn't count the T76 database"
+  fi
   grep -qF "Using overridden database file $res/infoic.xml" <<<"$out" \
     || die "$label: didn't use the bundled infoic.xml"
 
@@ -76,14 +80,19 @@ verify_macos() {
   local app="$apps/burnwright.app"
   find "$app" -type f | sed "s|^$apps/||"
 
-  local bin="$app/Contents/MacOS/$SIDECAR_NAME"
-  section "otool -L $SIDECAR_NAME"
-  otool -L "$bin"
-  if otool -L "$bin" | tail -n +2 | awk '{print $1}' | grep -vE '^(/usr/lib/|/System/Library/)'; then
-    die "sidecar links a library that macOS doesn't ship (Homebrew, @rpath, ...)"
-  fi
-  lipo -info "$bin"
-  check_sidecar "macOS .app" "$bin" "$app/Contents/Resources/minipro"
+  local name res variant bin
+  for name in "$SIDECAR_NAME" "$T76_SIDECAR_NAME"; do
+    res=minipro variant=stable
+    [ "$name" = "$T76_SIDECAR_NAME" ] && res=minipro-t76 variant=t76
+    bin="$app/Contents/MacOS/$name"
+    section "otool -L $name"
+    otool -L "$bin"
+    if otool -L "$bin" | tail -n +2 | awk '{print $1}' | grep -vE '^(/usr/lib/|/System/Library/)'; then
+      die "$name links a library that macOS doesn't ship (Homebrew, @rpath, ...)"
+    fi
+    lipo -info "$bin"
+    check_sidecar "macOS .app ($variant)" "$bin" "$app/Contents/Resources/$res" "$variant"
+  done
 }
 
 # check_libs <ELF>: every library resolves, and libusb isn't one of them.
@@ -190,9 +199,14 @@ verify_linux() {
   section "dpkg-deb -c $(basename "$deb")"
   listing="$(dpkg-deb -c "$deb")"
   echo "$listing"
-  grep -qE "(\./)?usr/bin/$SIDECAR_NAME\$" <<<"$listing" || die "deb lacks /usr/bin/$SIDECAR_NAME"
-  grep -qE "(\./)?usr/lib/burnwright/minipro/infoic\.xml\$" <<<"$listing" \
-    || die "deb lacks /usr/lib/burnwright/minipro/infoic.xml"
+  local name res
+  for name in "$SIDECAR_NAME" "$T76_SIDECAR_NAME"; do
+    grep -qE "(\./)?usr/bin/$name\$" <<<"$listing" || die "deb lacks /usr/bin/$name"
+  done
+  for res in minipro minipro-t76; do
+    grep -qE "(\./)?usr/lib/burnwright/$res/infoic\.xml\$" <<<"$listing" \
+      || die "deb lacks /usr/lib/burnwright/$res/infoic.xml"
+  done
   grep -q zlib1g <<<"$(dpkg-deb -f "$deb" Depends)" || die "deb doesn't declare zlib1g"
   check_deb_scripts "$deb" "$listing"
 
@@ -206,6 +220,8 @@ verify_linux() {
   [ "$status" = "install ok installed" ] || die "$pkg isn't fully installed: $status"
   check_libs "/usr/bin/$SIDECAR_NAME"
   check_sidecar ".deb (installed)" "/usr/bin/$SIDECAR_NAME" /usr/lib/burnwright/minipro
+  check_libs "/usr/bin/$T76_SIDECAR_NAME"
+  check_sidecar ".deb (installed, t76)" "/usr/bin/$T76_SIDECAR_NAME" /usr/lib/burnwright/minipro-t76 t76
   check_udev_rules "$UDEV_RULES_PATH"
   check_maintainer_script "$pkg" postinst configure
   check_maintainer_script "$pkg" postrm remove
@@ -218,6 +234,7 @@ verify_linux() {
   case "$status" in *" installed"|*" config-files") die "$pkg is still on the system: $status" ;; esac
   [ ! -e "$UDEV_RULES_PATH" ] || die "apt remove left $UDEV_RULES_PATH behind"
   [ ! -e "/usr/bin/$SIDECAR_NAME" ] || die "apt remove left /usr/bin/$SIDECAR_NAME behind"
+  [ ! -e "/usr/bin/$T76_SIDECAR_NAME" ] || die "apt remove left /usr/bin/$T76_SIDECAR_NAME behind"
   echo ".deb removed cleanly"
 
   section "extract $(basename "$appimage")"
@@ -231,6 +248,9 @@ verify_linux() {
   local bin="$root/usr/bin/$SIDECAR_NAME"
   check_libs "$bin"
   check_sidecar "AppImage" "$bin" "$root/usr/lib/burnwright/minipro"
+  bin="$root/usr/bin/$T76_SIDECAR_NAME"
+  check_libs "$bin"
+  check_sidecar "AppImage (t76)" "$bin" "$root/usr/lib/burnwright/minipro-t76" t76
 }
 
 case "${1:-}" in
