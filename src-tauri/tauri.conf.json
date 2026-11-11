@@ -37,10 +37,12 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/burnwright-minipro"
+      "binaries/burnwright-minipro",
+      "binaries/burnwright-minipro-t76"
     ],
     "resources": {
-      "binaries/minipro/*": "minipro/"
+      "binaries/minipro/*": "minipro/",
+      "binaries/minipro-t76/*": "minipro-t76/"
     },
     "linux": {
       "deb": {
