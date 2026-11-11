@@ -5,6 +5,45 @@ on a machine that's never seen Homebrew, a `-dev` package or MSYS2. It's built
 from the `vendor/minipro` submodule, never patched, and shipped as a Tauri
 sidecar (`bundle.externalBin`) with minipro's chip databases as resources.
 
+## Two builds: stable and T76
+
+There are actually two sidecars, built the same way from two pins of the same
+upstream repository:
+
+| | Submodule | Pinned at | Drives |
+|---|---|---|---|
+| `burnwright-minipro` | `vendor/minipro` | the 0.7.4 release | TL866A/CS, TL866II+, T48, T56 |
+| `burnwright-minipro-t76` | `vendor/minipro-t76` | upstream `master` 3e2f491 | the T76 only |
+
+0.7.4 can't see a T76 at all. The upstream commits that can also break AVR
+fuse reads and writes (upstream #382, #388) and some T48 writes (upstream
+#373), so no single commit is right for every programmer (#13).
+
+`detect` asks the stable build first. 0.7.4 looks only for the TL866 and
+TL866II-family USB IDs, so a lone T76 is "no programmer" to it; only then
+does the T76 build get a look. Whichever build the detected programmer needs
+drives every operation after that (`crates/engine/src/route.rs`). A minipro
+you set yourself (the path setting, `BURNWRIGHT_MINIPRO`) or one found on
+`PATH` drives every programmer: routing only ever picks between the two
+bundled builds.
+
+Each build has its own databases, because the T76 build's `infoic.xml` adds
+the T76 chips and changes some older entries. That's a second ~19 MB
+`infoic.xml` in every installer.
+
+The T76 also needs XGecu's per-family FPGA algorithm files. They're vendor
+files: burnwright doesn't ship them, and you extract them yourself with
+upstream's `dump-alg-minipro.bash`. For now the T76 sidecar finds
+`algorithm.xml` wherever minipro itself looks: `MINIPRO_HOME`, else minipro's
+share directory (`/usr/local/share/minipro`, or `%ProgramData%\minipro` on
+Windows). A burnwright setting that passes `--algorithms` is still to
+come.
+
+When an upstream release fixes the AVR and T48 regressions and keeps T76
+support, move `vendor/minipro` to it and drop `vendor/minipro-t76`, the
+`t76` variant in `scripts/minipro/`, its `tauri.conf.json` entries and
+`crates/engine/src/route.rs`.
+
 ## Where things land
 
 | | Sidecar | Databases, licences, NOTICE |
@@ -14,6 +53,9 @@ sidecar (`bundle.externalBin`) with minipro's chip databases as resources.
 | AppImage | `usr/bin/burnwright-minipro` | `usr/lib/burnwright/minipro/` |
 | Windows (NSIS) | `burnwright-minipro.exe` next to `burnwright.exe` | `minipro\` in the install folder |
 | `pnpm tauri dev` | `target/debug/burnwright-minipro` | `target/debug/minipro/` |
+
+The T76 build sits next to it as `burnwright-minipro-t76[.exe]`, with its
+databases in `minipro-t76/` beside `minipro/`.
 
 So the app finds it as `current_exe().parent()/burnwright-minipro[.exe]` and the
 databases under `resource_dir()/minipro/`. Pass those with `--infoic` /
@@ -53,14 +95,16 @@ for your host, because tauri-build won't compile `src-tauri` without the files
 it bundles. Build it once, and again after bumping `vendor/minipro`:
 
 ```bash
-git submodule update --init vendor/minipro
+git submodule update --init vendor/minipro vendor/minipro-t76
 pnpm sidecar
 ```
 
 That runs `scripts/minipro/build-sidecar.sh`, which writes
-`src-tauri/binaries/burnwright-minipro-<target-triple>` and
-`src-tauri/binaries/minipro/` (both gitignored). It builds in
-`target/minipro-sidecar/`, so the submodule stays clean.
+`src-tauri/binaries/burnwright-minipro-<target-triple>`,
+`src-tauri/binaries/burnwright-minipro-t76-<target-triple>` and their
+`minipro/` and `minipro-t76/` folders (all gitignored). It builds in
+`target/minipro-sidecar/`, so the submodules stay clean. `--variant stable`
+or `--variant t76` builds just one.
 
 - **macOS:** Xcode command-line tools and `pkg-config` (`brew install pkgconf`).
   `--target x86_64-apple-darwin` cross-builds the Intel sidecar on Apple Silicon.
@@ -79,11 +123,13 @@ zlib are compatible. Each bundle's `minipro/` folder carries:
 - `NOTICE.txt`: minipro's tag and commit, the libusb and zlib versions, URLs
   and hashes, and the burnwright commit and scripts that built it
 
+`minipro-t76/` carries the same set for the T76 build.
+
 Every release also gets `minipro-sidecar-source_<version>.tar.gz` (the `sources`
 job in `release-please.yml`): the minipro source at the pinned commit, the
 libusb and zlib tarballs with their signatures, and the build scripts. That's
-the corresponding source for the sidecar, offered from the same place as the
-installers.
+the corresponding source for both sidecars (both minipro commits), offered
+from the same place as the installers.
 
 ## How CI checks it
 
@@ -110,6 +156,9 @@ Each run passes the bundled databases by path, from an empty working directory
 with no `PATH`. It must print the version and database counts, list over a
 thousand chips with `-q tl866ii -l`, and report `No programmer found` for `-k`.
 
+The T76 build gets the same checks, and its `--version` must also count a T76
+database.
+
 CI has no programmer attached, so none of this proves a read or write, or that
 the udev rules grant access to a real device. That
-still needs a real T48 or TL866II+ on each OS.
+still needs a real T48 or TL866II+ on each OS, and a T76 for the T76 build.
