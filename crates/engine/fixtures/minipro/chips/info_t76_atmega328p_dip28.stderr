@@ -1,0 +1,16 @@
+Using overridden database file /opt/burnwright/minipro-t76/logicic.xml
+Using overridden database file /opt/burnwright/minipro-t76/infoic.xml
+Using overridden database file /opt/burnwright/minipro-t76/infoic.xml
+
+---------------Chip Info----------------
+Name: ATMEGA328P@DIP28
+Available on: T76
+Memory: 16384 Words + 1024 Bytes
+Package: DIP28
+ICSP: ICP007.JPG
+Protocol: 0x1d
+/usr/local/share/minipro/algorithm.xml: No such file or directory
+algorithm.xml: No such file or directory
+Read buffer size: 256 Bytes
+Write buffer size: 128 Bytes
+----------------------------------------

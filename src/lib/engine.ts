@@ -76,8 +76,8 @@ export interface ChipCheck {
 /**
  * A programmer model minipro keeps a chip list for (mirrors
  * `engine::Programmer`; the values are minipro's `-q` ids). `tl866a` covers
- * the TL866A and TL866CS. `t76` is here for when the bundled minipro learns
- * it: under minipro 0.7.4 every chip command rejects it with
+ * the TL866A and TL866CS. `t76` is answered by the T76 build the app bundles.
+ * A minipro 0.7.4 you point burnwright at yourself rejects it with
  * `unsupported_programmer`.
  */
 export type Programmer = "tl866a" | "tl866ii" | "t48" | "t56" | "t76";
@@ -262,7 +262,7 @@ export type EngineErrorKind =
   | "unknown_chip"
   /** minipro couldn't read `infoic.xml` / `logicic.xml`; the message has the path. */
   | "missing_database"
-  /** This minipro doesn't know the `Programmer` asked for (the T76, under 0.7.4). */
+  /** This minipro doesn't know the `Programmer` asked for (the T76, when a minipro 0.7.4 is the one in use). */
   | "unsupported_programmer"
   | "busy"
   | "cancelled"
@@ -370,6 +370,8 @@ export interface AppInfo {
   version: string;
   /** Version of the vendored minipro this build was compiled against. */
   minipro: string;
+  /** The T76-only minipro build, as `<version>+<short commit>` ("0.7.4+3e2f491"). */
+  minipro_t76: string;
 }
 
 /** Options every device command takes. */

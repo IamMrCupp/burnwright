@@ -25,8 +25,8 @@ use std::path::PathBuf;
 use engine::diagnose::Diagnosis;
 use engine::{
     ChipCatalog, ChipCheck, ChipInfo, ChipList, ChipSearch, DeviceInfo, DeviceState, Engine,
-    EngineError, EngineResult, ImageFormat, MemoryKind, MiniproEngine, MiniproSource, OpContext,
-    Programmer, ProgressEvent,
+    EngineError, EngineResult, ImageFormat, MemoryKind, MiniproBuild, MiniproEngine, MiniproRoutes,
+    MiniproSource, OpContext, Programmer, ProgressEvent,
 };
 use serde::Serialize;
 use tauri::State;
@@ -72,25 +72,40 @@ impl From<EngineError> for CommandError {
 
 type CommandResult<T> = Result<T, CommandError>;
 
-/// Run one device operation: find minipro, claim the programmer, then run
-/// `op` on a blocking thread with progress going to `sink`.
+/// Run one device operation: find minipro (the build the last detected
+/// programmer needs), claim the programmer, then run `op` on a blocking
+/// thread with progress going to `sink`.
 async fn run_op<T, S, F>(ops: &DeviceOps, op_id: String, sink: S, op: F) -> CommandResult<T>
 where
     T: Send + 'static,
     S: Fn(ProgressEvent) + Send + Sync + 'static,
     F: FnOnce(&MiniproEngine, &OpContext) -> EngineResult<T> + Send + 'static,
 {
-    let binary = ops
-        .locator()
-        .locate()
-        .map_err(|e| EngineError::MiniproNotFound(e.to_string()))?;
+    let binary = locate_routes(ops)?.binary(ops.build()).clone();
+    let engine = MiniproEngine::new(binary);
+    run_blocking(ops, op_id, sink, move |ctx| op(&engine, ctx)).await
+}
+
+/// Claim the programmer, then run `op` on a blocking thread with progress
+/// going to `sink`.
+async fn run_blocking<T, S, F>(ops: &DeviceOps, op_id: String, sink: S, op: F) -> CommandResult<T>
+where
+    T: Send + 'static,
+    S: Fn(ProgressEvent) + Send + Sync + 'static,
+    F: FnOnce(&OpContext) -> EngineResult<T> + Send + 'static,
+{
     let (guard, cancel) = ops.begin(op_id)?;
     let ctx = OpContext::new().with_cancel(cancel).with_progress(sink);
-    let engine = MiniproEngine::new(binary);
-    let joined = tauri::async_runtime::spawn_blocking(move || op(&engine, &ctx)).await;
+    let joined = tauri::async_runtime::spawn_blocking(move || op(&ctx)).await;
     drop(guard);
     let result = joined.map_err(|e| EngineError::Minipro(format!("engine task failed: {e}")))?;
     Ok(result?)
+}
+
+fn locate_routes(ops: &DeviceOps) -> CommandResult<MiniproRoutes> {
+    ops.locator()
+        .locate_routes()
+        .map_err(|e| EngineError::MiniproNotFound(e.to_string()).into())
 }
 
 /// Forward progress to the frontend. A closed channel (the window went away)
@@ -101,17 +116,23 @@ fn channel_sink(channel: Channel<ProgressEvent>) -> impl Fn(ProgressEvent) + Sen
     }
 }
 
-/// Detect the connected programmer (minipro `-k`, then `-V`).
+/// Detect the connected programmer (minipro `-k`, then `-V`). When the
+/// stable minipro finds none, the T76 build gets a look too; whichever build
+/// the programmer needs drives every later operation (see
+/// `engine::route`).
 #[tauri::command]
 pub async fn detect(
     ops: State<'_, DeviceOps>,
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<DeviceInfo> {
-    run_op(&ops, op_id, channel_sink(on_progress), |e, ctx| {
-        e.detect(ctx)
+    let routes = locate_routes(&ops)?;
+    let (info, build) = run_blocking(&ops, op_id, channel_sink(on_progress), move |ctx| {
+        engine::route::detect(&routes, ctx)
     })
-    .await
+    .await?;
+    ops.set_build(build);
+    Ok(info)
 }
 
 /// Check the chip in the socket against `part` by ID (`-D`), optionally with
@@ -208,18 +229,18 @@ pub async fn erase(
 /// How many matches [`search_chips`] returns when the caller doesn't say.
 const DEFAULT_SEARCH_LIMIT: usize = 50;
 
-/// Run one chip-database query on a blocking thread: find minipro, then run
-/// `query`. Unlike [`run_op`] this doesn't claim the programmer: minipro
-/// only reads its XML files, so a query is fine while a read or write runs.
-async fn chip_query<T, F>(ops: &DeviceOps, query: F) -> CommandResult<T>
+/// Run one chip-database query on a blocking thread: find the minipro build
+/// that knows `programmer` (the T76 build for the T76, the stable one for
+/// the rest), then run `query`. Unlike [`run_op`] this doesn't claim the
+/// programmer: minipro only reads its XML files, so a query is fine while a
+/// read or write runs.
+async fn chip_query<T, F>(ops: &DeviceOps, programmer: Programmer, query: F) -> CommandResult<T>
 where
     T: Send + 'static,
     F: FnOnce(&MiniproEngine, &OpContext) -> EngineResult<T> + Send + 'static,
 {
-    let binary = ops
-        .locator()
-        .locate()
-        .map_err(|e| EngineError::MiniproNotFound(e.to_string()))?;
+    let build = MiniproBuild::for_programmer(programmer.label());
+    let binary = locate_routes(ops)?.binary(build).clone();
     let engine = MiniproEngine::new(binary);
     let joined =
         tauri::async_runtime::spawn_blocking(move || query(&engine, &OpContext::new())).await;
@@ -233,7 +254,7 @@ async fn list_chips_in(
     programmer: Programmer,
 ) -> CommandResult<ChipList> {
     let catalog = catalog.clone();
-    chip_query(ops, move |e, ctx| {
+    chip_query(ops, programmer, move |e, ctx| {
         Ok(ChipList::clone(&*catalog.list(e, programmer, ctx)?))
     })
     .await
@@ -248,7 +269,7 @@ async fn search_chips_in(
 ) -> CommandResult<ChipSearch> {
     let catalog = catalog.clone();
     let limit = limit.unwrap_or(DEFAULT_SEARCH_LIMIT);
-    chip_query(ops, move |e, ctx| {
+    chip_query(ops, programmer, move |e, ctx| {
         catalog.search(e, programmer, &query, limit, ctx)
     })
     .await
@@ -290,7 +311,10 @@ pub async fn chip_info(
     programmer: Programmer,
     name: String,
 ) -> CommandResult<ChipInfo> {
-    chip_query(&ops, move |e, ctx| e.chip_info(programmer, &name, ctx)).await
+    chip_query(&ops, programmer, move |e, ctx| {
+        e.chip_info(programmer, &name, ctx)
+    })
+    .await
 }
 
 /// Why no programmer was found: ask the OS which known programmers are
@@ -384,12 +408,17 @@ pub struct AppInfo {
     pub version: &'static str,
     /// Version of the vendored minipro this build was compiled against.
     pub minipro: &'static str,
+    /// The T76-only minipro build, as `<version>+<short commit>`
+    /// (`0.7.4+3e2f491`): upstream's version alone doesn't tell it from the
+    /// stable build.
+    pub minipro_t76: &'static str,
 }
 
 fn app_info_value() -> AppInfo {
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         minipro: env!("BURNWRIGHT_MINIPRO_VERSION"),
+        minipro_t76: env!("BURNWRIGHT_MINIPRO_T76_VERSION"),
     }
 }
 
@@ -454,7 +483,7 @@ mod tests {
         ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
         // A write is running: the programmer is taken.
         let (_held, _) = ops.begin("write".into()).unwrap();
-        let value = tauri::async_runtime::block_on(chip_query(&ops, |_, ctx| {
+        let value = tauri::async_runtime::block_on(chip_query(&ops, Programmer::T48, |_, ctx| {
             assert!(!ctx.is_cancelled());
             Ok(7)
         }))
@@ -481,19 +510,24 @@ mod tests {
         assert_eq!(err.kind, "minipro_not_found");
     }
 
-    /// The sidecar `pnpm sidecar` built for this target, wired up the way
-    /// the installed app wires it. build.rs refuses to build without it, so
-    /// it's always there when these tests run.
+    /// The sidecars `pnpm sidecar` built for this target, wired up the way
+    /// the installed app wires them. build.rs refuses to build without
+    /// them, so they're always there when these tests run.
     fn bundled_ops() -> DeviceOps {
         let binaries = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
-        let ops = DeviceOps::default();
-        ops.set_bundled(crate::ops::Bundled {
-            sidecar: Some(binaries.join(format!(
-                "burnwright-minipro-{}{}",
+        let sidecar = |name: &str| {
+            binaries.join(format!(
+                "{name}-{}{}",
                 env!("TAURI_ENV_TARGET_TRIPLE"),
                 std::env::consts::EXE_SUFFIX
-            ))),
+            ))
+        };
+        let ops = DeviceOps::default();
+        ops.set_bundled(crate::ops::Bundled {
+            sidecar: Some(sidecar("burnwright-minipro")),
             database: Some(binaries.join("minipro")),
+            t76_sidecar: Some(sidecar("burnwright-minipro-t76")),
+            t76_database: Some(binaries.join("minipro-t76")),
         });
         ops
     }
@@ -555,9 +589,42 @@ mod tests {
         let tl866a = search(Programmer::Tl866a, "").total;
         assert!(tl866a > 5_000 && tl866a < list.len(), "{tl866a}");
 
-        // 0.7.4 doesn't know the T76.
-        let err = tauri::async_runtime::block_on(list_chips_in(&ops, &catalog, Programmer::T76))
-            .unwrap_err();
+        // The T76's list comes from the T76 build and its own database
+        // (34,896 names at upstream 3e2f491). Asking for it doesn't cost
+        // the T48 its list.
+        let t76 =
+            tauri::async_runtime::block_on(list_chips_in(&ops, &catalog, Programmer::T76)).unwrap();
+        assert!(t76.len() > 25_000, "only {} T76 chips", t76.len());
+        assert!(t76.get("W25Q32BV@SOIC8").is_some());
+        // Its names can have a space inside. The 98 that end with a space
+        // or hold a tab are left out (see `ChipList::parse`).
+        assert!(t76.get("AUTO-EMMC(4Bits) @SD_ADP").is_some());
+        assert!(t76.skipped_lines() < 200, "{}", t76.skipped_lines());
+        assert_eq!(search(Programmer::T48, "").total, list.len());
+    }
+
+    #[test]
+    fn the_stable_build_alone_does_not_know_the_t76() {
+        let ops = bundled_ops();
+        if !runs_the_bundled_minipro(&ops) {
+            eprintln!("skipped: {} overrides the sidecar", engine::MINIPRO_ENV);
+            return;
+        }
+        // No T76 sidecar (a minipro 0.7.4 from PATH or a configured path
+        // looks the same): 0.7.4 turns the T76 down.
+        let stable = ops.locator().locate().unwrap().program().to_path_buf();
+        let binaries = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries");
+        ops.set_bundled(crate::ops::Bundled {
+            sidecar: Some(stable),
+            database: Some(binaries.join("minipro")),
+            ..Default::default()
+        });
+        let err = tauri::async_runtime::block_on(list_chips_in(
+            &ops,
+            &ChipCatalog::new(),
+            Programmer::T76,
+        ))
+        .unwrap_err();
         assert_eq!(err.kind, "unsupported_programmer");
     }
 
@@ -569,7 +636,7 @@ mod tests {
             return;
         }
         let describe = |programmer, name: &'static str| {
-            tauri::async_runtime::block_on(chip_query(&ops, move |e, ctx| {
+            tauri::async_runtime::block_on(chip_query(&ops, programmer, move |e, ctx| {
                 e.chip_info(programmer, name, ctx)
             }))
         };
@@ -594,6 +661,13 @@ mod tests {
         let chip = describe(Programmer::T56, "7400").unwrap();
         assert_eq!(chip.kind, engine::ChipKind::Logic);
 
+        // The T76 build answers for the T76, with its extra banner lines.
+        let chip = describe(Programmer::T76, "w25q32bv@soic8").unwrap();
+        assert_eq!(chip.name, "W25Q32BV@SOIC8");
+        assert_eq!(chip.available_on, [Programmer::T76]);
+        assert_eq!(chip.memory.as_ref().unwrap().bytes, Some(4 * 1024 * 1024));
+        assert_eq!(chip.read_buffer_size, Some(4096));
+
         let err = describe(Programmer::T48, "NOSUCHCHIP").unwrap_err();
         assert_eq!(err.kind, "unknown_chip");
         assert_eq!(err.message, "minipro has no chip called NOSUCHCHIP");
@@ -611,13 +685,14 @@ mod tests {
         ops.set_bundled(crate::ops::Bundled {
             sidecar: Some(sidecar),
             database: Some(binaries.join("no-such-folder")),
+            ..Default::default()
         });
         let catalog = ChipCatalog::new();
         let err = tauri::async_runtime::block_on(list_chips_in(&ops, &catalog, Programmer::T48))
             .unwrap_err();
         assert_eq!(err.kind, "missing_database");
         assert!(err.message.contains("no-such-folder"), "{}", err.message);
-        let err = tauri::async_runtime::block_on(chip_query(&ops, |e, ctx| {
+        let err = tauri::async_runtime::block_on(chip_query(&ops, Programmer::T48, |e, ctx| {
             e.chip_info(Programmer::T48, "AT28C256", ctx)
         }))
         .unwrap_err();
@@ -699,5 +774,17 @@ mod tests {
             "unexpected minipro version: {}",
             info.minipro
         );
+        // The T76 build names its commit: "0.7.4+3e2f491".
+        let (version, commit) = info
+            .minipro_t76
+            .split_once('+')
+            .unwrap_or_else(|| panic!("no commit in {}", info.minipro_t76));
+        assert!(
+            version.starts_with(|c: char| c.is_ascii_digit()),
+            "{version}"
+        );
+        assert_eq!(commit.len(), 7, "{commit}");
+        assert!(commit.chars().all(|c| c.is_ascii_hexdigit()), "{commit}");
+        assert_ne!(info.minipro_t76, info.minipro);
     }
 }

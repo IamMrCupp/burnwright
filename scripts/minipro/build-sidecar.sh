@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Build the minipro sidecar that ships inside every burnwright installer.
 #
-#   scripts/minipro/build-sidecar.sh [--target <rust target triple>]
+#   scripts/minipro/build-sidecar.sh [--target <rust target triple>] [--variant stable|t76|all]
 #
 # Produces, for Tauri's externalBin / resources (see src-tauri/tauri.conf.json):
 #
-#   src-tauri/binaries/burnwright-minipro-<triple>[.exe]   the CLI
-#   src-tauri/binaries/minipro/                             databases + licences
+#   src-tauri/binaries/burnwright-minipro-<triple>[.exe]       the CLI (stable)
+#   src-tauri/binaries/minipro/                                 its databases + licences
+#   src-tauri/binaries/burnwright-minipro-t76-<triple>[.exe]   the T76-only CLI
+#   src-tauri/binaries/minipro-t76/                             its databases + licences
+#
+# --variant picks which: "stable" builds vendor/minipro, "t76" builds
+# vendor/minipro-t76, and "all" (the default) builds both, one after the other.
+# See scripts/minipro/versions.sh for why there are two.
 #
 # minipro is built from the vendor/minipro submodule, unmodified: the source is
 # exported with `git archive` into target/minipro-sidecar/ and built there, so
@@ -33,14 +39,38 @@ root="$(cd "$here/../.." && pwd)"
 . "$here/versions.sh"
 
 triple=""
+variant=all
 while [ $# -gt 0 ]; do
   case "$1" in
     --target) triple="$2"; shift 2 ;;
     --target=*) triple="${1#--target=}"; shift ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    --variant) variant="$2"; shift 2 ;;
+    --variant=*) variant="${1#--variant=}"; shift ;;
+    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+case "$variant" in
+  all)
+    # Each variant is a separate run, so neither sees the other's state.
+    args=()
+    [ -n "$triple" ] && args=(--target "$triple")
+    bash "$0" ${args[@]+"${args[@]}"} --variant stable
+    bash "$0" ${args[@]+"${args[@]}"} --variant t76
+    exit 0
+    ;;
+  stable)
+    submodule=vendor/minipro
+    res_name=minipro
+    ;;
+  t76)
+    submodule=vendor/minipro-t76
+    res_name=minipro-t76
+    stable_sidecar_name="$SIDECAR_NAME"
+    SIDECAR_NAME="$T76_SIDECAR_NAME"
+    ;;
+  *) echo "unknown variant: $variant (stable, t76 or all)" >&2; exit 2 ;;
+esac
 if [ -z "$triple" ]; then
   if ! command -v rustc >/dev/null 2>&1; then
     echo "error: rustc not on PATH; pass --target <triple>" >&2
@@ -86,10 +116,10 @@ case "$triple" in
   *) die "unsupported target $triple" ;;
 esac
 
-work="$root/target/minipro-sidecar/$triple"
+work="$root/target/minipro-sidecar/$triple/$variant"
 downloads="$root/target/minipro-sidecar/downloads"
 out_bin_dir="$root/src-tauri/binaries"
-out_res_dir="$out_bin_dir/minipro"
+out_res_dir="$out_bin_dir/$res_name"
 sidecar="$out_bin_dir/$SIDECAR_NAME-$triple$exe"
 
 # Paths handed to the MinGW compiler must be Windows paths.
@@ -101,25 +131,25 @@ rm -rf "$work"
 mkdir -p "$work" "$downloads" "$out_bin_dir"
 
 # --- minipro source -----------------------------------------------------------
-sub="$root/vendor/minipro"
+sub="$root/$submodule"
 git -C "$sub" rev-parse --verify -q HEAD >/dev/null \
-  || die "vendor/minipro is empty; run: git submodule update --init vendor/minipro"
+  || die "$submodule is empty; run: git submodule update --init $submodule"
 minipro_commit="$(git -C "$sub" rev-parse HEAD)"
 minipro_date="$(git -C "$sub" show -s --format=%ci HEAD)"
 minipro_version="$(sed -n 's/^VERSION *= *//p' "$sub/Makefile" | head -1)"
 minipro_tag="$(git -C "$sub" describe --tags --exact-match HEAD 2>/dev/null || true)"
-pinned="$(git -C "$root" rev-parse -q --verify "HEAD:vendor/minipro" 2>/dev/null || true)"
+pinned="$(git -C "$root" rev-parse -q --verify "HEAD:$submodule" 2>/dev/null || true)"
 if [ -n "$pinned" ] && [ "$pinned" != "$minipro_commit" ]; then
-  echo "warning: vendor/minipro is at $minipro_commit but the superproject pins $pinned" >&2
+  echo "warning: $submodule is at $minipro_commit but the superproject pins $pinned" >&2
 fi
 # On Windows the checkout has CRLF line endings; compare the way that git does.
 crlf=false
 [ "$os" = windows ] && crlf=true
 if [ -n "$(git -C "$sub" -c core.autocrlf=$crlf status --porcelain --untracked-files=no)" ]; then
-  echo "warning: vendor/minipro has local changes; building the committed HEAD only" >&2
+  echo "warning: $submodule has local changes; building the committed HEAD only" >&2
 fi
 
-log "minipro $minipro_version ${minipro_tag:+(tag $minipro_tag) }@ $minipro_commit -> $triple"
+log "minipro $minipro_version ${minipro_tag:+(tag $minipro_tag) }@ $minipro_commit -> $triple ($variant)"
 mkdir -p "$work/minipro"
 git -C "$sub" archive --format=tar HEAD | tar -x -C "$work/minipro"
 
@@ -271,10 +301,17 @@ winpthreads (MinGW-w64), statically linked. Licence: LICENSE.winpthreads.txt."
   fi
 fi
 
+variant_note=""
+if [ "$variant" = t76 ]; then
+  variant_note="This build is used only with the XGecu T76. Every other programmer
+uses \"$stable_sidecar_name\", built from minipro's last release.
+"
+fi
+
 burnwright_commit="$(git -C "$root" rev-parse HEAD 2>/dev/null || echo unknown)"
 cat >"$out_res_dir/NOTICE.txt" <<EOF
 burnwright bundles the minipro command-line tool as "$SIDECAR_NAME".
-
+$variant_note
 minipro $minipro_version, built from unmodified upstream source.
   Licence:  GNU General Public License v3.0 or later (LICENSE.minipro.txt)
   Upstream: $MINIPRO_UPSTREAM

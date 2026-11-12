@@ -8,7 +8,9 @@
 //!    [`MiniproLocator::from_env`].
 //! 3. **Bundled sidecar**: the minipro shipped inside the app bundle, via
 //!    [`MiniproLocator::sidecar`]. Its chip databases, set with
-//!    [`MiniproLocator::sidecar_database`], are passed on every run.
+//!    [`MiniproLocator::sidecar_database`], are passed on every run. The
+//!    bundle also carries a T76-only build ([`MiniproLocator::t76_sidecar`]);
+//!    [`MiniproLocator::locate_routes`] returns both (see [`crate::route`]).
 //! 4. **`PATH`**: a `minipro` (`minipro.exe` on Windows) on the search path.
 //!
 //! An override (1 or 2) that names a missing file is an error, not a reason
@@ -28,6 +30,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::process::MiniproCommand;
 use crate::progress::Operation;
+use crate::route::MiniproRoutes;
 
 /// Environment variable that overrides the minipro binary.
 pub const MINIPRO_ENV: &str = "BURNWRIGHT_MINIPRO";
@@ -157,6 +160,8 @@ pub struct MiniproLocator {
     env_override: Option<PathBuf>,
     sidecar: Option<PathBuf>,
     sidecar_db: Option<PathBuf>,
+    t76_sidecar: Option<PathBuf>,
+    t76_sidecar_db: Option<PathBuf>,
     path: Option<OsString>,
 }
 
@@ -203,6 +208,22 @@ impl MiniproLocator {
         self
     }
 
+    /// The bundled T76-only minipro. Used, by [`locate_routes`](Self::locate_routes),
+    /// only when the stable sidecar is the binary found: an override or a
+    /// minipro on `PATH` drives every programmer itself.
+    pub fn t76_sidecar(mut self, path: Option<PathBuf>) -> Self {
+        self.t76_sidecar = non_empty(path);
+        self
+    }
+
+    /// The folder holding the T76 sidecar's own `infoic.xml` and
+    /// `logicic.xml`. Its database is newer than the stable one's, so the two
+    /// aren't shared.
+    pub fn t76_sidecar_database(mut self, dir: Option<PathBuf>) -> Self {
+        self.t76_sidecar_db = non_empty(dir);
+        self
+    }
+
     /// The search path, in the platform's `PATH` format.
     pub fn search_path(mut self, path: Option<OsString>) -> Self {
         self.path = path;
@@ -218,23 +239,26 @@ impl MiniproLocator {
             return self.resolve_override(path, MiniproSource::Env);
         }
         if let Some(path) = &self.sidecar {
-            return if is_executable(path) {
-                let mut binary = MiniproBinary::found(path.clone(), MiniproSource::Sidecar);
-                if let Some(dir) = &self.sidecar_db {
-                    binary = binary
-                        .with_arg("--infoic")
-                        .with_arg(dir.join("infoic.xml"))
-                        .with_arg("--logicic")
-                        .with_arg(dir.join("logicic.xml"));
-                }
-                Ok(binary)
-            } else {
-                Err(LocateError::MissingSidecar { path: path.clone() })
-            };
+            return bundled(path, self.sidecar_db.as_deref());
         }
         self.search(OsStr::new("minipro"))
             .map(|p| MiniproBinary::found(p, MiniproSource::Path))
             .ok_or(LocateError::NotFound)
+    }
+
+    /// Find minipro for every programmer: what [`locate`](Self::locate)
+    /// finds, plus the T76 sidecar when that is the stable sidecar and a T76
+    /// one is set. A T76 sidecar that's set but missing is an error, like a
+    /// missing stable one: the bundle is broken.
+    pub fn locate_routes(&self) -> Result<MiniproRoutes, LocateError> {
+        let stable = self.locate()?;
+        match &self.t76_sidecar {
+            Some(path) if stable.source() == MiniproSource::Sidecar => {
+                let t76 = bundled(path, self.t76_sidecar_db.as_deref())?;
+                Ok(MiniproRoutes::split(stable, t76))
+            }
+            _ => Ok(MiniproRoutes::single(stable)),
+        }
     }
 
     fn resolve_override(
@@ -273,6 +297,24 @@ impl MiniproLocator {
             .flat_map(|dir| [dir.join(&with_suffix), dir.join(name)])
             .find(|candidate| is_executable(candidate))
     }
+}
+
+/// A bundled sidecar at `path`, pointed at the databases in `db`.
+fn bundled(path: &Path, db: Option<&Path>) -> Result<MiniproBinary, LocateError> {
+    if !is_executable(path) {
+        return Err(LocateError::MissingSidecar {
+            path: path.to_path_buf(),
+        });
+    }
+    let mut binary = MiniproBinary::found(path.to_path_buf(), MiniproSource::Sidecar);
+    if let Some(dir) = db {
+        binary = binary
+            .with_arg("--infoic")
+            .with_arg(dir.join("infoic.xml"))
+            .with_arg("--logicic")
+            .with_arg(dir.join("logicic.xml"));
+    }
+    Ok(binary)
 }
 
 fn non_empty(path: Option<PathBuf>) -> Option<PathBuf> {
@@ -521,6 +563,60 @@ mod tests {
             .unwrap_err();
         assert_eq!(err, LocateError::MissingSidecar { path: gone });
         assert!(err.to_string().contains("reinstall"), "{err}");
+    }
+
+    #[test]
+    fn the_t76_sidecar_rides_along_with_the_stable_one() {
+        let s = Scratch::new("routes");
+        let stable = s.exe("app", "burnwright-minipro");
+        let t76 = s.exe("app", "burnwright-minipro-t76");
+        let routes = MiniproLocator::new()
+            .sidecar(Some(stable.clone()))
+            .sidecar_database(Some(s.dir("res/minipro")))
+            .t76_sidecar(Some(t76.clone()))
+            .t76_sidecar_database(Some(s.dir("res/minipro-t76")))
+            .locate_routes()
+            .unwrap();
+        let stable_bin = routes.binary(crate::MiniproBuild::Stable);
+        assert_eq!(stable_bin.program(), stable);
+        let t76_bin = routes.t76().expect("a separate T76 build");
+        assert_eq!(t76_bin.program(), t76);
+        assert_eq!(t76_bin.source(), MiniproSource::Sidecar);
+        // Each build gets its own databases.
+        assert_eq!(
+            t76_bin.args[1],
+            s.0.join("res/minipro-t76/infoic.xml").into_os_string()
+        );
+        assert_eq!(
+            stable_bin.args[1],
+            s.0.join("res/minipro/infoic.xml").into_os_string()
+        );
+    }
+
+    #[test]
+    fn an_override_drives_the_t76_too() {
+        let s = Scratch::new("routes-override");
+        let mine = s.exe("mine", "minipro");
+        let routes = MiniproLocator::new()
+            .configured(Some(mine.clone()))
+            .sidecar(Some(s.exe("app", "burnwright-minipro")))
+            .t76_sidecar(Some(s.exe("app", "burnwright-minipro-t76")))
+            .locate_routes()
+            .unwrap();
+        assert_eq!(routes.t76(), None);
+        assert_eq!(routes.binary(crate::MiniproBuild::T76).program(), mine);
+    }
+
+    #[test]
+    fn a_missing_t76_sidecar_is_an_error() {
+        let s = Scratch::new("routes-gone");
+        let gone = s.0.join("app").join("burnwright-minipro-t76");
+        let err = MiniproLocator::new()
+            .sidecar(Some(s.exe("app", "burnwright-minipro")))
+            .t76_sidecar(Some(gone.clone()))
+            .locate_routes()
+            .unwrap_err();
+        assert_eq!(err, LocateError::MissingSidecar { path: gone });
     }
 
     #[test]

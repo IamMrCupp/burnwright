@@ -1,29 +1,35 @@
 #!/usr/bin/env bash
 # Capture the chip list / chip info fixtures in chips/ from a real minipro.
 #
-#   crates/engine/fixtures/minipro/capture-chips.sh [minipro] [database dir]
+#   crates/engine/fixtures/minipro/capture-chips.sh [minipro] [database dir] [T76 minipro] [T76 database dir]
 #
-# Defaults to the sidecar `pnpm sidecar` builds for this machine. Every command
+# Defaults to the sidecars `pnpm sidecar` builds for this machine. Every command
 # here passes -q, so minipro never opens a programmer: it only reads its XML
 # databases. Safe to run with one plugged in.
 #
 # The output is what minipro printed, byte for byte, except that the database
 # folder in "Using overridden database file …" is rewritten to
-# /opt/burnwright/minipro so the fixtures don't carry a local path.
+# /opt/burnwright/minipro (minipro-t76 for the T76 build) so the fixtures
+# don't carry a local path.
 #
-# Captured from the bundled minipro 0.7.4 (3808aec). Re-run after bumping
-# vendor/minipro and read the diff: it is the list of output changes the
-# parsers in src/chips.rs have to cope with.
+# Captured from the bundled minipro 0.7.4 (3808aec) and, for the *_t76_*
+# files, the T76 build (upstream 3e2f491). Re-run after bumping vendor/minipro
+# or vendor/minipro-t76 and read the diff: it is the list of output changes
+# the parsers in src/chips.rs have to cope with.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../../../.." && pwd)"
-minipro="${1:-$root/src-tauri/binaries/burnwright-minipro-$(rustc -vV | sed -n 's/^host: //p')}"
+triple="$(rustc -vV | sed -n 's/^host: //p')"
+minipro="${1:-$root/src-tauri/binaries/burnwright-minipro-$triple}"
 db="${2:-$root/src-tauri/binaries/minipro}"
+t76_minipro="${3:-$root/src-tauri/binaries/burnwright-minipro-t76-$triple}"
+t76_db="${4:-$root/src-tauri/binaries/minipro-t76}"
 out="$here/chips"
 mkdir -p "$out"
 
-scrub() { sed "s|$db|/opt/burnwright/minipro|g; s|$missing|/opt/burnwright/missing|g"; }
+fake_db=/opt/burnwright/minipro
+scrub() { sed "s|$db|$fake_db|g; s|$missing|/opt/burnwright/missing|g"; }
 missing="$out/.missing"
 
 # run <name> <args…>: stdout to <name>.stdout (kept only if not empty), stderr
@@ -72,5 +78,19 @@ run list_t76_unsupported "${with_db[@]}" -q t76 -l
 run list_t48_no_infoic --infoic "$missing/infoic.xml" --logicic "$db/logicic.xml" -q t48 -L 7400
 run list_t48_no_database --infoic "$missing/infoic.xml" --logicic "$missing/logicic.xml" -q t48 -l
 run info_t48_no_database --infoic "$missing/infoic.xml" --logicic "$missing/logicic.xml" -q t48 -d AT28C256
+
+# The T76 build and its own databases. Only this build knows -q t76. With no
+# algorithm.xml installed (the XGecu algorithm file, which burnwright never
+# ships) every -d says so twice; these were captured that way.
+minipro="$t76_minipro"
+db="$t76_db"
+fake_db=/opt/burnwright/minipro-t76
+with_db=(--infoic "$db/infoic.xml" --logicic "$db/logicic.xml")
+list list_t76_auto_emmc t76 AUTO-EMMC           # names with a space in them
+list list_t76_bwefmd008 t76 BWEFMD008GN7RJ      # one name ends with a space
+list list_t76_mt28fw512aba1 t76 MT28FW512ABA1   # two names with a tab in them
+info info_t76_w25q32bv_soic8 t76 W25Q32BV@SOIC8                 # banner, algorithm.xml, SPI clocks
+info info_t76_auto_emmc_sd_adp t76 'AUTO-EMMC(4Bits) @SD_ADP'   # a space in the name
+info info_t76_atmega328p_dip28 t76 ATMEGA328P@DIP28             # words + data
 
 ls -l "$out"

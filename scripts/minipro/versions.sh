@@ -10,12 +10,23 @@ LIBUSB_VERSION=1.0.30
 LIBUSB_SHA256=fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf
 LIBUSB_URL="https://github.com/libusb/libusb/releases/download/v${LIBUSB_VERSION}/libusb-${LIBUSB_VERSION}.tar.bz2"
 
-# Upstream minipro, vendored as the vendor/minipro submodule.
+# Upstream minipro, vendored twice, both unmodified:
+#
+#   vendor/minipro      the 0.7.4 release. Drives the TL866A/CS, TL866II+, T48
+#                       and T56, and is what every operation uses unless a T76
+#                       is the programmer.
+#   vendor/minipro-t76  a later upstream master commit with T76 support. Used
+#                       only for the T76, because the same commits break AVR
+#                       fuses and some T48 writes (burnwright #13). Drop it, and
+#                       move vendor/minipro forward, once an upstream release
+#                       has both.
 MINIPRO_UPSTREAM=https://gitlab.com/DavidGriffith/minipro
 
 # Name of the sidecar. Not plain "minipro": Tauri installs externalBin to
 # /usr/bin on the .deb, where "minipro" would clash with distro packages.
 SIDECAR_NAME=burnwright-minipro
+# The T76-only build, from vendor/minipro-t76.
+T76_SIDECAR_NAME=burnwright-minipro-t76
 
 # zlib, statically linked into the Windows build only (macOS and Linux use the
 # OS's own libz). Signed by Mark Adler, 5ED4 6A67 21D3 6558 7791 E2AA 783F CD8E 58BC AFBA.

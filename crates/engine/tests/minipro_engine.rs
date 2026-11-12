@@ -22,8 +22,8 @@ use std::time::{Duration, Instant};
 
 use engine::{
     ChipCatalog, ChipCheck, ChipId, ChipKind, ChipSocket, DeviceInfo, DeviceState, Engine,
-    EngineError, FirmwareStatus, MemoryKind, MiniproBinary, MiniproEngine, OpContext, Operation,
-    PinCheck, Programmer, ProgressEvent, Stage,
+    EngineError, FirmwareStatus, MemoryKind, MiniproBinary, MiniproBuild, MiniproEngine,
+    MiniproRoutes, OpContext, Operation, PinCheck, Programmer, ProgressEvent, Stage,
 };
 
 const FAKE: &str = "BURNWRIGHT_FAKE_MINIPRO";
@@ -57,6 +57,18 @@ fn main() {
         (
             "detect_survives_a_missing_database",
             detect_survives_a_missing_database,
+        ),
+        (
+            "routed_detect_finds_a_t76_with_the_t76_build",
+            routed_detect_finds_a_t76_with_the_t76_build,
+        ),
+        (
+            "routed_detect_keeps_the_stable_build_for_a_t48",
+            routed_detect_keeps_the_stable_build_for_a_t48,
+        ),
+        (
+            "routed_detect_without_a_programmer",
+            routed_detect_without_a_programmer,
         ),
         ("check_chip_reports_a_match", check_chip_reports_a_match),
         (
@@ -165,6 +177,10 @@ fn main() {
         (
             "the_catalog_starts_over_for_another_minipro",
             the_catalog_starts_over_for_another_minipro,
+        ),
+        (
+            "the_catalog_keeps_a_list_per_build",
+            the_catalog_keeps_a_list_per_build,
         ),
         (
             "the_catalog_does_not_keep_a_failed_load",
@@ -384,6 +400,54 @@ fn detect_survives_a_missing_database() {
     let info = fake.engine().detect(&ctx()).unwrap();
     assert_eq!(info.programmer, "T48");
     assert_eq!(info.firmware.as_deref(), Some("01.1.32"));
+}
+
+fn routed_detect_finds_a_t76_with_the_t76_build() {
+    // 0.7.4 doesn't know the T76's USB ID, so it sees no programmer.
+    let stable = Fake::new("route-t76-stable").fixture("-k=k_none.stderr");
+    let t76 = Fake::new("route-t76").fixture("-k=k_t76.stderr;-V=t76_firmware_outdated.stderr");
+    let routes = MiniproRoutes::split(stable.binary.clone(), t76.binary.clone());
+    let (info, build) = engine::route::detect(&routes, &ctx()).unwrap();
+    assert_eq!(build, MiniproBuild::T76);
+    assert_eq!(
+        info,
+        DeviceInfo {
+            programmer: "T76".into(),
+            firmware: Some("00.1.07".into()),
+            chip: None,
+            firmware_status: Some(FirmwareStatus::OutOfDate),
+            firmware_expected: Some("00.1.17".into()),
+            support_warning: Some("T76 support is experimental!".into()),
+        }
+    );
+    assert_eq!(stable.calls(), vec![args(&["-k"])]);
+    assert_eq!(t76.calls(), vec![args(&["-k"]), args(&["-V"])]);
+}
+
+fn routed_detect_keeps_the_stable_build_for_a_t48() {
+    let stable = Fake::new("route-t48").fixture("-k=k_t48.stderr;-V=version_t48.stderr");
+    let t76 = Fake::new("route-t48-t76").fixture("-k=k_t76.stderr");
+    let routes = MiniproRoutes::split(stable.binary.clone(), t76.binary.clone());
+    let (info, build) = engine::route::detect(&routes, &ctx()).unwrap();
+    assert_eq!(
+        (info.programmer.as_str(), build),
+        ("T48", MiniproBuild::Stable)
+    );
+    assert_eq!(
+        t76.calls(),
+        Vec::<Vec<String>>::new(),
+        "T76 build never ran"
+    );
+}
+
+fn routed_detect_without_a_programmer() {
+    let stable = Fake::new("route-none").fixture("-k=k_none.stderr");
+    let t76 = Fake::new("route-none-t76").fixture("-k=k_none.stderr");
+    let routes = MiniproRoutes::split(stable.binary.clone(), t76.binary.clone());
+    let err = engine::route::detect(&routes, &ctx()).unwrap_err();
+    assert_eq!(err, EngineError::NoProgrammer);
+    assert_eq!(stable.calls(), vec![args(&["-k"])]);
+    assert_eq!(t76.calls(), vec![args(&["-k"])]);
 }
 
 fn check_chip_reports_a_match() {
@@ -1000,6 +1064,23 @@ fn the_catalog_starts_over_for_another_minipro() {
         .list(&one.engine(), Programmer::T48, &ctx())
         .unwrap();
     assert_eq!(one.calls().len(), 2);
+}
+
+fn the_catalog_keeps_a_list_per_build() {
+    // The stable build answers for the T48 and the T76 build for the T76.
+    // Going back and forth between them doesn't reload either list.
+    let stable = listing_fake("catalog-stable");
+    let t76 = listing_fake("catalog-t76");
+    let catalog = ChipCatalog::new();
+    for _ in 0..3 {
+        catalog
+            .list(&stable.engine(), Programmer::T48, &ctx())
+            .unwrap();
+        catalog
+            .list(&t76.engine(), Programmer::T76, &ctx())
+            .unwrap();
+    }
+    assert_eq!((stable.calls().len(), t76.calls().len()), (1, 1));
 }
 
 fn the_catalog_does_not_keep_a_failed_load() {
