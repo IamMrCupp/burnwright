@@ -161,7 +161,8 @@ export interface ChipMemory {
   unit: "bytes" | "words" | "bits";
   /**
    * The code memory in bytes: the size of the image minipro reads and
-   * expects to write. `null` for `bits` (a PLD fuse map isn't a raw image).
+   * expects to write. `null` when minipro doesn't say: for `bits` (a PLD
+   * fuse map isn't a raw image) and for a `size` of 0 (SPI NAND parts).
    */
   bytes: number | null;
   /** Extra memories in bytes, in minipro's order: data (EEPROM) first. */
