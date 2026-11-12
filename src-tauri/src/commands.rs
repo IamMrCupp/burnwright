@@ -408,12 +408,17 @@ pub struct AppInfo {
     pub version: &'static str,
     /// Version of the vendored minipro this build was compiled against.
     pub minipro: &'static str,
+    /// The T76-only minipro build, as `<version>+<short commit>`
+    /// (`0.7.4+3e2f491`): upstream's version alone doesn't tell it from the
+    /// stable build.
+    pub minipro_t76: &'static str,
 }
 
 fn app_info_value() -> AppInfo {
     AppInfo {
         version: env!("CARGO_PKG_VERSION"),
         minipro: env!("BURNWRIGHT_MINIPRO_VERSION"),
+        minipro_t76: env!("BURNWRIGHT_MINIPRO_T76_VERSION"),
     }
 }
 
@@ -769,5 +774,17 @@ mod tests {
             "unexpected minipro version: {}",
             info.minipro
         );
+        // The T76 build names its commit: "0.7.4+3e2f491".
+        let (version, commit) = info
+            .minipro_t76
+            .split_once('+')
+            .unwrap_or_else(|| panic!("no commit in {}", info.minipro_t76));
+        assert!(
+            version.starts_with(|c: char| c.is_ascii_digit()),
+            "{version}"
+        );
+        assert_eq!(commit.len(), 7, "{commit}");
+        assert!(commit.chars().all(|c| c.is_ascii_hexdigit()), "{commit}");
+        assert_ne!(info.minipro_t76, info.minipro);
     }
 }
