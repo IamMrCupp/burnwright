@@ -1,0 +1,10 @@
+Using overridden database file /opt/burnwright/minipro/logicic.xml
+Using overridden database file /opt/burnwright/minipro/infoic.xml
+Name: SM59R03A1C
+Available on: TL866II only
+Memory: 16384 Bytes
+Package: DIP40
+ICSP: ICP003.JPG
+Protocol: 0x26
+Read buffer size: 256 Bytes
+Write buffer size: 256 Bytes

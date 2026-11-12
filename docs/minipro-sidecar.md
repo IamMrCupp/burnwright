@@ -109,6 +109,13 @@ After bundling, `scripts/minipro/verify-bundle.sh` (macOS and Linux) and
 Each run passes the bundled databases by path, from an empty working directory
 with no `PATH`. It must print the version and database counts, list over a
 thousand chips with `-q tl866ii -l`, and report `No programmer found` for `-k`.
+On Windows, where minipro pipes every `-l` through a pager, the list also has
+to come out the same through the pass-through pager the app sets in `PAGER`.
+
+The checks job also runs the sidecar for real: `cargo test` lists, searches and
+describes chips through the app's own commands (`src-tauri/src/commands.rs`).
+Those runs pass `-q`, so minipro reads its databases and never looks for a
+programmer.
 
 CI has no programmer attached, so none of this proves a read or write, or that
 the udev rules grant access to a real device. That

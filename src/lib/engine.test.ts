@@ -10,12 +10,17 @@ vi.mock("@tauri-apps/api/core", () => {
 });
 
 import {
+  chipAvailableOn,
   deviceMayBeInconsistent,
   engine,
   errorMessage,
   isEngineError,
   isNoProgrammer,
   mutatesDevice,
+  programmerFromModel,
+  PROGRAMMERS,
+  type ChipInfo,
+  type ChipSearch,
   type ProgressEvent,
 } from "./engine";
 
@@ -107,6 +112,119 @@ describe("device commands", () => {
     await engine.erase("A", { signal: controller.signal });
     controller.abort();
     expect(invoke.mock.calls.map(([c]) => c)).toEqual(["erase"]);
+  });
+});
+
+describe("chip commands", () => {
+  // As `chip_info` serializes W25Q32BV@SOIC8 (see the engine's chips tests).
+  const w25q32: ChipInfo = {
+    name: "W25Q32BV@SOIC8",
+    package: "SOIC8",
+    kind: "programmable",
+    available_on: ["tl866ii", "t48", "t56"],
+    memory: { size: 4194304, unit: "bytes", bytes: 4194304, data_sizes: [] },
+    socket: { kind: "dip", pins: 8 },
+    icsp: "ICP009.JPG",
+    protocol: 3,
+    read_buffer_size: 4096,
+    write_buffer_size: 256,
+    details: [],
+  };
+
+  it("lists chips for a programmer, with no op id or progress channel", async () => {
+    const list = {
+      programmer: "t48",
+      chips: [{ name: "W25Q32BV@SOIC8", package: "SOIC8", custom: false }],
+    };
+    invoke.mockResolvedValueOnce(list);
+    await expect(engine.listChips("t48")).resolves.toEqual(list);
+    expect(invoke).toHaveBeenCalledWith("list_chips", { programmer: "t48" });
+  });
+
+  it("searches with the query and a limit", async () => {
+    const hits: ChipSearch = {
+      total: 57,
+      chips: [{ name: "W25Q32BV", package: null, custom: false }],
+    };
+    invoke.mockResolvedValue(hits);
+    await expect(engine.searchChips("t56", "w25q32 soic", 20)).resolves.toEqual(
+      hits,
+    );
+    expect(invoke).toHaveBeenLastCalledWith("search_chips", {
+      programmer: "t56",
+      query: "w25q32 soic",
+      limit: 20,
+    });
+    // No limit: the backend's default.
+    await engine.searchChips("tl866a", "");
+    expect(invoke).toHaveBeenLastCalledWith("search_chips", {
+      programmer: "tl866a",
+      query: "",
+      limit: null,
+    });
+  });
+
+  it("describes a chip", async () => {
+    invoke.mockResolvedValueOnce(w25q32);
+    await expect(engine.chipInfo("t48", "w25q32bv@soic8")).resolves.toEqual(
+      w25q32,
+    );
+    expect(invoke).toHaveBeenCalledWith("chip_info", {
+      programmer: "t48",
+      name: "w25q32bv@soic8",
+    });
+  });
+
+  it("passes the typed chip errors through", async () => {
+    for (const kind of [
+      "unknown_chip",
+      "missing_database",
+      "unsupported_programmer",
+    ]) {
+      const error = { kind, message: "x", device_state: null };
+      invoke.mockRejectedValueOnce(error);
+      const rejection = await engine.chipInfo("t76", "NOPE").catch((e) => e);
+      expect(isEngineError(rejection)).toBe(true);
+      expect(rejection).toEqual(error);
+    }
+  });
+
+  it("maps the model names detect reports to programmers", () => {
+    expect(programmerFromModel("TL866A")).toBe("tl866a");
+    expect(programmerFromModel("TL866CS")).toBe("tl866a");
+    expect(programmerFromModel("TL866II+")).toBe("tl866ii");
+    expect(programmerFromModel("T48")).toBe("t48");
+    expect(programmerFromModel("T56")).toBe("t56");
+    expect(programmerFromModel(" t76 ")).toBe("t76");
+    expect(programmerFromModel("T100")).toBeNull();
+    expect(programmerFromModel("")).toBeNull();
+    // Every picker entry maps back to itself by id and by label.
+    for (const { id, label } of PROGRAMMERS) {
+      expect(programmerFromModel(id)).toBe(id);
+      expect(programmerFromModel(label)).toBe(id);
+    }
+    expect(PROGRAMMERS.map((p) => p.id)).toEqual([
+      "tl866a",
+      "tl866ii",
+      "t48",
+      "t56",
+      "t76",
+    ]);
+  });
+
+  it("says whether a programmer takes a chip", () => {
+    expect(chipAvailableOn(w25q32, "t48")).toBe(true);
+    expect(chipAvailableOn(w25q32, "tl866a")).toBe(false);
+    const t56Only: ChipInfo = { ...w25q32, available_on: ["t56"] };
+    expect(chipAvailableOn(t56Only, "t48")).toBe(false);
+    // A logic IC: minipro prints no availability.
+    const logic: ChipInfo = {
+      ...w25q32,
+      kind: "logic",
+      available_on: [],
+      memory: null,
+    };
+    expect(chipAvailableOn(logic, "t48")).toBeNull();
   });
 });
 

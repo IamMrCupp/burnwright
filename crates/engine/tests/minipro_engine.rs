@@ -21,8 +21,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use engine::{
-    ChipCheck, ChipId, DeviceInfo, DeviceState, Engine, EngineError, FirmwareStatus, MemoryKind,
-    MiniproBinary, MiniproEngine, OpContext, Operation, PinCheck, ProgressEvent, Stage,
+    ChipCatalog, ChipCheck, ChipId, ChipKind, ChipSocket, DeviceInfo, DeviceState, Engine,
+    EngineError, FirmwareStatus, MemoryKind, MiniproBinary, MiniproEngine, OpContext, Operation,
+    PinCheck, Programmer, ProgressEvent, Stage,
 };
 
 const FAKE: &str = "BURNWRIGHT_FAKE_MINIPRO";
@@ -123,6 +124,51 @@ fn main() {
         (
             "a_missing_binary_is_minipro_not_found",
             a_missing_binary_is_minipro_not_found,
+        ),
+        (
+            "list_chips_parses_what_minipro_prints",
+            list_chips_parses_what_minipro_prints,
+        ),
+        (
+            "list_chips_reports_a_missing_database",
+            list_chips_reports_a_missing_database,
+        ),
+        (
+            "list_chips_for_a_programmer_minipro_does_not_know",
+            list_chips_for_a_programmer_minipro_does_not_know,
+        ),
+        (
+            "chip_info_parses_what_minipro_prints",
+            chip_info_parses_what_minipro_prints,
+        ),
+        (
+            "chip_info_asks_again_for_t48_availability",
+            chip_info_asks_again_for_t48_availability,
+        ),
+        (
+            "chip_info_survives_a_failed_second_ask",
+            chip_info_survives_a_failed_second_ask,
+        ),
+        (
+            "chip_info_for_an_unknown_chip",
+            chip_info_for_an_unknown_chip,
+        ),
+        (
+            "chip_info_reports_a_missing_database",
+            chip_info_reports_a_missing_database,
+        ),
+        ("chip_info_refuses_bad_names", chip_info_refuses_bad_names),
+        (
+            "the_catalog_runs_minipro_once_per_list",
+            the_catalog_runs_minipro_once_per_list,
+        ),
+        (
+            "the_catalog_starts_over_for_another_minipro",
+            the_catalog_starts_over_for_another_minipro,
+        ),
+        (
+            "the_catalog_does_not_keep_a_failed_load",
+            the_catalog_does_not_keep_a_failed_load,
         ),
     ]);
 }
@@ -707,6 +753,271 @@ fn a_missing_binary_is_minipro_not_found() {
     ));
     let err = engine.detect(&ctx()).unwrap_err();
     assert!(matches!(err, EngineError::MiniproNotFound(_)), "{err:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Chip list and chip info: output captured from the bundled minipro 0.7.4 by
+// `fixtures/minipro/capture-chips.sh`.
+
+/// A captured stdout from `fixtures/minipro/chips/`.
+fn chip_stdout(name: &str) -> Vec<u8> {
+    let path = format!(
+        "{}/fixtures/minipro/chips/{name}",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    fs::read(&path).unwrap_or_else(|e| panic!("fixture {path}: {e}"))
+}
+
+/// A fake that answers `-l` with the captured W25Q32 list.
+fn listing_fake(name: &str) -> Fake {
+    Fake::new(name)
+        .fixture("chips/list_t48_w25q32.stderr")
+        .stdout(&chip_stdout("list_t48_w25q32.stdout"))
+}
+
+fn list_chips_parses_what_minipro_prints() {
+    let fake = listing_fake("list");
+    let list = fake.engine().list_chips(Programmer::T48, &ctx()).unwrap();
+    assert_eq!(list.programmer(), Programmer::T48);
+    assert_eq!(list.skipped_lines(), 0);
+    let entry = list.get("w25q32bv@soic8").expect("W25Q32BV@SOIC8 listed");
+    assert_eq!(entry.name, "W25Q32BV@SOIC8");
+    assert_eq!(entry.package.as_deref(), Some("SOIC8"));
+    // -q always, so minipro never looks for a programmer.
+    assert_eq!(fake.calls(), vec![args(&["-q", "t48", "-l"])]);
+
+    let fake = listing_fake("list-tl866a");
+    fake.engine()
+        .list_chips(Programmer::Tl866a, &ctx())
+        .unwrap();
+    assert_eq!(fake.calls(), vec![args(&["-q", "tl866a", "-l"])]);
+}
+
+fn list_chips_reports_a_missing_database() {
+    // infoic.xml gone: minipro exits 0 and prints the logic ICs alone.
+    let fake = Fake::new("list-noinfoic")
+        .fixture("chips/list_t48_no_infoic.stderr")
+        .stdout(&chip_stdout("list_t48_no_infoic.stdout"));
+    assert_eq!(
+        fake.engine().list_chips(Programmer::T48, &ctx()),
+        Err(EngineError::MissingDatabase(
+            "/opt/burnwright/missing/infoic.xml: No such file or directory".into()
+        ))
+    );
+    // Both gone: exit 0 again, and nothing on stdout.
+    let fake = Fake::new("list-nodb").fixture("chips/list_t48_no_database.stderr");
+    let err = fake
+        .engine()
+        .list_chips(Programmer::T48, &ctx())
+        .unwrap_err();
+    assert!(matches!(err, EngineError::MissingDatabase(_)), "{err:?}");
+    assert!(err.to_string().contains("logicic.xml"), "{err}");
+}
+
+fn list_chips_for_a_programmer_minipro_does_not_know() {
+    let fake = Fake::new("list-t76")
+        .fixture("chips/list_t76_unsupported.stderr")
+        .exit("1");
+    assert_eq!(
+        fake.engine().list_chips(Programmer::T76, &ctx()),
+        Err(EngineError::UnsupportedProgrammer("T76".into()))
+    );
+    assert_eq!(fake.calls(), vec![args(&["-q", "t76", "-l"])]);
+}
+
+fn chip_info_parses_what_minipro_prints() {
+    let fake = Fake::new("info").fixture("chips/info_tl866ii_atmega328p_dip28.stderr");
+    let info = fake
+        .engine()
+        .chip_info(Programmer::Tl866ii, " atmega328p@dip28 ", &ctx())
+        .unwrap();
+    assert_eq!(info.name, "ATMEGA328P@DIP28");
+    assert_eq!(info.kind, ChipKind::Programmable);
+    assert_eq!(info.package.as_deref(), Some("DIP28"));
+    assert_eq!(info.socket, Some(ChipSocket::Dip { pins: 28 }));
+    let memory = info.memory.expect("memory");
+    assert_eq!((memory.bytes, memory.data_sizes), (Some(32768), vec![1024]));
+    assert_eq!(
+        info.available_on,
+        [Programmer::Tl866ii, Programmer::T48, Programmer::T56]
+    );
+    assert_eq!(
+        fake.calls(),
+        vec![args(&["-q", "tl866ii", "-d", "atmega328p@dip28"])]
+    );
+
+    let fake = Fake::new("info-logic").fixture("chips/info_t48_7400.stderr");
+    let info = fake
+        .engine()
+        .chip_info(Programmer::T48, "7400", &ctx())
+        .unwrap();
+    assert_eq!(info.kind, ChipKind::Logic);
+    assert_eq!(info.memory, None);
+    // No availability line at all: nothing to ask again about.
+    assert_eq!(fake.calls().len(), 1);
+}
+
+fn chip_info_asks_again_for_t48_availability() {
+    // 0.7.4 tells a T48 that every chip is "Available on: TL866A/CS".
+    let fake = Fake::new("info-t48").fixture(
+        "t48=chips/info_t48_w25q32bv_soic8.stderr;\
+         tl866ii=chips/info_tl866ii_w25q32bv_soic8.stderr",
+    );
+    let info = fake
+        .engine()
+        .chip_info(Programmer::T48, PART, &ctx())
+        .unwrap();
+    assert_eq!(
+        info.available_on,
+        [Programmer::Tl866ii, Programmer::T48, Programmer::T56]
+    );
+    assert_eq!(info.is_available_on(Programmer::T48), Some(true));
+    assert_eq!(info.read_buffer_size, Some(4096));
+    assert_eq!(
+        fake.calls(),
+        vec![
+            args(&["-q", "t48", "-d", PART]),
+            args(&["-q", "tl866ii", "-d", PART]),
+        ]
+    );
+
+    // The TL866A/CS has its own database, where that line is simply true.
+    let fake = Fake::new("info-tl866a").fixture("chips/info_tl866a_w25q32bv.stderr");
+    let info = fake
+        .engine()
+        .chip_info(Programmer::Tl866a, "W25Q32BV", &ctx())
+        .unwrap();
+    assert_eq!(info.available_on, [Programmer::Tl866a]);
+    assert_eq!(fake.calls().len(), 1);
+}
+
+fn chip_info_survives_a_failed_second_ask() {
+    let fake = Fake::new("info-t56")
+        .fixture("t56=chips/info_t48_w25q32bv_soic8.stderr;tl866ii=no_programmer.stderr")
+        .exit("tl866ii=1");
+    let info = fake
+        .engine()
+        .chip_info(Programmer::T56, PART, &ctx())
+        .unwrap();
+    assert_eq!(info.name, PART);
+    assert_eq!(info.available_on, [], "unknown beats wrong");
+    assert_eq!(info.is_available_on(Programmer::T56), None);
+    assert_eq!(fake.calls().len(), 2);
+}
+
+fn chip_info_for_an_unknown_chip() {
+    let fake = Fake::new("info-unknown")
+        .fixture("chips/info_t48_unknown.stderr")
+        .exit("1");
+    assert_eq!(
+        fake.engine()
+            .chip_info(Programmer::T48, "NOSUCHCHIP", &ctx()),
+        Err(EngineError::UnknownChip("NOSUCHCHIP".into()))
+    );
+    assert_eq!(fake.calls().len(), 1);
+}
+
+fn chip_info_reports_a_missing_database() {
+    // minipro says "Device AT28C256 not found!" here too. It isn't the
+    // chip that's missing.
+    let fake = Fake::new("info-nodb")
+        .fixture("chips/info_t48_no_database.stderr")
+        .exit("1");
+    assert_eq!(
+        fake.engine().chip_info(Programmer::T48, "AT28C256", &ctx()),
+        Err(EngineError::MissingDatabase(
+            "/opt/burnwright/missing/logicic.xml: No such file or directory".into()
+        ))
+    );
+}
+
+fn chip_info_refuses_bad_names() {
+    let fake = Fake::new("info-bad");
+    for name in ["", "  ", "-E"] {
+        assert!(
+            matches!(
+                fake.engine().chip_info(Programmer::T48, name, &ctx()),
+                Err(EngineError::InvalidInput(_))
+            ),
+            "{name:?}"
+        );
+    }
+    assert!(fake.calls().is_empty());
+}
+
+fn the_catalog_runs_minipro_once_per_list() {
+    let fake = listing_fake("catalog");
+    let engine = fake.engine();
+    let catalog = ChipCatalog::new();
+    let first = catalog.list(&engine, Programmer::T48, &ctx()).unwrap();
+    let again = catalog.list(&engine, Programmer::T48, &ctx()).unwrap();
+    assert!(Arc::ptr_eq(&first, &again));
+    // Searches use the list in memory. A clone is the same catalog.
+    for query in ["w", "w2", "w25", "w25q32bv soic"] {
+        let hits = catalog
+            .clone()
+            .search(&engine, Programmer::T48, query, 5, &ctx())
+            .unwrap();
+        assert!(hits.total > 0, "{query}");
+    }
+    assert_eq!(fake.calls().len(), 1, "one minipro run for all of that");
+
+    // Another programmer is another list.
+    catalog.list(&engine, Programmer::T56, &ctx()).unwrap();
+    catalog.list(&engine, Programmer::T56, &ctx()).unwrap();
+    assert_eq!(
+        fake.calls(),
+        vec![args(&["-q", "t48", "-l"]), args(&["-q", "t56", "-l"]),]
+    );
+
+    catalog.clear();
+    catalog.list(&engine, Programmer::T48, &ctx()).unwrap();
+    assert_eq!(fake.calls().len(), 3);
+}
+
+fn the_catalog_starts_over_for_another_minipro() {
+    let one = listing_fake("catalog-one");
+    let two = Fake::new("catalog-two")
+        .fixture("chips/list_tl866a_w25q32.stderr")
+        .stdout(&chip_stdout("list_tl866a_w25q32.stdout"));
+    let catalog = ChipCatalog::new();
+    let from_one = catalog
+        .list(&one.engine(), Programmer::T48, &ctx())
+        .unwrap();
+    // The user points burnwright at a different minipro: its databases are
+    // its own, so the first one's list doesn't answer for it.
+    let from_two = catalog
+        .list(&two.engine(), Programmer::T48, &ctx())
+        .unwrap();
+    assert_ne!(from_one.len(), from_two.len());
+    assert_eq!((one.calls().len(), two.calls().len()), (1, 1));
+    catalog
+        .list(&two.engine(), Programmer::T48, &ctx())
+        .unwrap();
+    assert_eq!(two.calls().len(), 1);
+    // And back again reloads.
+    catalog
+        .list(&one.engine(), Programmer::T48, &ctx())
+        .unwrap();
+    assert_eq!(one.calls().len(), 2);
+}
+
+fn the_catalog_does_not_keep_a_failed_load() {
+    // The fake prints whatever is in stdout.bin: nothing at first.
+    let fake = Fake::new("catalog-retry").stdout(b"");
+    let engine = fake.engine();
+    let catalog = ChipCatalog::new();
+    let err = catalog.list(&engine, Programmer::T48, &ctx()).unwrap_err();
+    assert!(matches!(err, EngineError::Minipro(_)), "{err:?}");
+    fs::write(
+        fake.dir.join("stdout.bin"),
+        chip_stdout("list_t48_w25q32.stdout"),
+    )
+    .unwrap();
+    let list = catalog.list(&engine, Programmer::T48, &ctx()).unwrap();
+    assert!(list.get(PART).is_some());
+    catalog.list(&engine, Programmer::T48, &ctx()).unwrap();
+    assert_eq!(fake.calls().len(), 2, "the failure, then one good load");
 }
 
 // ---------------------------------------------------------------------------

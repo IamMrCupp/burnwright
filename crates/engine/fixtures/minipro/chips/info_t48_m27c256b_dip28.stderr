@@ -1,0 +1,15 @@
+Using overridden database file /opt/burnwright/minipro/logicic.xml
+Using overridden database file /opt/burnwright/minipro/infoic.xml
+Name: M27C256B@DIP28
+Available on: TL866A/CS
+Memory: 32768 Bytes
+Package: DIP28
+ICSP: -
+Protocol: 0x07
+Read buffer size: 1024 Bytes
+Write buffer size: 128 Bytes
+*******************************
+VPP programming voltage: 13V
+VDD write voltage: 6.5V
+VCC verify voltage: 5V
+Pulse delay: 100us
