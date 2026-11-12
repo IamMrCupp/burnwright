@@ -1,0 +1,18 @@
+Using overridden database file /opt/burnwright/minipro-t76/logicic.xml
+Using overridden database file /opt/burnwright/minipro-t76/infoic.xml
+
+---------------Chip Info----------------
+Name: W25Q32BV@SOIC8
+Available on: T76
+Memory: 4194304 Bytes
+Package: DIP8
+ICSP: ICP009.JPG
+Protocol: 0x03
+/usr/local/share/minipro/algorithm.xml: No such file or directory
+algorithm.xml: No such file or directory
+Read buffer size: 4096 Bytes
+Write buffer size: 256 Bytes
+----------------------------------------
+Available SPI clock frequencies [MHz]: 
+4, 8, 16, 24, 30, 40, 50, 60
+----------------------------------------

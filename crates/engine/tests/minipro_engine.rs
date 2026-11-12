@@ -179,6 +179,10 @@ fn main() {
             the_catalog_starts_over_for_another_minipro,
         ),
         (
+            "the_catalog_keeps_a_list_per_build",
+            the_catalog_keeps_a_list_per_build,
+        ),
+        (
             "the_catalog_does_not_keep_a_failed_load",
             the_catalog_does_not_keep_a_failed_load,
         ),
@@ -1060,6 +1064,23 @@ fn the_catalog_starts_over_for_another_minipro() {
         .list(&one.engine(), Programmer::T48, &ctx())
         .unwrap();
     assert_eq!(one.calls().len(), 2);
+}
+
+fn the_catalog_keeps_a_list_per_build() {
+    // The stable build answers for the T48 and the T76 build for the T76.
+    // Going back and forth between them doesn't reload either list.
+    let stable = listing_fake("catalog-stable");
+    let t76 = listing_fake("catalog-t76");
+    let catalog = ChipCatalog::new();
+    for _ in 0..3 {
+        catalog
+            .list(&stable.engine(), Programmer::T48, &ctx())
+            .unwrap();
+        catalog
+            .list(&t76.engine(), Programmer::T76, &ctx())
+            .unwrap();
+    }
+    assert_eq!((stable.calls().len(), t76.calls().len()), (1, 1));
 }
 
 fn the_catalog_does_not_keep_a_failed_load() {

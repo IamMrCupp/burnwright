@@ -61,8 +61,8 @@ pub enum Programmer {
     T48,
     /// T56.
     T56,
-    /// T76. minipro 0.7.4 doesn't know it: every call fails with
-    /// [`EngineError::UnsupportedProgrammer`] until the bundled minipro does.
+    /// T76. Only the T76 build knows it (see [`crate::route`]): asking
+    /// minipro 0.7.4 fails with [`EngineError::UnsupportedProgrammer`].
     T76,
 }
 
@@ -140,6 +140,9 @@ const MAX_NAME_LEN: usize = 96;
 /// Not an error.
 const DATABASE_NOTICE: &str = "Using overridden database file";
 
+/// The T76 build's algorithm file. See [`is_algorithm_file`].
+const ALGORITHM_FILE: &str = "algorithm.xml";
+
 /// What minipro appends to names from a `<custom>` database section.
 const CUSTOM_SUFFIX: &str = "(custom)";
 
@@ -162,22 +165,34 @@ impl ChipList {
     /// A line that can't be a chip name (blank, containing whitespace or
     /// control characters, or absurdly long) is skipped and counted, not
     /// treated as an error. A name that appears twice is kept once.
+    ///
+    /// The T76's database is the exception on whitespace: about 1,700 of
+    /// its names have a space inside (`AUTO-EMMC(4Bits) @SD_ADP`), and those
+    /// are kept. Around a hundred more end with a space or hold a tab.
+    /// minipro matches a name exactly, and burnwright trims the names it
+    /// passes, so those can't be asked for again: they're skipped.
     pub fn parse(programmer: Programmer, stdout: &[u8]) -> Self {
         let text = String::from_utf8_lossy(stdout);
+        let spaces = programmer == Programmer::T76;
         let mut chips: Vec<ChipEntry> = Vec::new();
         let mut folded: Vec<String> = Vec::new();
         let mut index: HashMap<String, usize> = HashMap::new();
         let mut skipped_lines = 0;
-        for line in text.split('\n') {
-            let line = line.trim();
+        for raw in text.split('\n') {
+            let raw = raw.strip_suffix('\r').unwrap_or(raw);
+            let line = raw.trim();
             if line.is_empty() {
+                continue;
+            }
+            if spaces && line != raw {
+                skipped_lines += 1;
                 continue;
             }
             let (name, custom) = match line.strip_suffix(CUSTOM_SUFFIX) {
                 Some(name) => (name, true),
                 None => (line, false),
             };
-            if !is_chip_name(name) {
+            if !is_chip_name(name, spaces) {
                 skipped_lines += 1;
                 continue;
             }
@@ -281,13 +296,16 @@ impl ChipList {
     }
 }
 
-/// Whether a line of `-l` output can be a chip name. Real names have no
-/// whitespace: minipro splits its name lists on commas and prints each token
-/// alone on a line.
-fn is_chip_name(name: &str) -> bool {
+/// Whether a line of `-l` output can be a chip name. minipro splits its
+/// name lists on commas and prints each token alone on a line. Outside the
+/// T76's database no name has whitespace; `spaces` lets a plain space
+/// through for that one.
+fn is_chip_name(name: &str, spaces: bool) -> bool {
     !name.is_empty()
         && name.len() <= MAX_NAME_LEN
-        && !name.chars().any(|c| c.is_whitespace() || c.is_control())
+        && !name
+            .chars()
+            .any(|c| c.is_control() || (c.is_whitespace() && !(spaces && c == ' ')))
 }
 
 /// The result of [`ChipList::search`].
@@ -478,7 +496,11 @@ fn split_field(line: &str) -> Option<(&str, &str)> {
     }
     let (label, value) = line.split_once(':')?;
     let (label, value) = (label.trim(), value.trim());
-    if label.is_empty() || value.is_empty() || label.contains(['/', '\\']) {
+    if label.is_empty()
+        || value.is_empty()
+        || label.contains(['/', '\\'])
+        || label.eq_ignore_ascii_case(ALGORITHM_FILE)
+    {
         return None;
     }
     Some((label, value))
@@ -584,9 +606,19 @@ pub(crate) fn database_problem(lines: &[String]) -> Option<&str> {
         if line.starts_with("Error opening file") {
             return true;
         }
-        line.rsplit_once(": ")
-            .is_some_and(|(path, _)| path.trim_end().to_ascii_lowercase().ends_with(".xml"))
+        line.rsplit_once(": ").is_some_and(|(path, _)| {
+            let path = path.trim_end().to_ascii_lowercase();
+            path.ends_with(".xml") && !is_algorithm_file(&path)
+        })
     })
+}
+
+/// Whether `path` (lowercased) is `algorithm.xml`, the XGecu algorithm file
+/// the T76 build looks for on every `-d`. It isn't a chip database and
+/// burnwright never ships it, so the list and the chip info are whole
+/// without it.
+fn is_algorithm_file(path: &str) -> bool {
+    path.rsplit(['/', '\\']).next() == Some(ALGORITHM_FILE)
 }
 
 /// True when minipro rejected the `-q` model (`"Unknown programmer version
@@ -608,9 +640,11 @@ pub(crate) fn availability_is_suspect(programmer: Programmer, info: &ChipInfo) -
 ///
 /// The list for a programmer comes from one minipro run (about 30,000 names
 /// for the T48). After that, [`list`](Self::list) and searches over it never
-/// start minipro. Lists are kept per programmer and belong to one minipro
-/// binary: ask with a different binary (the user pointed burnwright at
-/// another minipro, with its own databases) and the catalog starts over.
+/// start minipro. Each list is kept per programmer, with the minipro binary
+/// it came from. Ask for a programmer with a different binary (the user
+/// pointed burnwright at another minipro, with its own databases) and that
+/// list is loaded again. The two bundled builds each answer for their own
+/// programmers, so their lists sit side by side.
 ///
 /// Clones share the same cache.
 #[derive(Debug, Clone, Default)]
@@ -620,8 +654,7 @@ pub struct ChipCatalog {
 
 #[derive(Debug, Default)]
 struct CatalogInner {
-    binary: Option<MiniproBinary>,
-    lists: HashMap<Programmer, Arc<ChipList>>,
+    lists: HashMap<Programmer, (MiniproBinary, Arc<ChipList>)>,
 }
 
 impl ChipCatalog {
@@ -637,11 +670,14 @@ impl ChipCatalog {
 
     fn cached(&self, binary: &MiniproBinary, programmer: Programmer) -> Option<Arc<ChipList>> {
         let mut inner = self.lock();
-        if inner.binary.as_ref() != Some(binary) {
-            inner.binary = Some(binary.clone());
-            inner.lists.clear();
+        match inner.lists.get(&programmer) {
+            Some((owner, list)) if owner == binary => Some(list.clone()),
+            Some(_) => {
+                inner.lists.remove(&programmer);
+                None
+            }
+            None => None,
         }
-        inner.lists.get(&programmer).cloned()
     }
 
     /// The chip list for `programmer`, from the cache or, the first time,
@@ -658,10 +694,9 @@ impl ChipCatalog {
         // Not under the lock: two first calls at once both run minipro, and
         // the second result replaces the first. They're the same list.
         let list = Arc::new(engine.list_chips(programmer, ctx)?);
-        let mut inner = self.lock();
-        if inner.binary.as_ref() == Some(engine.binary()) {
-            inner.lists.insert(programmer, list.clone());
-        }
+        self.lock()
+            .lists
+            .insert(programmer, (engine.binary().clone(), list.clone()));
         Ok(list)
     }
 
@@ -680,9 +715,7 @@ impl ChipCatalog {
 
     /// Forget every list, so the next call reads the databases again.
     pub fn clear(&self) {
-        let mut inner = self.lock();
-        inner.binary = None;
-        inner.lists.clear();
+        self.lock().lists.clear();
     }
 }
 
@@ -875,6 +908,57 @@ mod tests {
     }
 
     #[test]
+    fn t76_names_keep_the_spaces_inside_them() {
+        let list = ChipList::parse(Programmer::T76, &fixture("list_t76_auto_emmc.stdout"));
+        assert_eq!(list.len(), 8);
+        assert_eq!(list.skipped_lines(), 0);
+        let chip = list.get("auto-emmc(4bits) @sd_adp").unwrap();
+        assert_eq!(chip.name, "AUTO-EMMC(4Bits) @SD_ADP");
+        assert_eq!(chip.package.as_deref(), Some("SD_ADP"));
+        assert_eq!(found(&list.search("emmc 8b bga100", 10)).len(), 2);
+
+        // Every other programmer's names have none: there a spaced line is
+        // something else (a pager prompt), and still skipped.
+        let list = ChipList::parse(Programmer::T48, &fixture("list_t76_auto_emmc.stdout"));
+        assert!(list.is_empty());
+        assert_eq!(list.skipped_lines(), 8);
+    }
+
+    #[test]
+    fn t76_names_that_trimming_would_change_are_skipped() {
+        // "BWEFMD008GN7RJ_(ISP)_1Bit " ends with a space. minipro wants it
+        // exactly, and wouldn't find the trimmed name.
+        let list = ChipList::parse(Programmer::T76, &fixture("list_t76_bwefmd008.stdout"));
+        assert_eq!(
+            names(&list),
+            [
+                "BWEFMD008GN7RJ__8Bit @BGA153",
+                "BWEFMD008GN7RJ__4Bit @BGA153",
+                "BWEFMD008GN7RJ__1Bit @BGA153",
+                "BWEFMD008GN7RJ_(ISP)_4Bit",
+            ]
+        );
+        assert_eq!(list.skipped_lines(), 1);
+
+        // Two names here have a tab in the middle.
+        let list = ChipList::parse(Programmer::T76, &fixture("list_t76_mt28fw512aba1.stdout"));
+        assert_eq!(list.len(), 13);
+        assert_eq!(list.skipped_lines(), 2);
+        assert!(names(&list).iter().all(|name| !name.contains('\t')));
+
+        // CRLF line ends (Windows) aren't part of a name.
+        let list = ChipList::parse(
+            Programmer::T76,
+            b"W25Q32BV@SOIC8\r\nAUTO-EMMC_8B_3.3V @BGA100\r\n",
+        );
+        assert_eq!(
+            names(&list),
+            ["W25Q32BV@SOIC8", "AUTO-EMMC_8B_3.3V @BGA100"]
+        );
+        assert_eq!(list.skipped_lines(), 0);
+    }
+
+    #[test]
     fn search_ranks_exact_then_prefix_then_the_rest() {
         let list = ChipList::parse(Programmer::T48, &fixture("list_t48_w25q32.stdout"));
         let hits = list.search("w25q32bv", 5);
@@ -974,6 +1058,31 @@ mod tests {
                 details: vec![],
             }
         );
+    }
+
+    #[test]
+    fn a_t76_chip_parses_around_the_banner_and_the_algorithm_lines() {
+        // The T76 build frames the block with rules, and with no
+        // algorithm.xml installed says so in the middle of it.
+        let chip = info("info_t76_w25q32bv_soic8.stderr");
+        assert_eq!(chip.name, "W25Q32BV@SOIC8");
+        assert_eq!(chip.available_on, [Programmer::T76]);
+        assert_eq!(chip.memory.as_ref().unwrap().bytes, Some(4_194_304));
+        assert_eq!(chip.socket, Some(ChipSocket::Dip { pins: 8 }));
+        assert_eq!(chip.protocol, Some(0x03));
+        assert_eq!(chip.read_buffer_size, Some(4096));
+        assert_eq!(chip.write_buffer_size, Some(256));
+        assert_eq!(chip.details, []);
+
+        let chip = info("info_t76_auto_emmc_sd_adp.stderr");
+        assert_eq!(chip.name, "AUTO-EMMC(4Bits) @SD_ADP");
+        assert_eq!(chip.package.as_deref(), Some("SD_ADP"));
+        assert_eq!(chip.memory.as_ref().unwrap().data_sizes, [32, 32]);
+
+        let chip = info("info_t76_atmega328p_dip28.stderr");
+        let memory = chip.memory.unwrap();
+        assert_eq!((memory.size, memory.unit), (16_384, MemoryUnit::Words));
+        assert_eq!(memory.bytes, Some(32_768));
     }
 
     #[test]
@@ -1207,6 +1316,19 @@ mod tests {
         assert!(database_problem(&windows).is_some());
         let opening = ["Error opening file /usr/local/share/minipro/infoic.xml".to_string()];
         assert!(database_problem(&opening).is_some());
+        // The T76 build's missing algorithm.xml isn't a chip database.
+        for name in [
+            "info_t76_w25q32bv_soic8.stderr",
+            "info_t76_auto_emmc_sd_adp.stderr",
+            "list_t76_auto_emmc.stderr",
+        ] {
+            assert_eq!(database_problem(&lines(name)), None, "{name}");
+        }
+        let windows =
+            ["C:\\ProgramData\\minipro\\algorithm.xml: No such file or directory".to_string()];
+        assert_eq!(database_problem(&windows), None);
+        let not_it = ["/opt/my-algorithm.xml: No such file or directory".to_string()];
+        assert!(database_problem(&not_it).is_some());
         // A healthy run names the databases too.
         assert_eq!(database_problem(&lines("list_t48_w25q32.stderr")), None);
         assert_eq!(database_problem(&lines("info_t48_unknown.stderr")), None);
