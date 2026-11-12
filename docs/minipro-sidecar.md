@@ -31,6 +31,13 @@ Each build has its own databases, because the T76 build's `infoic.xml` adds
 the T76 chips and changes some older entries. That's a second ~19 MB
 `infoic.xml` in every installer.
 
+Chip lists, searches and chip info don't wait for a detect. They go by the
+programmer asked about: the T76's come from the T76 build and its database,
+everyone else's from the stable build. The T76's list has about 1,700 names
+with a space in them, which are kept, and 98 that end with a space or hold a
+tab, which are left out: minipro matches names exactly and burnwright trims
+the ones it passes, so those couldn't be selected anyway.
+
 The T76 also needs XGecu's per-family FPGA algorithm files. They're vendor
 files: burnwright doesn't ship them, and you extract them yourself with
 upstream's `dump-alg-minipro.bash`. For now the T76 sidecar finds
