@@ -33,6 +33,11 @@
 //!   `TL866A/CS` for every chip unless the model is exactly `tl866ii`.
 //!   [`chip_info`](crate::Engine::chip_info) asks again as `tl866ii` when it
 //!   sees that.
+//! - **Five listed chips can't be described.** 0.7.4 can't parse the
+//!   `<custom>` entries for `AT28C256E` (three packages), `ATF750C-TEST` and
+//!   `PIC18F46K22(ICSP)`: `-d` prints `An error occurred while parsing XML
+//!   database.` and then `Device … not found!`. [`entry_problem`] looks for
+//!   the first line, so that isn't reported as an unknown chip.
 //! - **SPI NAND parts have a code memory of 0.** `Memory: 0 Bytes + 131102
 //!   Bytes`. [`ChipMemory::bytes`] is `None` for them.
 //! - **A missing database isn't always an error exit.** `-l` exits 0 with a
@@ -593,6 +598,17 @@ pub(crate) fn database_problem(lines: &[String]) -> Option<&str> {
         line.rsplit_once(": ")
             .is_some_and(|(path, _)| path.trim_end().to_ascii_lowercase().ends_with(".xml"))
     })
+}
+
+/// The line minipro prints when it finds a chip's entry and can't parse it
+/// (`"An error occurred while parsing XML database."`), if there is one.
+/// 0.7.4 does this for five names from the `<custom>` section, `AT28C256E`
+/// among them, and follows it with `Device … not found!`.
+pub(crate) fn entry_problem(lines: &[String]) -> Option<&str> {
+    lines
+        .iter()
+        .map(String::as_str)
+        .find(|line| line.starts_with("An error occurred while parsing XML"))
 }
 
 /// True when minipro rejected the `-q` model (`"Unknown programmer version
