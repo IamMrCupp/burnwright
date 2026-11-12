@@ -1,0 +1,14 @@
+Using overridden database file /opt/burnwright/minipro-t76/logicic.xml
+Using overridden database file /opt/burnwright/minipro-t76/infoic.xml
+
+---------------Chip Info----------------
+Name: AUTO-EMMC(4Bits) @SD_ADP
+Available on: T76
+Memory: 512 Bytes + 32 Bytes + 32 Bytes
+Package: DIP44
+Protocol: 0x31
+/usr/local/share/minipro/algorithm.xml: No such file or directory
+algorithm.xml: No such file or directory
+Read buffer size: 16 Bytes
+Write buffer size: 64 Bytes
+----------------------------------------
