@@ -4,7 +4,12 @@ Open-source, cross-platform GUI for XGecu / MiniPRO universal programmers
 (T48, T56, T76, TL866II+), built on the [minipro](https://gitlab.com/DavidGriffith/minipro) engine.
 macOS · Linux · Windows. No closed-source vendor software required.
 
-> Early scaffold — nothing to run yet.
+> **Status: early, but it runs.** The installers detect a programmer, explain why
+> when they can't find one (USB permissions, out-of-date firmware, a T76 on a USB 3
+> link), and include a hex editor that runs on sample data for now. Read, write,
+> verify, blank check and erase work in the engine but have no screen yet — that's
+> [#53](https://github.com/IamMrCupp/burnwright/issues/53) — and the T76 itself
+> needs a newer minipro build ([#58](https://github.com/IamMrCupp/burnwright/pull/58)).
 
 ## Releases
 
