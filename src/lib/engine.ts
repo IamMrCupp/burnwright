@@ -8,8 +8,14 @@
 //   leaves the chip partly programmed: confirm with the user first (see
 //   `mutatesDevice`), and check `deviceMayBeInconsistent(err)` afterwards.
 //
-// Device commands reject with an `EngineError` object. The image commands
-// (loadImage, saveImage) still reject with a plain string.
+// The chip commands (listChips, searchChips, chipInfo) read minipro's chip
+// database. They never touch the programmer: they work with nothing plugged
+// in, run while a device operation is in flight, and take a `Programmer`
+// to say whose list to use. The lists are cached in the Rust side, so
+// `searchChips` is safe to call on every keystroke.
+//
+// Device and chip commands reject with an `EngineError` object. The image
+// commands (loadImage, saveImage) still reject with a plain string.
 import { Channel, invoke } from "@tauri-apps/api/core";
 
 /** Memory region of the target device (mirrors `engine::MemoryKind`). */
@@ -67,6 +73,152 @@ export interface ChipCheck {
   pins: PinCheck | null;
 }
 
+/**
+ * A programmer model minipro keeps a chip list for (mirrors
+ * `engine::Programmer`; the values are minipro's `-q` ids). `tl866a` covers
+ * the TL866A and TL866CS. `t76` is here for when the bundled minipro learns
+ * it: under minipro 0.7.4 every chip command rejects it with
+ * `unsupported_programmer`.
+ */
+export type Programmer = "tl866a" | "tl866ii" | "t48" | "t56" | "t76";
+
+/** Every `Programmer`, in the order a picker should show them, with its name. */
+export const PROGRAMMERS: readonly { id: Programmer; label: string }[] = [
+  { id: "tl866a", label: "TL866A/CS" },
+  { id: "tl866ii", label: "TL866II+" },
+  { id: "t48", label: "T48" },
+  { id: "t56", label: "T56" },
+  { id: "t76", label: "T76" },
+];
+
+/**
+ * The `Programmer` for a model name `detect` reports in
+ * `DeviceInfo.programmer` ("T48", "TL866II+", "TL866CS"), or `null` for a
+ * model the chip commands don't know.
+ */
+export function programmerFromModel(model: string): Programmer | null {
+  switch (model.trim().toLowerCase()) {
+    case "tl866a":
+    case "tl866cs":
+    case "tl866a/cs":
+      return "tl866a";
+    case "tl866ii":
+    case "tl866ii+":
+      return "tl866ii";
+    case "t48":
+      return "t48";
+    case "t56":
+      return "t56";
+    case "t76":
+      return "t76";
+    default:
+      return null;
+  }
+}
+
+/** One chip in a list or search result (mirrors `engine::ChipEntry`). */
+export interface ChipEntry {
+  /** The name to pass as `part`, e.g. "W25Q32BV@SOIC8". */
+  name: string;
+  /** The package after the name's `@`, e.g. "SOIC8". `null` for a bare name (usually the DIP part). */
+  package: string | null;
+  /** From a `<custom>` section of minipro's database, not the stock list. */
+  custom: boolean;
+}
+
+/**
+ * Every chip minipro lists for a programmer (mirrors `engine::ChipList`).
+ *
+ * The TL866II+, T48 and T56 share one list, and it isn't filtered by model:
+ * check `ChipInfo.available_on` for the chip the user picks. Logic ICs
+ * (testable, not programmable) are in the list too; `ChipInfo.kind` tells.
+ */
+export interface ChipList {
+  programmer: Programmer;
+  /** In database order, each name once. About 27,600 for the T48. */
+  chips: ChipEntry[];
+}
+
+/** A search result (mirrors `engine::ChipSearch`). */
+export interface ChipSearch {
+  /** How many chips matched, which can be more than `chips` holds. */
+  total: number;
+  /** The best matches, best first: exact name, then names starting with the first word, then the rest. */
+  chips: ChipEntry[];
+}
+
+/** Programmable part or logic IC (mirrors `engine::ChipKind`). */
+export type ChipKind =
+  /** Memories, microcontrollers, PLDs: something to read or write. */
+  | "programmable"
+  /** A logic IC minipro can only test. Nothing to read or write. */
+  | "logic";
+
+/** A chip's memory (mirrors `engine::ChipMemory`). */
+export interface ChipMemory {
+  /** Size of the main (code) memory, in `unit`s. */
+  size: number;
+  unit: "bytes" | "words" | "bits";
+  /**
+   * The code memory in bytes: the size of the image minipro reads and
+   * expects to write. `null` for `bits` (a PLD fuse map isn't a raw image).
+   */
+  bytes: number | null;
+  /** Extra memories in bytes, in minipro's order: data (EEPROM) first. */
+  data_sizes: number[];
+}
+
+/** How the chip goes on the programmer (mirrors `engine::ChipSocket`). */
+export type ChipSocket =
+  /**
+   * In the ZIF socket, through a plain package adapter if the part isn't
+   * DIP. `pins` is minipro's count: a BGA153 eMMC reads 37.
+   */
+  | { kind: "dip"; pins: number }
+  /** Needs one of XGecu's numbered adapters; `image` is e.g. "Adapter008.JPG". */
+  | { kind: "adapter"; image: string }
+  /** In-circuit programming only. */
+  | { kind: "icsp_only" }
+  /** Something the parser didn't recognise, as minipro printed it. */
+  | { kind: "other"; text: string };
+
+/** One chip's details (mirrors `engine::ChipInfo`). */
+export interface ChipInfo {
+  /** The name as the database spells it. */
+  name: string;
+  /** The package in the name, as in `ChipEntry.package`. */
+  package: string | null;
+  kind: ChipKind;
+  /** The programmers that take this chip. Empty when minipro didn't say (logic ICs). */
+  available_on: Programmer[];
+  /** `null` for logic ICs. */
+  memory: ChipMemory | null;
+  socket: ChipSocket | null;
+  /** Xgpro's picture of the in-circuit wiring, e.g. "ICP009.JPG". `null`: no ICSP mode. */
+  icsp: string | null;
+  /** minipro's protocol id. */
+  protocol: number | null;
+  /** Bytes per read transfer. */
+  read_buffer_size: number | null;
+  /** Bytes per write transfer. */
+  write_buffer_size: number | null;
+  /** Everything else minipro printed: voltages, pulse delay, a logic IC's vector count. */
+  details: { label: string; value: string }[];
+}
+
+/**
+ * Whether `programmer` takes `chip`: `null` when minipro didn't say. The
+ * shared TL866II+/T48/T56 list has chips only one of them can program, and
+ * minipro doesn't stop you picking one.
+ */
+export function chipAvailableOn(
+  chip: ChipInfo,
+  programmer: Programmer,
+): boolean | null {
+  if (chip.available_on.length === 0) return null;
+  return chip.available_on.includes(programmer);
+}
+
 /** A step minipro reports progress for (mirrors `engine::Stage`). */
 export type Stage =
   | "read"
@@ -106,11 +258,17 @@ export type EngineErrorKind =
   | "minipro_not_found"
   | "verify_failed"
   | "invalid_input"
+  /** `chipInfo`: minipro has no chip by that name. */
+  | "unknown_chip"
+  /** minipro couldn't read `infoic.xml` / `logicic.xml`; the message has the path. */
+  | "missing_database"
+  /** This minipro doesn't know the `Programmer` asked for (the T76, under 0.7.4). */
+  | "unsupported_programmer"
   | "busy"
   | "cancelled"
   | "not_implemented";
 
-/** How a device command rejects (mirrors `commands::CommandError`). */
+/** How a device or chip command rejects (mirrors `commands::CommandError`). */
 export interface EngineError {
   kind: EngineErrorKind;
   message: string;
@@ -321,6 +479,31 @@ export const engine = {
    * `no_programmer`. Never rejects; doesn't claim the programmer.
    */
   diagnoseProgrammer: (): Promise<Diagnosis> => invoke("diagnose_programmer"),
+  /**
+   * Every chip minipro lists for `programmer`: a large reply. For a picker,
+   * use `searchChips`. No programmer needs to be connected.
+   */
+  listChips: (programmer: Programmer): Promise<ChipList> =>
+    invoke("list_chips", { programmer }),
+  /**
+   * Search `programmer`'s chip list. Every word of `query` has to be in the
+   * name, ignoring case ("w25q32 soic"). Resolves to the best `limit`
+   * matches (default 50) and the total. An empty query matches everything.
+   * Only the first call for a programmer runs minipro, so this is fine to
+   * call as the user types.
+   */
+  searchChips: (
+    programmer: Programmer,
+    query: string,
+    limit?: number,
+  ): Promise<ChipSearch> =>
+    invoke("search_chips", { programmer, query, limit: limit ?? null }),
+  /**
+   * Describe one chip: memory size, package, adapter, which programmers
+   * take it. Rejects with `unknown_chip` when minipro has no such name.
+   */
+  chipInfo: (programmer: Programmer, name: string): Promise<ChipInfo> =>
+    invoke("chip_info", { programmer, name }),
   /** Detect the connected programmer and its firmware. */
   detect: (options?: OperationOptions): Promise<DeviceInfo> =>
     deviceOp("detect", {}, options),

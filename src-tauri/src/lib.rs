@@ -8,6 +8,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(ops::DeviceOps::default())
+        // Chip lists, loaded once per programmer and kept until the app quits.
+        .manage(engine::ChipCatalog::new())
         .setup(|app| {
             // Without a path to our own binary there's no sidecar to find;
             // the locator then falls back to PATH.
@@ -26,6 +28,9 @@ pub fn run() {
             commands::blank_check,
             commands::erase,
             commands::cancel_operation,
+            commands::list_chips,
+            commands::search_chips,
+            commands::chip_info,
             commands::diagnose_programmer,
             commands::minipro_location,
             commands::set_minipro_path,

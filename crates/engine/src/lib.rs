@@ -9,6 +9,7 @@
 //! do-nothing placeholder. Phase 1 may swap in an FFI-backed engine via the
 //! `minipro-sys` crate, also behind [`Engine`].
 
+pub mod chips;
 pub mod cli;
 pub mod diagnose;
 pub mod image;
@@ -17,6 +18,10 @@ pub mod process;
 pub mod progress;
 pub mod route;
 
+pub use chips::{
+    ChipCatalog, ChipDetail, ChipEntry, ChipInfo, ChipKind, ChipList, ChipMemory, ChipSearch,
+    ChipSocket, MemoryUnit, Programmer,
+};
 pub use cli::{ChipCheck, ChipId, MiniproEngine, PinCheck};
 pub use image::{DEFAULT_FILL, ImageError, ImageFormat};
 pub use locate::{LocateError, MINIPRO_ENV, MiniproBinary, MiniproLocator, MiniproSource};
@@ -60,6 +65,17 @@ pub enum EngineError {
     /// say). Nothing was run.
     #[error("invalid input: {0}")]
     InvalidInput(String),
+    /// minipro has no chip by that name. The payload is the name asked for.
+    #[error("minipro has no chip called {0}")]
+    UnknownChip(String),
+    /// minipro couldn't read its chip database (`infoic.xml` or
+    /// `logicic.xml`). The message is the line it printed, with the path.
+    #[error("minipro can't read its chip database: {0}")]
+    MissingDatabase(String),
+    /// This minipro doesn't know the programmer model asked for (the T76,
+    /// under minipro 0.7.4). The payload is the model.
+    #[error("this minipro doesn't support the {0}")]
+    UnsupportedProgrammer(String),
     /// Another device operation is already running. The programmer handles
     /// one at a time.
     #[error("another device operation is already running")]
@@ -252,6 +268,19 @@ pub trait Engine {
     fn blank_check(&self, part: &str, ctx: &OpContext) -> EngineResult<bool>;
     /// Erase `part` (minipro `-E`).
     fn erase(&self, part: &str, ctx: &OpContext) -> EngineResult<()>;
+    /// Every chip minipro lists for `programmer` (minipro `-q … -l`).
+    /// Reads the chip database only: no programmer has to be connected, and
+    /// one that is connected isn't touched. Runs minipro every time; go
+    /// through a [`ChipCatalog`] to load each list once.
+    fn list_chips(&self, programmer: Programmer, ctx: &OpContext) -> EngineResult<ChipList>;
+    /// Describe the chip called `name` (minipro `-q … -d <name>`). Like
+    /// [`list_chips`](Self::list_chips), this needs no programmer.
+    fn chip_info(
+        &self,
+        programmer: Programmer,
+        name: &str,
+        ctx: &OpContext,
+    ) -> EngineResult<ChipInfo>;
 }
 
 /// Placeholder engine: every operation returns
@@ -303,6 +332,17 @@ impl Engine for StubEngine {
     }
     fn erase(&self, _part: &str, _ctx: &OpContext) -> EngineResult<()> {
         Self::todo("erase")
+    }
+    fn list_chips(&self, _programmer: Programmer, _ctx: &OpContext) -> EngineResult<ChipList> {
+        Self::todo("list_chips")
+    }
+    fn chip_info(
+        &self,
+        _programmer: Programmer,
+        _name: &str,
+        _ctx: &OpContext,
+    ) -> EngineResult<ChipInfo> {
+        Self::todo("chip_info")
     }
 }
 
@@ -363,6 +403,27 @@ mod tests {
     fn engine_error_is_adjacently_tagged() {
         let json = serde_json::to_string(&EngineError::NotImplemented("read".into())).unwrap();
         assert_eq!(json, r#"{"kind":"not_implemented","message":"read"}"#);
+    }
+
+    #[test]
+    fn chip_errors_say_what_went_wrong() {
+        assert_eq!(
+            EngineError::UnknownChip("W25Q999".into()).to_string(),
+            "minipro has no chip called W25Q999"
+        );
+        assert_eq!(
+            EngineError::MissingDatabase("/x/infoic.xml: No such file or directory".into())
+                .to_string(),
+            "minipro can't read its chip database: /x/infoic.xml: No such file or directory"
+        );
+        assert_eq!(
+            EngineError::UnsupportedProgrammer("T76".into()).to_string(),
+            "this minipro doesn't support the T76"
+        );
+        assert_eq!(
+            serde_json::to_string(&EngineError::UnknownChip("X".into())).unwrap(),
+            r#"{"kind":"unknown_chip","message":"X"}"#
+        );
     }
 
     #[test]
