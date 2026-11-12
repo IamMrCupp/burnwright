@@ -50,7 +50,7 @@ function App() {
       <footer>
         <small>
           {info
-            ? `burnwright v${info.version} · minipro ${info.minipro}`
+            ? `burnwright v${info.version} · minipro ${info.minipro} · T76 build ${info.minipro_t76}`
             : "burnwright"}
         </small>
       </footer>

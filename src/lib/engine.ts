@@ -370,6 +370,8 @@ export interface AppInfo {
   version: string;
   /** Version of the vendored minipro this build was compiled against. */
   minipro: string;
+  /** The T76-only minipro build, as `<version>+<short commit>` ("0.7.4+3e2f491"). */
+  minipro_t76: string;
 }
 
 /** Options every device command takes. */
