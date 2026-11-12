@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.0](https://github.com/IamMrCupp/burnwright/compare/v0.7.0...v0.8.0) (2026-11-12)
+
+
+### Features
+
+* **app:** add list_chips, search_chips and chip_info commands ([8d09c94](https://github.com/IamMrCupp/burnwright/commit/8d09c9493be03a019317145a5802cc9f20d084dd))
+* **engine:** list chips with -l, through a pass-through pager on Windows ([7069d7f](https://github.com/IamMrCupp/burnwright/commit/7069d7fcd2d2c839fc6e6d9f4d73ad62543e9629))
+* **engine:** list, search and describe the chips minipro knows ([03675f0](https://github.com/IamMrCupp/burnwright/commit/03675f08a52273038712e60a8ffdabfd119409f9))
+* **ui:** add chip list, search and info to the engine bindings ([cd23271](https://github.com/IamMrCupp/burnwright/commit/cd23271381a702e0d8d55e90ee994be999dcd2a8))
+
 ## [0.7.0](https://github.com/IamMrCupp/burnwright/compare/v0.6.0...v0.7.0) (2026-11-10)
 
 
