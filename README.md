@@ -8,8 +8,8 @@ macOS · Linux · Windows. No closed-source vendor software required.
 > when they can't find one (USB permissions, out-of-date firmware, a T76 on a USB 3
 > link), and include a hex editor that runs on sample data for now. Read, write,
 > verify, blank check and erase work in the engine but have no screen yet — that's
-> [#53](https://github.com/IamMrCupp/burnwright/issues/53) — and the T76 itself
-> needs a newer minipro build ([#58](https://github.com/IamMrCupp/burnwright/pull/58)).
+> [#53](https://github.com/IamMrCupp/burnwright/issues/53). The T76 runs on its
+> own bundled minipro build, which hasn't been through the app on a real T76 yet.
 
 ## Releases
 
