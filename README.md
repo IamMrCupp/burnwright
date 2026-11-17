@@ -81,6 +81,37 @@ handshake that Apple Silicon's USB host insists on, and macOS has no switch to
 turn that off for one device. Linux and Windows hosts are more forgiving. The
 evidence is in [#50](https://github.com/IamMrCupp/burnwright/issues/50).
 
+## T76: the algorithm file
+
+The T76 keeps no chip support of its own. It's FPGA-based, and before every
+read, write, erase or chip check minipro loads the bitstream for that chip
+family from a file called `algorithm.xml`. Those bitstreams are XGecu's — they
+come out of the Xgpro package — so burnwright doesn't ship the file, doesn't
+download it, and never will. You bring your own copy.
+
+Without it, burnwright still finds the T76 and searches its chip list. Every
+operation on a chip fails before it reaches the chip, and burnwright says why
+instead of passing on minipro's "An error occurred while sending bitstream."
+The Programmer panel also warns as soon as a T76 is detected with no file in
+sight.
+
+Two ways to supply it:
+
+- **Choose it in the app.** With a T76 detected, use "Choose file…" under
+  Algorithm file in the Programmer panel. burnwright remembers the path and
+  hands it to minipro as `--algorithms` on every T76 operation. The file is
+  read where it is — nothing is copied into the app.
+- **Put it where minipro looks.** That's
+  `/usr/local/share/minipro/algorithm.xml` on Linux and macOS (or
+  `$MINIPRO_HOME/algorithm.xml` if you set `MINIPRO_HOME`), and
+  `%ProgramData%\minipro\algorithm.xml` on Windows.
+
+Upstream minipro's `dump-alg-minipro.bash` builds the file from the Xgpro
+package. The bitstreams are tied to the programmer's firmware: upstream pairs
+Xgpro T76 V13.19 with firmware 00.1.17. A file that doesn't match gets you
+"minipro can't use the algorithm file" or a chip ID that reads wrong. More in
+[docs/minipro-sidecar.md](docs/minipro-sidecar.md#the-t76s-algorithm-file).
+
 ## Finding minipro
 
 burnwright drives the `minipro` CLI rather than talking USB itself. It looks
@@ -101,11 +132,6 @@ different minipro, such as a newer build from upstream. That one uses its own
 databases and drives every programmer. If a path you set, or the bundled
 minipro, isn't there, burnwright stops with an error instead of quietly
 running some other minipro.
-
-Chip operations on the T76 also need XGecu's algorithm file (`algorithm.xml`).
-It's a vendor file, so burnwright doesn't ship it: you extract your own with
-upstream's `dump-alg-minipro.bash`. Details are in
-[docs/minipro-sidecar.md](docs/minipro-sidecar.md).
 
 ## License
 GPL-3.0-or-later (inherited from libminipro).
