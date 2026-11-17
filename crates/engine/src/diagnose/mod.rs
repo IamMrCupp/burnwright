@@ -57,8 +57,9 @@ pub const KNOWN_PROGRAMMERS: [KnownProgrammer; 3] = [
         vendor_id: 0xa466,
         product_id: 0x1a86,
         models: "T76",
-        // minipro 0.7.4 has no T76 product ID.
-        supported: false,
+        // minipro 0.7.4 has no T76 product ID, but the bundled T76-only build
+        // does (see crate::route).
+        supported: true,
         vendor_interface_guid: "{015DE341-91CC-8286-3964-1A006BC1F00F}",
     },
     KnownProgrammer {

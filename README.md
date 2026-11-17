@@ -8,8 +8,8 @@ macOS · Linux · Windows. No closed-source vendor software required.
 > when they can't find one (USB permissions, out-of-date firmware, a T76 on a USB 3
 > link), and include a hex editor that runs on sample data for now. Read, write,
 > verify, blank check and erase work in the engine but have no screen yet — that's
-> [#53](https://github.com/IamMrCupp/burnwright/issues/53) — and the T76 itself
-> needs a newer minipro build ([#58](https://github.com/IamMrCupp/burnwright/pull/58)).
+> [#53](https://github.com/IamMrCupp/burnwright/issues/53). The T76 runs on its
+> own bundled minipro build, which hasn't been through the app on a real T76 yet.
 
 ## Releases
 
@@ -77,20 +77,29 @@ evidence is in [#50](https://github.com/IamMrCupp/burnwright/issues/50).
 
 ## Finding minipro
 
-burnwright drives the `minipro` CLI (0.7.x) rather than talking USB itself. It
-looks for the binary in this order and uses the first one it finds:
+burnwright drives the `minipro` CLI rather than talking USB itself. It looks
+for the binary in this order and uses the first one it finds:
 
 1. The minipro path set in the app.
 2. `BURNWRIGHT_MINIPRO`, either a full path or a program name to look up on
    `PATH`.
-3. The minipro bundled with the app (`burnwright-minipro`), run with its own
-   chip databases.
+3. The minipro bundled with the app, run with its own chip databases. There
+   are two builds: `burnwright-minipro` (the 0.7.4 release) for the TL866A/CS,
+   TL866II+, T48 and T56, and `burnwright-minipro-t76` (a later upstream
+   commit) for the T76 only. See
+   [docs/minipro-sidecar.md](docs/minipro-sidecar.md) for why.
 4. `minipro` on `PATH`.
 
 An installed burnwright always has step 3, so steps 1 and 2 are for running a
 different minipro, such as a newer build from upstream. That one uses its own
-databases. If a path you set, or the bundled minipro, isn't there, burnwright
-stops with an error instead of quietly running some other minipro.
+databases and drives every programmer. If a path you set, or the bundled
+minipro, isn't there, burnwright stops with an error instead of quietly
+running some other minipro.
+
+Chip operations on the T76 also need XGecu's algorithm file (`algorithm.xml`).
+It's a vendor file, so burnwright doesn't ship it: you extract your own with
+upstream's `dump-alg-minipro.bash`. Details are in
+[docs/minipro-sidecar.md](docs/minipro-sidecar.md).
 
 ## License
 GPL-3.0-or-later (inherited from libminipro).

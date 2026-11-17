@@ -9,6 +9,7 @@
 # ships in that release's installers:
 #
 #   minipro-<commit>.tar.gz   the vendor/minipro submodule at its pinned commit
+#   minipro-<commit>.tar.gz   the vendor/minipro-t76 submodule at its pinned commit
 #   libusb-<ver>.tar.bz2      the pinned upstream libusb release (+ .asc)
 #   zlib-<ver>.tar.gz         the pinned upstream zlib release (+ .asc), Windows only
 #   burnwright/               the build scripts and Windows compat shim
@@ -48,6 +49,13 @@ sub="$root/vendor/minipro"
 commit="$(git -C "$sub" rev-parse HEAD)"
 tag="$(git -C "$sub" describe --tags --exact-match HEAD 2>/dev/null || echo none)"
 git -C "$sub" archive --format=tar.gz --prefix="minipro-$commit/" -o "$stage/minipro-$commit.tar.gz" HEAD
+t76_sub="$root/vendor/minipro-t76"
+t76_commit="$(git -C "$t76_sub" rev-parse HEAD)"
+t76_tag="$(git -C "$t76_sub" describe --tags --exact-match HEAD 2>/dev/null || echo none)"
+if [ "$t76_commit" != "$commit" ]; then
+  git -C "$t76_sub" archive --format=tar.gz --prefix="minipro-$t76_commit/" \
+    -o "$stage/minipro-$t76_commit.tar.gz" HEAD
+fi
 fetch "$LIBUSB_URL" "$LIBUSB_SHA256" "$stage"
 fetch "$ZLIB_URL" "$ZLIB_SHA256" "$stage"
 cp -R "$root/scripts/minipro" "$stage/burnwright/scripts/"
@@ -55,14 +63,19 @@ cp -R "$root/.github/minipro-windows" "$stage/burnwright/.github/"
 burnwright_commit="$(git -C "$root" rev-parse HEAD)"
 
 cat >"$stage/README.txt" <<EOF
-Corresponding source for the minipro sidecar ("$SIDECAR_NAME") shipped in
+Corresponding source for the minipro sidecars ("$SIDECAR_NAME" and
+"$T76_SIDECAR_NAME") shipped in
 burnwright $suffix's installers. burnwright's own source is in the GitHub
 release's source archives and at
 https://github.com/IamMrCupp/burnwright/tree/$burnwright_commit
 
 minipro-$commit.tar.gz
   minipro (GPL-3.0-or-later), tag $tag, commit $commit,
-  from $MINIPRO_UPSTREAM. Unmodified.
+  from $MINIPRO_UPSTREAM. Unmodified. Built as $SIDECAR_NAME.
+minipro-$t76_commit.tar.gz
+  minipro (GPL-3.0-or-later), tag $t76_tag, commit $t76_commit,
+  from $MINIPRO_UPSTREAM. Unmodified. Built as $T76_SIDECAR_NAME, used only
+  with the XGecu T76.
 libusb-$LIBUSB_VERSION.tar.bz2 (+ .asc)
   libusb (LGPL-2.1-or-later), statically linked on every platform.
   SHA-256 $LIBUSB_SHA256. Unmodified.
@@ -70,7 +83,7 @@ zlib-$ZLIB_VERSION.tar.gz (+ .asc)
   zlib (zlib licence), statically linked into the Windows build only.
   SHA-256 $ZLIB_SHA256. Unmodified.
 burnwright/scripts/minipro/
-  build-sidecar.sh builds all of the above into the sidecar; versions.sh pins
+  build-sidecar.sh builds all of the above into the sidecars; versions.sh pins
   the third-party sources. The other scripts check and package the result.
 burnwright/.github/minipro-windows/compat.h
   Force-included on Windows to supply stpcpy() (upstream MR !301).

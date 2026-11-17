@@ -1,3 +1,6 @@
 [submodule "vendor/minipro"]
 	path = vendor/minipro
 	url = https://gitlab.com/DavidGriffith/minipro.git
+[submodule "vendor/minipro-t76"]
+	path = vendor/minipro-t76
+	url = https://gitlab.com/DavidGriffith/minipro.git
