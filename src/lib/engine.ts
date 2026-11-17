@@ -7,6 +7,10 @@
 // - `signal` cancels the operation when aborted. Cancelling a write or erase
 //   leaves the chip partly programmed: confirm with the user first (see
 //   `mutatesDevice`), and check `deviceMayBeInconsistent(err)` afterwards.
+// - `ignoreChipId` / `ignoreSize` turn off a check minipro makes before it
+//   touches the chip. Leave them off, and minipro stops with
+//   `chip_id_mismatch` or `size_mismatch`; set one only after the user has
+//   seen that error and chosen to go on.
 //
 // The chip commands (listChips, searchChips, chipInfo) read minipro's chip
 // database. They never touch the programmer: they work with nothing plugged
@@ -231,8 +235,13 @@ export type Stage =
   | "unprotect"
   | "firmware_update";
 
-/** One progress event from minipro's output (mirrors `engine::ProgressEvent`). */
+/** One progress event from a minipro run (mirrors `engine::ProgressEvent`). */
 export type ProgressEvent =
+  /**
+   * minipro is about to start. `line` is its command line, quoted for the
+   * host's shell: for a log. A written image goes in on stdin and isn't in it.
+   */
+  | { type: "command"; line: string }
   | { type: "stage_started"; stage: Stage; label: string }
   | { type: "progress"; stage: Stage; percent: number }
   | { type: "stage_finished"; stage: Stage; seconds: number | null }
@@ -258,6 +267,16 @@ export type EngineErrorKind =
   | "no_programmer"
   | "minipro_not_found"
   | "verify_failed"
+  /**
+   * The chip in the socket doesn't have the selected part's ID, so minipro
+   * stopped before the operation. `ignoreChipId` runs it anyway.
+   */
+  | "chip_id_mismatch"
+  /**
+   * The image isn't the size of the chip's memory, so minipro refused to
+   * write or verify it. `ignoreSize` runs it anyway.
+   */
+  | "size_mismatch"
   | "invalid_input"
   /** `chipInfo`: minipro has no chip by that name. */
   | "unknown_chip"
@@ -384,6 +403,18 @@ export interface OperationOptions {
    * `cancelled` EngineError. Confirm first for writes and erases.
    */
   signal?: AbortSignal;
+  /**
+   * Carry on when the chip's ID isn't the selected part's (minipro `-y`).
+   * For read, write, verify, blankCheck and erase.
+   */
+  ignoreChipId?: boolean;
+  /**
+   * Take an image that isn't the size of the chip's memory (minipro `-s`).
+   * For write and verify. minipro then works on the bytes the image and the
+   * chip both have: a short image leaves the rest of the chip as the erase
+   * left it, and the tail of a long one isn't written.
+   */
+  ignoreSize?: boolean;
 }
 
 /** Whether interrupting `op` can leave the chip partly modified. */
@@ -460,6 +491,22 @@ async function deviceOp<T>(
   }
 }
 
+/**
+ * A device command that works on the chip: `deviceOp`, plus the checks the
+ * caller turned off (mirrors `engine::Overrides`).
+ */
+function chipOp<T>(
+  command: string,
+  args: Record<string, unknown>,
+  options: OperationOptions = {},
+): Promise<T> {
+  const overrides = {
+    ignore_chip_id: options.ignoreChipId ?? false,
+    ignore_size: options.ignoreSize ?? false,
+  };
+  return deviceOp(command, { ...args, overrides }, options);
+}
+
 /** Bytes to send over IPC. A Uint8Array would serialize as an object. */
 function toByteArray(data: ArrayLike<number>): number[] {
   return Array.isArray(data) ? data : Array.from(data);
@@ -522,7 +569,7 @@ export const engine = {
     part: string,
     kind: MemoryKind,
     options?: OperationOptions,
-  ): Promise<number[]> => deviceOp("read", { part, kind }, options),
+  ): Promise<number[]> => chipOp("read", { part, kind }, options),
   /** Write `data` to `kind` memory of `part`; minipro reads it back to verify. */
   write: (
     part: string,
@@ -530,7 +577,7 @@ export const engine = {
     data: ArrayLike<number>,
     options?: OperationOptions,
   ): Promise<void> =>
-    deviceOp("write", { part, kind, data: toByteArray(data) }, options),
+    chipOp("write", { part, kind, data: toByteArray(data) }, options),
   /** Verify `kind` memory of `part` against `data`; rejects with `verify_failed` on a mismatch. */
   verify: (
     part: string,
@@ -538,13 +585,13 @@ export const engine = {
     data: ArrayLike<number>,
     options?: OperationOptions,
   ): Promise<void> =>
-    deviceOp("verify", { part, kind, data: toByteArray(data) }, options),
+    chipOp("verify", { part, kind, data: toByteArray(data) }, options),
   /** Blank-check every region of `part`: `true` if blank. */
   blankCheck: (part: string, options?: OperationOptions): Promise<boolean> =>
-    deviceOp("blank_check", { part }, options),
+    chipOp("blank_check", { part }, options),
   /** Erase `part`. */
   erase: (part: string, options?: OperationOptions): Promise<void> =>
-    deviceOp("erase", { part }, options),
+    chipOp("erase", { part }, options),
   /**
    * Load a `.bin` or Intel HEX file as bytes from address 0. HEX gaps are
    * filled with `fill` (default 0xFF). Parsing happens in Rust.
@@ -563,3 +610,6 @@ export const engine = {
   ): Promise<void> =>
     invoke("save_image", { path, data, format: format ?? null }),
 };
+
+/** The command surface, for code that takes an engine instead of importing this one. */
+export type EngineApi = typeof engine;

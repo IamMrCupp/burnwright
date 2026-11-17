@@ -76,6 +76,40 @@ describe("device commands", () => {
     expect(seen).toEqual([{ type: "progress", stage: "write", percent: 40 }]);
   });
 
+  it("leaves minipro's checks on unless told otherwise", async () => {
+    invoke.mockResolvedValue(undefined);
+    await engine.write("A", "code", [1]);
+    expect(lastArgs("write").overrides).toEqual({
+      ignore_chip_id: false,
+      ignore_size: false,
+    });
+    await engine.write("A", "code", [1], { ignoreSize: true });
+    expect(lastArgs("write").overrides).toEqual({
+      ignore_chip_id: false,
+      ignore_size: true,
+    });
+    await engine.erase("A", { ignoreChipId: true });
+    expect(lastArgs("erase").overrides).toEqual({
+      ignore_chip_id: true,
+      ignore_size: false,
+    });
+    for (const command of ["read", "verify", "blank_check"] as const) {
+      invoke.mockResolvedValue(command === "read" ? [] : undefined);
+      if (command === "read") await engine.read("A", "code", { ignoreChipId: true });
+      if (command === "verify") await engine.verify("A", "code", [1], { ignoreChipId: true });
+      if (command === "blank_check") await engine.blankCheck("A", { ignoreChipId: true });
+      expect(lastArgs(command).overrides).toMatchObject({ ignore_chip_id: true });
+    }
+  });
+
+  it("sends no overrides with detect or checkChip", async () => {
+    invoke.mockResolvedValue({});
+    await engine.detect();
+    await engine.checkChip("A");
+    expect(lastArgs("detect")).not.toHaveProperty("overrides");
+    expect(lastArgs("check_chip")).not.toHaveProperty("overrides");
+  });
+
   it("maps camelCase arguments for checkChip", async () => {
     invoke.mockResolvedValueOnce({});
     await engine.checkChip("A", true);

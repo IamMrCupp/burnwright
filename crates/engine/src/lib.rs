@@ -61,6 +61,20 @@ pub enum EngineError {
     /// address and both values.
     #[error("{0}")]
     VerifyFailed(String),
+    /// The chip in the socket doesn't answer with the selected part's ID, so
+    /// minipro stopped before the operation. `detected` is its guess at the
+    /// chip that is there. [`Overrides::ignore_chip_id`] runs it anyway.
+    #[error("{}", chip_id_message(.expected, .found, .detected.as_deref()))]
+    ChipIdMismatch {
+        expected: String,
+        found: String,
+        detected: Option<String>,
+    },
+    /// The image isn't the size of the chip's memory, so minipro refused to
+    /// write or verify it. Sizes are in bytes.
+    /// [`Overrides::ignore_size`] runs it anyway.
+    #[error("the image is {image} bytes and the chip takes {chip}")]
+    SizeMismatch { image: u64, chip: u64 },
     /// The caller passed something minipro can't take (an empty part name,
     /// say). Nothing was run.
     #[error("invalid input: {0}")]
@@ -97,6 +111,13 @@ fn cancelled_message(operation: Operation, state: DeviceState) -> String {
             "{} cancelled: the device may be in an inconsistent state",
             operation.as_str()
         ),
+    }
+}
+
+fn chip_id_message(expected: &str, found: &str, detected: Option<&str>) -> String {
+    match detected {
+        Some(name) => format!("chip ID mismatch: expected {expected}, found {found} ({name})"),
+        None => format!("chip ID mismatch: expected {expected}, found {found}"),
     }
 }
 
@@ -176,10 +197,28 @@ pub struct DeviceInfo {
     pub support_warning: Option<String>,
 }
 
+/// Checks minipro makes before an operation that the caller can turn off for
+/// one run. Both default to off: minipro then stops with
+/// [`EngineError::ChipIdMismatch`] or [`EngineError::SizeMismatch`], and the
+/// user decides whether to run it again with the check off.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Overrides {
+    /// Carry on when the chip's ID isn't the selected part's (minipro `-y`).
+    /// Applies to read, write, verify, blank check and erase.
+    pub ignore_chip_id: bool,
+    /// Take an image that isn't the size of the chip's memory (minipro
+    /// `-s`). Applies to write and verify. minipro then works on the bytes
+    /// the image and the chip both have: a short image leaves the rest of
+    /// the chip as the erase left it, and a long one loses its tail.
+    pub ignore_size: bool,
+}
+
 /// Receives progress events from a running operation, on a background thread.
 pub type ProgressSink = Arc<dyn Fn(ProgressEvent) + Send + Sync>;
 
-/// Per-operation plumbing: where progress goes and how to cancel.
+/// Per-operation plumbing: where progress goes, how to cancel, and which of
+/// minipro's checks are off for this run.
 ///
 /// Clone the [`CancelHandle`] (via [`cancel_handle`](Self::cancel_handle))
 /// before starting the operation and call [`CancelHandle::cancel`] from any
@@ -189,6 +228,7 @@ pub type ProgressSink = Arc<dyn Fn(ProgressEvent) + Send + Sync>;
 pub struct OpContext {
     progress: Option<ProgressSink>,
     cancel: CancelHandle,
+    overrides: Overrides,
 }
 
 impl OpContext {
@@ -207,6 +247,18 @@ impl OpContext {
     pub fn with_cancel(mut self, cancel: CancelHandle) -> Self {
         self.cancel = cancel;
         self
+    }
+
+    /// Turn off the checks `overrides` names for operations run with this
+    /// context.
+    pub fn with_overrides(mut self, overrides: Overrides) -> Self {
+        self.overrides = overrides;
+        self
+    }
+
+    /// The checks that are off for this run.
+    pub fn overrides(&self) -> Overrides {
+        self.overrides
     }
 
     /// The handle that cancels operations run with this context.
@@ -232,6 +284,7 @@ impl fmt::Debug for OpContext {
         f.debug_struct("OpContext")
             .field("progress", &self.progress.is_some())
             .field("cancel", &self.cancel)
+            .field("overrides", &self.overrides)
             .finish()
     }
 }
@@ -424,6 +477,52 @@ mod tests {
             serde_json::to_string(&EngineError::UnknownChip("X".into())).unwrap(),
             r#"{"kind":"unknown_chip","message":"X"}"#
         );
+    }
+
+    #[test]
+    fn mismatch_errors_say_what_minipro_found() {
+        assert_eq!(
+            EngineError::ChipIdMismatch {
+                expected: "0xEF4016".into(),
+                found: "0xC22016".into(),
+                detected: Some("MX25L3206E".into()),
+            }
+            .to_string(),
+            "chip ID mismatch: expected 0xEF4016, found 0xC22016 (MX25L3206E)"
+        );
+        assert_eq!(
+            EngineError::ChipIdMismatch {
+                expected: "0xEF4016".into(),
+                found: "0xFFFFFF".into(),
+                detected: None,
+            }
+            .to_string(),
+            "chip ID mismatch: expected 0xEF4016, found 0xFFFFFF"
+        );
+        assert_eq!(
+            EngineError::SizeMismatch {
+                image: 1024,
+                chip: 4_194_304,
+            }
+            .to_string(),
+            "the image is 1024 bytes and the chip takes 4194304"
+        );
+    }
+
+    #[test]
+    fn overrides_default_to_off_and_load_from_partial_json() {
+        assert_eq!(
+            Overrides::default(),
+            Overrides {
+                ignore_chip_id: false,
+                ignore_size: false,
+            }
+        );
+        let only_id: Overrides = serde_json::from_str(r#"{"ignore_chip_id":true}"#).unwrap();
+        assert!(only_id.ignore_chip_id && !only_id.ignore_size);
+        let ctx = OpContext::new();
+        assert_eq!(ctx.overrides(), Overrides::default());
+        assert!(ctx.with_overrides(only_id).overrides().ignore_chip_id);
     }
 
     #[test]

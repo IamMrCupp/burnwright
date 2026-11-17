@@ -1,60 +1,36 @@
-import { useEffect, useMemo, useState } from "react";
-import { DetectPanel } from "./components/detect";
-import { HexDiffView, HexEditor } from "./components/hexview";
-import { engine, type AppInfo } from "./lib/engine";
-import { makeDiffSample } from "./lib/sampleBuffer";
+import { useEffect, useState } from "react";
+import { DeviceScreen } from "./components/device";
+import type { DeviceController } from "./lib/device/controller";
+import type { AppInfo } from "./lib/engine";
 import "./App.css";
 
-function App() {
+export interface AppProps {
+  controller: DeviceController;
+  /** burnwright's and the bundled minipros' versions, for the footer. */
+  loadAppInfo: () => Promise<AppInfo>;
+}
+
+/** The app: the device screen, with a look for a programmer as it opens. */
+function App({ controller, loadAppInfo }: AppProps) {
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const sample = useMemo(() => makeDiffSample(), []);
-  const [edited, setEdited] = useState<Uint8Array | null>(null);
 
   useEffect(() => {
-    engine.appInfo().then(setInfo, () => setInfo(null));
-  }, []);
+    loadAppInfo().then(setInfo, () => setInfo(null));
+  }, [loadAppInfo]);
+
+  useEffect(() => {
+    void controller.detect();
+  }, [controller]);
 
   return (
-    <main className="container">
-      <h1>burnwright</h1>
-      <p>
-        Cross-platform GUI for XGecu / MiniPRO programmers — Phase&nbsp;0
-        scaffold.
-      </p>
-
-      <DetectPanel />
-
-      <section className="hex-demo">
-        <h2>Edit the read</h2>
-        <HexEditor data={sample.read} onChange={setEdited} height={360} />
-      </section>
-
-      <section className="hex-demo">
-        <h2>Read vs file</h2>
-        <p>
-          <small>
-            Generated 16&nbsp;MiB samples, not read from a device: the “file”
-            differs in a few places and is 256&nbsp;bytes short. Edits above
-            show up here.
-          </small>
-        </p>
-        <HexDiffView
-          a={edited ?? sample.read}
-          b={sample.file}
-          aLabel="Read"
-          bLabel="File"
-          height={360}
-        />
-      </section>
-
-      <footer>
-        <small>
-          {info
-            ? `burnwright v${info.version} · minipro ${info.minipro} · T76 build ${info.minipro_t76}`
-            : "burnwright"}
-        </small>
-      </footer>
-    </main>
+    <DeviceScreen
+      controller={controller}
+      footer={
+        info
+          ? `burnwright v${info.version} · minipro ${info.minipro} · T76 build ${info.minipro_t76}`
+          : "burnwright"
+      }
+    />
   );
 }
 

@@ -137,6 +137,9 @@ impl MiniproEngine {
         if let Some(data) = stdin {
             command = command.stdin_data(data.to_vec());
         }
+        ctx.emit(ProgressEvent::Command {
+            line: command.command_line(),
+        });
         let sink = ctx.clone();
         command.run(move |event| sink.emit(event))
     }
@@ -159,6 +162,27 @@ fn part_args(part: &str, rest: &[&str]) -> EngineResult<Vec<OsString>> {
     let mut args: Vec<OsString> = vec!["-p".into(), part.into()];
     args.extend(rest.iter().map(OsString::from));
     Ok(args)
+}
+
+/// [`part_args`] for an operation on the chip, with the flags for the checks
+/// `ctx` turns off: `-y` to carry on past a chip ID mismatch, and, when the
+/// operation `takes_image`, `-s` to take an image of the wrong size.
+fn op_args(
+    part: &str,
+    rest: &[&str],
+    takes_image: bool,
+    ctx: &OpContext,
+) -> EngineResult<Vec<OsString>> {
+    let overrides = ctx.overrides();
+    let mut flags = Vec::new();
+    if overrides.ignore_chip_id {
+        flags.push("-y");
+    }
+    if takes_image && overrides.ignore_size {
+        flags.push("-s");
+    }
+    flags.extend_from_slice(rest);
+    part_args(part, &flags)
 }
 
 fn check_part(part: &str) -> EngineResult<()> {
@@ -249,7 +273,7 @@ impl Engine for MiniproEngine {
     }
 
     fn read(&self, part: &str, kind: MemoryKind, ctx: &OpContext) -> EngineResult<Vec<u8>> {
-        let args = part_args(part, &["-c", kind.as_minipro_arg(), "-r", "-"])?;
+        let args = op_args(part, &["-c", kind.as_minipro_arg(), "-r", "-"], false, ctx)?;
         Ok(self.run(Operation::Read, args, None, ctx)?.stdout)
     }
 
@@ -260,7 +284,7 @@ impl Engine for MiniproEngine {
         data: &[u8],
         ctx: &OpContext,
     ) -> EngineResult<()> {
-        let args = part_args(part, &["-c", kind.as_minipro_arg(), "-w", "-"])?;
+        let args = op_args(part, &["-c", kind.as_minipro_arg(), "-w", "-"], true, ctx)?;
         check_data(data, "write")?;
         self.run(Operation::Write, args, Some(data), ctx)?;
         Ok(())
@@ -273,14 +297,14 @@ impl Engine for MiniproEngine {
         data: &[u8],
         ctx: &OpContext,
     ) -> EngineResult<()> {
-        let args = part_args(part, &["-c", kind.as_minipro_arg(), "-m", "-"])?;
+        let args = op_args(part, &["-c", kind.as_minipro_arg(), "-m", "-"], true, ctx)?;
         check_data(data, "verify")?;
         self.run(Operation::Verify, args, Some(data), ctx)?;
         Ok(())
     }
 
     fn blank_check(&self, part: &str, ctx: &OpContext) -> EngineResult<bool> {
-        let args = part_args(part, &["-b"])?;
+        let args = op_args(part, &["-b"], false, ctx)?;
         match self.run_raw(Operation::BlankCheck, args, None, ctx) {
             Ok(_) => Ok(true),
             Err(ProcessError::Failed { ref stderr, .. })
@@ -293,7 +317,7 @@ impl Engine for MiniproEngine {
     }
 
     fn erase(&self, part: &str, ctx: &OpContext) -> EngineResult<()> {
-        let args = part_args(part, &["-E"])?;
+        let args = op_args(part, &["-E"], false, ctx)?;
         self.run(Operation::Erase, args, None, ctx)?;
         Ok(())
     }
@@ -450,12 +474,51 @@ fn classify_failure(message: String, stderr: &str) -> EngineError {
     }) {
         return EngineError::NoProgrammer;
     }
+    if let Some(mismatch) = lines.iter().find_map(|l| parse_invalid_chip_id(l)) {
+        return mismatch;
+    }
+    if let Some(mismatch) = lines.iter().find_map(|l| parse_incorrect_size(l)) {
+        return mismatch;
+    }
     let lower = message.to_ascii_lowercase();
     if lower.starts_with("verification failed") || lower.contains("verification error") {
         EngineError::VerifyFailed(message)
     } else {
         EngineError::Minipro(message)
     }
+}
+
+/// What stops an operation when the chip's ID is wrong (`main()` in
+/// `main.c`): `"Invalid Chip ID: expected 0xEF4016, got 0xC22016
+/// (MX25L3206E)"`, followed by a hint to use `-y`. minipro says `unknown`
+/// when the ID isn't in its database.
+fn parse_invalid_chip_id(line: &str) -> Option<EngineError> {
+    let rest = line.strip_prefix("Invalid Chip ID: expected ")?;
+    let (expected, rest) = rest.split_once(", got ")?;
+    let (found, name) = match rest.split_once(" (") {
+        Some((found, name)) => (found, name.trim_end().strip_suffix(')')),
+        None => (rest, None),
+    };
+    Some(EngineError::ChipIdMismatch {
+        expected: expected.trim().to_string(),
+        found: found.trim().to_string(),
+        detected: name
+            .filter(|n| !n.is_empty() && *n != "unknown")
+            .map(str::to_string),
+    })
+}
+
+/// What stops a write or verify when the image is the wrong size
+/// (`write_page_file()` and `verify_page_file()` in `main.c`):
+/// `"Incorrect file size: 1024 (needed 4194304, use -s/S to ignore)"`.
+fn parse_incorrect_size(line: &str) -> Option<EngineError> {
+    let rest = line.strip_prefix("Incorrect file size: ")?;
+    let (image, rest) = rest.split_once(" (needed ")?;
+    let chip = rest.split([',', ')']).next()?;
+    Some(EngineError::SizeMismatch {
+        image: image.trim().parse().ok()?,
+        chip: chip.trim().parse().ok()?,
+    })
 }
 
 /// minipro's stderr as clean lines (redraws collapsed, escapes stripped):
@@ -688,6 +751,81 @@ mod tests {
             Err(EngineError::Minipro(_))
         ));
         assert!(matches!(parse_presence(""), Err(EngineError::Minipro(_))));
+    }
+
+    #[test]
+    fn a_wrong_chip_id_is_its_own_error() {
+        assert_eq!(
+            parse_invalid_chip_id("Invalid Chip ID: expected 0xEF4016, got 0xC22016 (MX25L3206E)"),
+            Some(EngineError::ChipIdMismatch {
+                expected: "0xEF4016".into(),
+                found: "0xC22016".into(),
+                detected: Some("MX25L3206E".into()),
+            })
+        );
+        assert_eq!(
+            parse_invalid_chip_id("Invalid Chip ID: expected 0x1E95, got 0xFFFF (unknown)"),
+            Some(EngineError::ChipIdMismatch {
+                expected: "0x1E95".into(),
+                found: "0xFFFF".into(),
+                detected: None,
+            })
+        );
+        // The `-D` wording and the `-y` warning aren't failures of an operation.
+        assert_eq!(
+            parse_invalid_chip_id("Chip ID mismatch: expected 0xEF4016, got 0xC22016 (x)"),
+            None
+        );
+        assert_eq!(
+            parse_invalid_chip_id("WARNING: Chip ID mismatch: expected 0xEF4016, got 0xC22016 (x)"),
+            None
+        );
+    }
+
+    #[test]
+    fn a_wrong_image_size_is_its_own_error() {
+        assert_eq!(
+            parse_incorrect_size("Incorrect file size: 1024 (needed 4194304, use -s/S to ignore)"),
+            Some(EngineError::SizeMismatch {
+                image: 1024,
+                chip: 4_194_304,
+            })
+        );
+        // With `-s` it's a warning, and the operation goes on.
+        assert_eq!(
+            parse_incorrect_size("Warning: Incorrect file size: 1024 (needed 4194304)"),
+            None
+        );
+        assert_eq!(parse_incorrect_size("Incorrect file size: lots"), None);
+    }
+
+    #[test]
+    fn overrides_become_minipro_flags() {
+        use crate::Overrides;
+        let strings = |args: Vec<OsString>| -> Vec<String> {
+            args.iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect()
+        };
+        let plain = OpContext::new();
+        assert_eq!(
+            strings(op_args("X", &["-E"], false, &plain).unwrap()),
+            ["-p", "X", "-E"]
+        );
+        let both = OpContext::new().with_overrides(Overrides {
+            ignore_chip_id: true,
+            ignore_size: true,
+        });
+        assert_eq!(
+            strings(op_args("X", &["-c", "code", "-w", "-"], true, &both).unwrap()),
+            ["-p", "X", "-y", "-s", "-c", "code", "-w", "-"]
+        );
+        // `-s` means nothing to an operation with no image.
+        assert_eq!(
+            strings(op_args("X", &["-E"], false, &both).unwrap()),
+            ["-p", "X", "-y", "-E"]
+        );
+        assert!(op_args("-x", &["-E"], false, &both).is_err());
     }
 
     fn fixture(name: &str) -> String {

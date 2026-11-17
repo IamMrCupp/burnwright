@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 use engine::{
     ChipCatalog, ChipCheck, ChipId, ChipKind, ChipSocket, DeviceInfo, DeviceState, Engine,
     EngineError, FirmwareStatus, MemoryKind, MiniproBinary, MiniproBuild, MiniproEngine,
-    MiniproRoutes, OpContext, Operation, PinCheck, Programmer, ProgressEvent, Stage,
+    MiniproRoutes, OpContext, Operation, Overrides, PinCheck, Programmer, ProgressEvent, Stage,
 };
 
 const FAKE: &str = "BURNWRIGHT_FAKE_MINIPRO";
@@ -99,6 +99,18 @@ fn main() {
         (
             "write_size_mismatch_is_reported",
             write_size_mismatch_is_reported,
+        ),
+        (
+            "overrides_pass_minus_y_and_minus_s",
+            overrides_pass_minus_y_and_minus_s,
+        ),
+        (
+            "a_wrong_chip_id_stops_the_operation_with_its_own_error",
+            a_wrong_chip_id_stops_the_operation_with_its_own_error,
+        ),
+        (
+            "every_run_reports_its_command_line",
+            every_run_reports_its_command_line,
         ),
         (
             "write_and_verify_refuse_empty_data",
@@ -623,15 +635,99 @@ fn write_size_mismatch_is_reported() {
         .engine()
         .write(PART, MemoryKind::Code, &[0; 1024], &ctx())
         .unwrap_err();
-    match err {
-        EngineError::Minipro(message) => {
-            assert!(
-                message.starts_with("Incorrect file size: 1024"),
-                "{message}"
-            )
+    assert_eq!(
+        err,
+        EngineError::SizeMismatch {
+            image: 1024,
+            chip: 4_194_304,
         }
-        other => panic!("expected Minipro, got {other:?}"),
-    }
+    );
+}
+
+fn overrides_pass_minus_y_and_minus_s() {
+    let both = || {
+        OpContext::new().with_overrides(Overrides {
+            ignore_chip_id: true,
+            ignore_size: true,
+        })
+    };
+    let fake = Fake::new("override-write").fixture("tl866ii_write_verify.stderr");
+    fake.engine()
+        .write(PART, MemoryKind::Code, b"\x12", &both())
+        .unwrap();
+    let fake_verify = Fake::new("override-verify").fixture("t48_verify_ok.stderr");
+    fake_verify
+        .engine()
+        .verify(PART, MemoryKind::Code, b"\x12", &both())
+        .unwrap();
+    assert_eq!(
+        fake.calls(),
+        vec![args(&["-p", PART, "-y", "-s", "-c", "code", "-w", "-"])]
+    );
+    assert_eq!(
+        fake_verify.calls(),
+        vec![args(&["-p", PART, "-y", "-s", "-c", "code", "-m", "-"])]
+    );
+
+    // No image, so no `-s`.
+    let fake = Fake::new("override-rest").stdout(b"x");
+    let engine = fake.engine();
+    engine.read(PART, MemoryKind::Code, &both()).unwrap();
+    engine.blank_check(PART, &both()).unwrap();
+    engine.erase(PART, &both()).unwrap();
+    assert_eq!(
+        fake.calls(),
+        vec![
+            args(&["-p", PART, "-y", "-c", "code", "-r", "-"]),
+            args(&["-p", PART, "-y", "-b"]),
+            args(&["-p", PART, "-y", "-E"]),
+        ]
+    );
+}
+
+fn a_wrong_chip_id_stops_the_operation_with_its_own_error() {
+    let mismatch = EngineError::ChipIdMismatch {
+        expected: "0xEF4016".into(),
+        found: "0xC22016".into(),
+        detected: Some("MX25L3206E".into()),
+    };
+    let fake = Fake::new("id-mismatch")
+        .fixture("tl866ii_invalid_chip_id.stderr")
+        .exit("1");
+    let engine = fake.engine();
+    assert_eq!(
+        engine.read(PART, MemoryKind::Code, &ctx()).unwrap_err(),
+        mismatch
+    );
+    assert_eq!(
+        engine
+            .write(PART, MemoryKind::Code, b"\x12", &ctx())
+            .unwrap_err(),
+        mismatch
+    );
+    assert_eq!(engine.erase(PART, &ctx()).unwrap_err(), mismatch);
+}
+
+fn every_run_reports_its_command_line() {
+    let fake = Fake::new("command-line")
+        .fixture("t48_read_code.stderr")
+        .stdout(b"x");
+    let (ctx, events) = recording();
+    fake.engine().read(PART, MemoryKind::Code, &ctx).unwrap();
+    let events = events.lock().unwrap();
+    // First, before anything minipro prints.
+    let ProgressEvent::Command { line } = &events[0] else {
+        panic!("expected the command line first, got {:?}", events[0]);
+    };
+    assert!(
+        line.ends_with(&format!(" -p {PART} -c code -r -")),
+        "{line}"
+    );
+    let commands = events
+        .iter()
+        .filter(|e| matches!(e, ProgressEvent::Command { .. }))
+        .count();
+    assert_eq!(commands, 1);
 }
 
 fn write_and_verify_refuse_empty_data() {
@@ -694,13 +790,10 @@ fn blank_check_not_blank() {
 
 fn blank_check_error_is_an_error() {
     let fake = Fake::new("blank-err")
-        .fixture("tl866ii_invalid_chip_id.stderr")
+        .fixture("t48_read_overcurrent.stderr")
         .exit("1");
     let err = fake.engine().blank_check(PART, &ctx()).unwrap_err();
-    match err {
-        EngineError::Minipro(message) => assert!(message.starts_with("Invalid Chip ID")),
-        other => panic!("expected Minipro, got {other:?}"),
-    }
+    assert_eq!(err, EngineError::Minipro("Overcurrent protection!".into()));
 }
 
 fn erase_runs_minus_e() {
