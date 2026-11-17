@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# A stand-in for xcrun that goes first on PATH while Tauri builds a signed
+# macOS release. Everything passes straight through to the real xcrun except
+# `xcrun stapler staple|validate`, which goes through ../stapler.sh so it's
+# tried again when Apple's ticket lookup fails.
+#
+# Why: Tauri's bundler staples the .app with `xcrun stapler staple` and ignores
+# the exit code (tauri-macos-sign, staple_app). When the lookup drops its
+# connection, the build carries on and puts an unstapled .app in the .dmg.
+# verify-signing.sh catches that, but only by failing the release.
+set -euo pipefail
+
+self="${BASH_SOURCE[0]}"
+here="$(cd "$(dirname "$self")" && pwd)"
+
+if [ "${1:-}" = stapler ] && { [ "${2:-}" = staple ] || [ "${2:-}" = validate ]; }; then
+  shift
+  exec "$here/../stapler.sh" "$@"
+fi
+
+while IFS= read -r candidate; do
+  [ "$candidate" -ef "$self" ] || exec "$candidate" "$@"
+done < <(type -ap xcrun)
+echo "xcrun: no real xcrun on PATH" >&2
+exit 127
