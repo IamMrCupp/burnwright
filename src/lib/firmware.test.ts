@@ -126,7 +126,7 @@ describe("deviceNotices", () => {
           severity: "warning",
           title: "No algorithm file for the T76",
           detail:
-            "The T76 needs XGecu's algorithm.xml, a file from the Xgpro package, before it can work on a chip. burnwright doesn't ship or download it, and minipro found none at /usr/local/share/minipro/algorithm.xml. Until there is one, every read, write, erase and chip check on this T76 will fail before it reaches the chip. Choose your own copy below, or put it at that path.",
+            "The T76 needs XGecu's algorithm.xml, a file from the Xgpro package, before it can work on a chip. burnwright doesn't ship or download it, and minipro found none at /usr/local/share/minipro/algorithm.xml. Until there is one, every read, write, erase and chip check on this T76 will fail before anything is read or written. Choose your own copy below, or put it at that path.",
         },
       ]);
     });

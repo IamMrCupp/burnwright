@@ -237,7 +237,7 @@ describe("algorithm file", () => {
       details: [
         `minipro can't open the algorithm file: ${DEFAULT_ALGORITHMS}: No such file or directory.`,
         "The T76 needs XGecu's algorithm.xml, a file from the Xgpro package, before it can work on a chip. burnwright doesn't ship or download it.",
-        "minipro stopped before it touched the chip: nothing on it changed.",
+        "minipro stopped before any read or write: nothing on the chip changed.",
         'Pick your own copy with "Choose file…" under Algorithm file in the Programmer panel, or put it at the path above.',
       ],
       retry: null,
@@ -384,7 +384,7 @@ describe("algorithm file", () => {
       details: [
         "minipro can't use the algorithm file: No algorithm SPI25F11 was found.",
         "The file opened, but minipro couldn't get what FLASH32@SOIC8 needs from it. It may come from a different Xgpro version than this T76's firmware goes with, be made for another programmer, be damaged, or not be an algorithm.xml at all.",
-        "minipro stopped before it touched the chip: nothing on it changed.",
+        "minipro stopped before any read or write: nothing on the chip changed.",
         'Pick another file with "Choose file…" under Algorithm file in the Programmer panel.',
       ],
       retry: null,

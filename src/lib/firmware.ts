@@ -55,7 +55,7 @@ function algorithmNotice(
   if (programmerFromModel(device.programmer) !== "t76") return null;
   if (!algorithms || !algorithmFileMissing(algorithms)) return null;
   const { programmer } = device;
-  const until = `Until there is one, every read, write, erase and chip check on this ${programmer} will fail before it reaches the chip.`;
+  const until = `Until there is one, every read, write, erase and chip check on this ${programmer} will fail before anything is read or written.`;
   if (algorithms.configured !== null) {
     return {
       severity: "warning",

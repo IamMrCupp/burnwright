@@ -103,14 +103,18 @@ pub enum EngineError {
     #[error("minipro can't read its chip database: {0}")]
     MissingDatabase(String),
     /// minipro couldn't open `algorithm.xml`, the FPGA bitstreams a T76 (or
-    /// T56) needs before it can work on a chip. It stopped before the chip
-    /// was touched. The message is the line minipro printed, with the path
-    /// it tried. burnwright never ships that file: see [`algorithms`].
+    /// T56) needs before it can work on a chip. It stopped before any read
+    /// or write. (Not before the socket was powered: for NAND and eMMC
+    /// parts the T76 build initialises the adapter first.) The message is
+    /// the line minipro printed, with the path it tried. burnwright never
+    /// ships that file: see [`algorithms`].
     #[error("minipro can't open the algorithm file: {0}")]
     MissingAlgorithms(String),
     /// minipro opened the algorithm file and couldn't get the chip's
     /// bitstream from it: no entry by that name, or one it can't decode. It
-    /// stopped before the chip was touched. The message is minipro's line.
+    /// stopped before any read or write, as with
+    /// [`MissingAlgorithms`](Self::MissingAlgorithms). The message is
+    /// minipro's line.
     #[error("minipro can't use the algorithm file: {0}")]
     UnusableAlgorithms(String),
     /// This minipro doesn't know the programmer model asked for (the T76,
