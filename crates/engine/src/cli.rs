@@ -34,6 +34,7 @@ use std::ffi::OsString;
 use serde::{Deserialize, Serialize};
 
 use crate::chips::{self, ChipInfo, ChipList, Programmer};
+use crate::image::TextEncoding;
 use crate::locate::MiniproBinary;
 use crate::process::{DeviceState, ProcessError, ProcessOutput};
 use crate::progress::{Operation, ProgressEvent, ProgressParser};
@@ -197,12 +198,23 @@ fn check_part(part: &str) -> EngineResult<()> {
     Ok(())
 }
 
+/// An image for `-w -` or `-m -`: there has to be one, and it has to be one
+/// minipro uses byte for byte. minipro decodes Intel HEX and S-record text
+/// when it sees it, and there is no flag that stops it, so text like that
+/// is turned away here: what reaches the chip must be what the caller holds.
 fn check_data(data: &[u8], what: &str) -> EngineResult<()> {
     if data.is_empty() {
-        Err(EngineError::InvalidInput(format!("no data to {what}")))
-    } else {
-        Ok(())
+        return Err(EngineError::InvalidInput(format!("no data to {what}")));
     }
+    if let Some(encoding) = TextEncoding::of(data) {
+        return Err(EngineError::InvalidInput(format!(
+            "the image is the text of {} file, not a chip image. minipro would decode \
+             that text and {what} the result, not these bytes. Open the file itself \
+             so it is decoded first",
+            encoding.described()
+        )));
+    }
+    Ok(())
 }
 
 impl Engine for MiniproEngine {
@@ -797,6 +809,27 @@ mod tests {
             None
         );
         assert_eq!(parse_incorrect_size("Incorrect file size: lots"), None);
+    }
+
+    #[test]
+    fn an_image_minipro_would_decode_is_turned_away() {
+        assert!(check_data(&[0xFF, 0x00, 0x3A], "write").is_ok());
+        assert!(matches!(
+            check_data(&[], "write"),
+            Err(EngineError::InvalidInput(m)) if m == "no data to write"
+        ));
+        let hex = check_data(b":0100000041BE\n:00000001FF\n", "write").unwrap_err();
+        let EngineError::InvalidInput(message) = hex else {
+            panic!("{hex:?}");
+        };
+        assert!(message.contains("an Intel HEX file"), "{message}");
+        assert!(message.contains("and write the result"), "{message}");
+        let srec = check_data(b"S9030000FC\n", "verify").unwrap_err();
+        let EngineError::InvalidInput(message) = srec else {
+            panic!("{srec:?}");
+        };
+        assert!(message.contains("a Motorola S-record file"), "{message}");
+        assert!(message.contains("and verify the result"), "{message}");
     }
 
     #[test]

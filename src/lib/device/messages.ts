@@ -397,16 +397,59 @@ export function confirmCopy(confirm: Confirm, context: ConfirmContext): ConfirmC
             confirm: "Stop the erase",
             cancel: "Keep erasing",
           };
-    case "replace_buffer":
+    case "replace_buffer": {
+      const by = confirm.by === "read" ? "Reading the chip" : "Opening a file";
       return {
         title: "Replace the buffer?",
         paragraphs: [
-          confirm.by === "read"
-            ? "The buffer has edits that haven't been saved to a file. Reading the chip replaces them."
-            : "The buffer has edits that haven't been saved to a file. Opening a file replaces them.",
+          confirm.unsaved === "read"
+            ? `The buffer holds a chip read that hasn't been saved to a file. ${by} replaces it.`
+            : `The buffer has edits that haven't been saved to a file. ${by} replaces them.`,
         ],
         confirm: "Replace the buffer",
         cancel: "Keep the buffer",
       };
+    }
+    case "close": {
+      const { stop, unsaved } = confirm;
+      const paragraphs: string[] = [];
+      if (stop) {
+        paragraphs.push(
+          stop.op === "write"
+            ? `A write to ${stop.chip} is running. Closing stops it and leaves ${stop.chip} half-programmed: it will need erasing or writing again before it's any use.`
+            : `An erase of ${stop.chip} is running. Closing stops it and leaves ${stop.chip} half-erased: it will need erasing again before it's any use.`,
+        );
+      }
+      if (unsaved === "read") {
+        paragraphs.push(
+          "The buffer holds a chip read that hasn't been saved to a file. Closing loses it.",
+        );
+      } else if (unsaved === "edits") {
+        paragraphs.push(
+          "The buffer has edits that haven't been saved to a file. Closing loses them.",
+        );
+      }
+      if (!stop) {
+        return {
+          title: "Close without saving?",
+          paragraphs,
+          confirm: "Close without saving",
+          cancel: "Keep burnwright open",
+        };
+      }
+      return stop.op === "write"
+        ? {
+            title: "Stop the write and close?",
+            paragraphs,
+            confirm: "Stop the write and close",
+            cancel: "Keep writing",
+          }
+        : {
+            title: "Stop the erase and close?",
+            paragraphs,
+            confirm: "Stop the erase and close",
+            cancel: "Keep erasing",
+          };
+    }
   }
 }

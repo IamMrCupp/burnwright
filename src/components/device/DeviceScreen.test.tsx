@@ -226,6 +226,8 @@ describe("the whole flow", () => {
     );
     const buffer = screen.getByRole("region", { name: "Buffer" });
     expect(within(buffer).getByText("Read from EEPROM16")).toBeInTheDocument();
+    // A read exists nowhere else until it's saved.
+    expect(within(buffer).getByText("Not saved to a file")).toBeInTheDocument();
     expect(within(buffer).getByText("Same size as EEPROM16.")).toBeInTheDocument();
     expect(within(buffer).getByRole("grid", { name: "Buffer bytes" })).toBeInTheDocument();
 

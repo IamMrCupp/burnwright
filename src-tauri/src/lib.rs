@@ -3,9 +3,65 @@ mod ops;
 
 use tauri::Manager;
 
+/// The id of burnwright's own Quit menu item on macOS.
+#[cfg(target_os = "macos")]
+const QUIT_ID: &str = "burnwright-quit";
+
+/// Ask the window to close, the way its close button does. The frontend
+/// hears that as a close request (`guardWindowClose` in
+/// src/lib/device/tauri.ts) and can stop a running write, or ask about an
+/// unsaved buffer, before it lets the window go. With no window there is
+/// nothing to ask, so the app just exits.
+#[cfg(target_os = "macos")]
+fn request_close(app: &tauri::AppHandle) {
+    match app.get_webview_window("main") {
+        Some(window) => {
+            let _ = window.close();
+        }
+        None => app.exit(0),
+    }
+}
+
+/// Tauri's default macOS menu with its Quit item swapped for one that goes
+/// through [`request_close`].
+///
+/// The stock item (and so Cmd+Q) calls `NSApplication terminate:`, which
+/// ends the process on the spot: no close request, no chance to stop a
+/// write first. Quitting from the Dock and a logout still end it that way;
+/// tao gives no hook to hold those.
+#[cfg(target_os = "macos")]
+fn menu_with_guarded_quit(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+    use tauri::menu::{Menu, MenuItem, MenuItemKind};
+
+    let menu = Menu::default(app)?;
+    // The first submenu is the app's own, and Quit is its last item.
+    if let Some(MenuItemKind::Submenu(app_menu)) = menu.items()?.into_iter().next() {
+        let last = app_menu.items()?.len().saturating_sub(1);
+        app_menu.remove_at(last)?;
+        let label = format!("Quit {}", app.package_info().name);
+        app_menu.append(&MenuItem::with_id(
+            app,
+            QUIT_ID,
+            label,
+            true,
+            Some("Cmd+Q"),
+        )?)?;
+    }
+    Ok(menu)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(menu_with_guarded_quit)
+        .on_menu_event(|app, event| {
+            if event.id().as_ref() == QUIT_ID {
+                request_close(app);
+            }
+        });
+    builder
         .plugin(tauri_plugin_opener::init())
         // The system's open and save panels, for image files.
         .plugin(tauri_plugin_dialog::init())

@@ -11,6 +11,10 @@
 // - The buffer goes to minipro as it is. When it isn't the chip's size, the
 //   user is told first, and the size check is only turned off on their say.
 // - Cancelling a write or erase asks first: it leaves the chip half-done.
+// - A chip read that isn't in a file, or edits that aren't, are never
+//   replaced or closed away without asking.
+// - The window doesn't close under a running operation: the operation is
+//   stopped first, and a write or erase asks before that.
 import {
   errorMessage,
   isEngineError,
@@ -38,14 +42,15 @@ import type { RecentStore } from "./recent";
 import {
   activeProgrammer,
   bufferSizeCheck,
-  hasUnsavedEdits,
   initialState,
   lookupKey,
+  mutatingOp,
   NO_OVERRIDES,
   OP_LABELS,
   operationAvailability,
   reducer,
   selectedInfo,
+  unsavedBuffer,
   type Action,
   type ChipRef,
   type DeviceState,
@@ -83,6 +88,12 @@ export interface DeviceDeps {
   dialogs: FileDialogs;
   /** Where recent chips are kept between runs. Without one they last for the session. */
   recent?: RecentStore;
+  /**
+   * Closes the app's window for good, without asking it again. Called once
+   * `requestClose` has said no and the user, or a stopped operation, has
+   * cleared the way.
+   */
+  closeWindow?: () => void;
 }
 
 /** How many matches the picker asks for. Each one gets a size lookup. */
@@ -97,9 +108,12 @@ export class DeviceController {
   private readonly engine: DeviceEngine;
   private readonly dialogs: FileDialogs;
   private readonly recent: RecentStore | undefined;
+  private readonly closeWindow: () => void;
 
   /** Cancels the running operation. */
   private abort: AbortController | null = null;
+  /** The window closes as soon as the running operation has stopped. */
+  private closeWhenStopped = false;
   /** Chips waiting for a size lookup, and whose list they're from. */
   private pending: string[] = [];
   private pendingFor: Programmer = "t48";
@@ -109,6 +123,7 @@ export class DeviceController {
     this.engine = deps.engine;
     this.dialogs = deps.dialogs;
     this.recent = deps.recent;
+    this.closeWindow = deps.closeWindow ?? (() => {});
     this.state = initialState(deps.recent?.load() ?? []);
   }
 
@@ -273,13 +288,17 @@ export class DeviceController {
 
   // --- buffer ----------------------------------------------------------
 
-  /** Open an image file into the buffer. Asks first when that would lose edits. */
+  /**
+   * Open an image file into the buffer. Asks first when that would lose
+   * edits, or a chip read that was never saved.
+   */
   openFile = async (): Promise<void> => {
     if (this.state.running || this.state.fileBusy) return;
-    if (hasUnsavedEdits(this.state.buffer)) {
+    const unsaved = unsavedBuffer(this.state.buffer);
+    if (unsaved) {
       this.dispatch({
         type: "confirm_opened",
-        confirm: { kind: "replace_buffer", by: "file", overrides: NO_OVERRIDES },
+        confirm: { kind: "replace_buffer", by: "file", unsaved, overrides: NO_OVERRIDES },
       });
       return;
     }
@@ -401,15 +420,17 @@ export class DeviceController {
           return;
         }
         break;
-      case "read":
-        if (hasUnsavedEdits(this.state.buffer)) {
+      case "read": {
+        const unsaved = unsavedBuffer(this.state.buffer);
+        if (unsaved) {
           this.dispatch({
             type: "confirm_opened",
-            confirm: { kind: "replace_buffer", by: "read", overrides },
+            confirm: { kind: "replace_buffer", by: "read", unsaved, overrides },
           });
           return;
         }
         break;
+      }
       default:
         break;
     }
@@ -450,6 +471,10 @@ export class DeviceController {
         if (confirm.by === "read") void this.start("read", confirm.overrides);
         else void this.pickAndLoad();
         return;
+      case "close":
+        this.dispatch({ type: "confirm_closed" });
+        this.stopAndClose();
+        return;
     }
   };
 
@@ -472,6 +497,55 @@ export class DeviceController {
     }
     this.abortNow();
   };
+
+  /**
+   * The window was asked to close. `true` lets it; `false` keeps it open,
+   * because the user is being asked first or an operation is being stopped,
+   * and `closeWindow` closes it once that's settled.
+   *
+   * A write or erase in progress and a buffer no file has both ask. Any
+   * other operation is just stopped: closing under it would leave minipro
+   * running with nothing to report to.
+   */
+  requestClose = (): boolean => {
+    // Asked again while an operation is being stopped: it isn't stopping,
+    // and the user must still be able to leave.
+    if (this.closeWhenStopped) return true;
+    const stop = mutatingOp(this.state);
+    const unsaved = unsavedBuffer(this.state.buffer);
+    if (stop || unsaved) {
+      this.dispatch({ type: "confirm_opened", confirm: { kind: "close", stop, unsaved } });
+      return false;
+    }
+    if (!this.state.running) return true;
+    this.stopAndClose();
+    return false;
+  };
+
+  /** Close the window, after stopping whatever is running. */
+  private stopAndClose(): void {
+    if (!this.state.running) {
+      this.closeWindow();
+      return;
+    }
+    this.closeWhenStopped = true;
+    this.abortNow();
+  }
+
+  /**
+   * The operation moved on or ended while the close question was up: ask
+   * what is still true, or nothing.
+   */
+  private refreshCloseQuestion(): void {
+    if (this.state.confirm?.kind !== "close") return;
+    const stop = mutatingOp(this.state);
+    const unsaved = unsavedBuffer(this.state.buffer);
+    if (stop || unsaved) {
+      this.dispatch({ type: "confirm_opened", confirm: { kind: "close", stop, unsaved } });
+    } else {
+      this.dispatch({ type: "confirm_closed" });
+    }
+  }
 
   private abortNow(): void {
     if (!this.abort || !this.state.running) {
@@ -557,6 +631,12 @@ export class DeviceController {
           : outcome.title,
     });
     this.dispatch({ type: "op_finished", outcome });
+    if (this.closeWhenStopped) {
+      this.closeWhenStopped = false;
+      this.closeWindow();
+      return;
+    }
+    this.refreshCloseQuestion();
     if (lostProgrammer) await this.reportNoProgrammer();
   }
 
@@ -571,6 +651,7 @@ export class DeviceController {
     options: OperationOptions,
   ): Promise<Outcome> {
     this.dispatch({ type: "op_readback" });
+    this.refreshCloseQuestion();
     this.dispatch({
       type: "logged",
       kind: "note",

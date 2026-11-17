@@ -12,6 +12,13 @@
 //! byte, [`DEFAULT_FILL`] (`0xFF`, the erased state of most parts) unless the
 //! caller picks another.
 //!
+//! minipro has no way to be told "this is raw binary": it probes every image
+//! it is given for Intel HEX and Motorola S-record text and decodes what it
+//! finds. [`TextEncoding::of`] makes the same call, so that burnwright never
+//! hands minipro bytes it would turn into different ones. A file that holds
+//! Intel HEX text is parsed as Intel HEX whatever it's called, and one that
+//! holds S-records is refused: there is no S-record parser here yet.
+//!
 //! Writing always produces a dense image: every byte of the buffer is emitted,
 //! so a `bin -> HEX -> bin` round trip gives back the same length and content.
 //! Extended linear address records are only written once the image grows past
@@ -47,7 +54,8 @@ pub enum ImageFormat {
 
 impl ImageFormat {
     /// Guess the format from a file extension: `.hex`, `.ihx`, `.ihex` and
-    /// `.h86` are Intel HEX; anything else is raw binary.
+    /// `.h86` are Intel HEX; anything else is raw binary. [`load`] also looks
+    /// at what a "raw binary" file holds before it believes that.
     pub fn from_path(path: impl AsRef<Path>) -> Self {
         let ext = path
             .as_ref()
@@ -57,6 +65,54 @@ impl ImageFormat {
         match ext.as_deref() {
             Some("hex" | "ihx" | "ihex" | "h86") => Self::IntelHex,
             _ => Self::Bin,
+        }
+    }
+}
+
+/// A text encoding minipro decodes when it is given an image, whether or not
+/// anyone asked it to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextEncoding {
+    /// Intel HEX: the first record starts with `:`.
+    IntelHex,
+    /// Motorola S-record: the first record starts with `S`.
+    SRecord,
+}
+
+impl TextEncoding {
+    /// What minipro would take `data` for, or `None` when it would use the
+    /// bytes as they are.
+    ///
+    /// This is minipro's own probe (`read_hex_file` and `read_srec_file`,
+    /// by way of `open_file` in `main.c`): skip leading line breaks, then
+    /// the first line has to be `:` or `S` followed by nothing but hex
+    /// digits. From there minipro either decodes the records or stops with
+    /// an error about one of them. Either way it doesn't use the raw bytes.
+    ///
+    /// A real binary image passes only if it begins with a whole line of
+    /// ASCII hex digits behind a `:` or an `S`, which is to say, if it is
+    /// text.
+    pub fn of(data: &[u8]) -> Option<Self> {
+        let line_break = |b: &u8| matches!(b, b'\r' | b'\n');
+        let start = data.iter().position(|b| !line_break(b))?;
+        let encoding = match data[start] {
+            b':' => Self::IntelHex,
+            b'S' => Self::SRecord,
+            _ => return None,
+        };
+        let line = &data[start + 1..];
+        let end = line.iter().position(line_break).unwrap_or(line.len());
+        line[..end]
+            .iter()
+            .all(u8::is_ascii_hexdigit)
+            .then_some(encoding)
+    }
+
+    /// The encoding's name with its article, for a sentence: "an Intel HEX".
+    pub fn described(self) -> &'static str {
+        match self {
+            Self::IntelHex => "an Intel HEX",
+            Self::SRecord => "a Motorola S-record",
         }
     }
 }
@@ -108,6 +164,14 @@ pub enum ImageError {
         /// First overlapping address.
         address: u64,
     },
+    /// The file holds Motorola S-records, which this module can't parse.
+    /// Loading it as raw binary would put its text in the buffer, and
+    /// minipro would decode that text on a write instead of writing it.
+    #[error(
+        "it's a Motorola S-record file, which burnwright can't read yet. \
+         Convert it to raw binary or Intel HEX first"
+    )]
+    SRecord,
     /// The image would exceed [`MAX_IMAGE_SIZE`] or the 32-bit address space.
     #[error("image too large: {size} bytes (limit {limit})")]
     TooLarge {
@@ -268,10 +332,16 @@ pub fn to_ihex(data: &[u8]) -> ImageResult<String> {
     Ok(out)
 }
 
-/// Read an image file. `format` defaults to a guess from the extension
-/// ([`ImageFormat::from_path`]); `fill` is used for HEX gaps.
+/// Read an image file. `fill` is used for HEX gaps.
+///
+/// With no `format`, the extension is a first guess
+/// ([`ImageFormat::from_path`]) and the contents settle it: a file that
+/// isn't named as Intel HEX but holds it ([`TextEncoding::of`]) is parsed as
+/// Intel HEX, and one that holds S-records is an error. A caller that passes
+/// [`ImageFormat::Bin`] gets the file's bytes, whatever they are.
 pub fn load(path: impl AsRef<Path>, format: Option<ImageFormat>, fill: u8) -> ImageResult<Vec<u8>> {
     let path = path.as_ref();
+    let guessed = format.is_none();
     let format = format.unwrap_or_else(|| ImageFormat::from_path(path));
     let io_err = |source| ImageError::Io {
         path: path.display().to_string(),
@@ -286,7 +356,13 @@ pub fn load(path: impl AsRef<Path>, format: Option<ImageFormat>, fill: u8) -> Im
                     limit: MAX_IMAGE_SIZE as u64,
                 });
             }
-            Ok(data)
+            match TextEncoding::of(&data) {
+                Some(TextEncoding::IntelHex) if guessed => {
+                    Ok(parse_ihex(&String::from_utf8_lossy(&data), fill)?.data)
+                }
+                Some(TextEncoding::SRecord) if guessed => Err(ImageError::SRecord),
+                _ => Ok(data),
+            }
         }
         ImageFormat::IntelHex => {
             let text = std::fs::read_to_string(path).map_err(io_err)?;
@@ -584,6 +660,107 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert!(text.starts_with(':'));
         assert_eq!(back, [1, 2, 3]);
+    }
+
+    #[test]
+    fn text_minipro_would_decode_is_recognised() {
+        use TextEncoding::{IntelHex, SRecord};
+        assert_eq!(TextEncoding::of(FIXTURE_HEX.as_bytes()), Some(IntelHex));
+        assert_eq!(
+            TextEncoding::of(b"\r\n\n:00000001FF\r\n"),
+            Some(IntelHex),
+            "minipro skips leading line breaks"
+        );
+        assert_eq!(
+            TextEncoding::of(b":00000001FF"),
+            Some(IntelHex),
+            "no line break at the end"
+        );
+        assert_eq!(
+            TextEncoding::of(b"S00F000068656C6C6F202020202000003C\nS9030000FC\n"),
+            Some(SRecord)
+        );
+        // minipro stops with "bad count" on these, which still isn't a write
+        // of the raw bytes.
+        assert_eq!(TextEncoding::of(b":\n\x00\x01"), Some(IntelHex));
+        assert_eq!(TextEncoding::of(b"S\n\x00\x01"), Some(SRecord));
+
+        assert_eq!(TextEncoding::of(FIXTURE_BIN), None);
+        assert_eq!(TextEncoding::of(b""), None);
+        assert_eq!(TextEncoding::of(b"\n\r\n"), None);
+        assert_eq!(
+            TextEncoding::of(b"\x3A\x00\x10\xFF\n"),
+            None,
+            "':' then binary"
+        );
+        assert_eq!(
+            TextEncoding::of(b"SPI flash dump\n"),
+            None,
+            "'S' then words"
+        );
+        assert_eq!(
+            TextEncoding::of(b"\xFF:00000001FF\n"),
+            None,
+            "not at the start"
+        );
+        assert_eq!(
+            TextEncoding::of(b" :00000001FF\n"),
+            None,
+            "minipro skips no spaces"
+        );
+    }
+
+    #[test]
+    fn load_decodes_intel_hex_whatever_the_file_is_called() {
+        for name in [
+            "hex-as.bin",
+            "hex-as.txt",
+            "hex-as.eep",
+            "hex-with-no-extension",
+        ] {
+            let path = temp_path(name);
+            std::fs::write(&path, FIXTURE_HEX).unwrap();
+            let loaded = load(&path, None, DEFAULT_FILL);
+            std::fs::remove_file(&path).unwrap();
+            assert_eq!(loaded.unwrap(), FIXTURE_BIN, "{name}");
+        }
+    }
+
+    #[test]
+    fn load_reports_broken_intel_hex_in_a_file_not_named_for_it() {
+        let path = temp_path("broken-hex.bin");
+        std::fs::write(&path, ":0100000041BF\n:00000001FF\n").unwrap();
+        let loaded = load(&path, None, DEFAULT_FILL);
+        std::fs::remove_file(&path).unwrap();
+        assert!(
+            matches!(loaded, Err(ImageError::Checksum { line: 1, .. })),
+            "{loaded:?}"
+        );
+    }
+
+    #[test]
+    fn load_refuses_s_records() {
+        let path = temp_path("firmware.s19");
+        std::fs::write(&path, "S00F000068656C6C6F202020202000003C\nS9030000FC\n").unwrap();
+        let loaded = load(&path, None, DEFAULT_FILL);
+        std::fs::remove_file(&path).unwrap();
+        let err = loaded.unwrap_err();
+        assert!(matches!(err, ImageError::SRecord), "{err:?}");
+        // The screen puts the file's name in front of this.
+        assert_eq!(
+            err.to_string(),
+            "it's a Motorola S-record file, which burnwright can't read yet. \
+             Convert it to raw binary or Intel HEX first"
+        );
+    }
+
+    #[test]
+    fn load_as_bin_on_request_gives_the_bytes_as_they_are() {
+        let path = temp_path("hex-kept-raw.bin");
+        std::fs::write(&path, FIXTURE_HEX).unwrap();
+        let loaded = load(&path, Some(ImageFormat::Bin), DEFAULT_FILL);
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(loaded.unwrap(), FIXTURE_HEX.as_bytes());
     }
 
     #[test]
