@@ -59,6 +59,7 @@ pub struct MiniproBinary {
     source: MiniproSource,
     args: Vec<OsString>,
     envs: Vec<(OsString, OsString)>,
+    algorithms: Option<PathBuf>,
 }
 
 impl MiniproBinary {
@@ -73,6 +74,7 @@ impl MiniproBinary {
             source,
             args: Vec::new(),
             envs: Vec::new(),
+            algorithms: None,
         }
     }
 
@@ -86,6 +88,20 @@ impl MiniproBinary {
     pub fn with_env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.envs.push((key.into(), value.into()));
         self
+    }
+
+    /// Pass `file` as `--algorithms` on every run: the user's own copy of
+    /// XGecu's `algorithm.xml` (see [`crate::algorithms`]). minipro then
+    /// looks nowhere else. `None`, or an empty path, leaves minipro to its
+    /// own search.
+    pub fn with_algorithms(mut self, file: Option<PathBuf>) -> Self {
+        self.algorithms = non_empty(file);
+        self
+    }
+
+    /// The file passed as `--algorithms`, if one is set.
+    pub fn algorithms(&self) -> Option<&Path> {
+        self.algorithms.as_deref()
     }
 
     /// The program path.
@@ -103,6 +119,9 @@ impl MiniproBinary {
     pub fn command(&self, operation: Operation) -> MiniproCommand {
         let mut command = MiniproCommand::new(self.program.as_os_str(), operation)
             .args(self.args.iter().cloned());
+        if let Some(file) = &self.algorithms {
+            command = command.args([OsString::from("--algorithms"), file.clone().into()]);
+        }
         for (key, value) in &self.envs {
             command = command.env(key, value);
         }
@@ -617,6 +636,30 @@ mod tests {
             .locate_routes()
             .unwrap_err();
         assert_eq!(err, LocateError::MissingSidecar { path: gone });
+    }
+
+    #[test]
+    fn a_chosen_algorithm_file_reaches_the_command() {
+        let binary = MiniproBinary::new("/opt/minipro").with_arg("--infoic");
+        assert_eq!(binary.algorithms(), None);
+        let plain = format!("{:?}", binary.command(Operation::Read));
+        assert!(!plain.contains("--algorithms"), "{plain}");
+
+        let binary = binary.with_algorithms(Some(PathBuf::from("/home/me/algorithm.xml")));
+        assert_eq!(
+            binary.algorithms(),
+            Some(Path::new("/home/me/algorithm.xml"))
+        );
+        let debug = format!("{:?}", binary.command(Operation::Read));
+        assert!(debug.contains("--algorithms"), "{debug}");
+        assert!(debug.contains("/home/me/algorithm.xml"), "{debug}");
+
+        // Clearing it, or an empty path, goes back to minipro's own search.
+        assert_eq!(binary.clone().with_algorithms(None).algorithms(), None);
+        assert_eq!(
+            binary.with_algorithms(Some(PathBuf::new())).algorithms(),
+            None
+        );
     }
 
     #[test]

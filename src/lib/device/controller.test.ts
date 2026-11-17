@@ -6,10 +6,11 @@ import {
   type FakeEngineOptions,
   type FakeSocket,
 } from "../../dev/fakeEngine";
-import type { Diagnosis } from "../engine";
+import type { DeviceInfo, Diagnosis } from "../engine";
 import { DeviceController } from "./controller";
 import { confirmCopy } from "./messages";
 import { recentStore } from "./recent";
+import { settingsStore, type SettingsStore } from "./settings";
 import {
   activeProgrammer,
   bufferSizeCheck,
@@ -59,14 +60,15 @@ function socketWith(chip: string, memory: Uint8Array): FakeSocket {
   return { chip, memory };
 }
 
-function setup(options: FakeEngineOptions = {}) {
+function setup(options: FakeEngineOptions = {}, settings?: SettingsStore) {
   const fake = createFakeEngine({ chips: CHIPS, ...options });
   const dialogs = {
     open: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
     save: vi.fn<(suggested: string) => Promise<string | null>>().mockResolvedValue(null),
+    openAlgorithms: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
   };
   const closeWindow = vi.fn<() => void>();
-  const controller = new DeviceController({ engine: fake, dialogs, closeWindow });
+  const controller = new DeviceController({ engine: fake, dialogs, closeWindow, settings });
   const state = () => controller.getState();
   /** Wait for the running operation to end. */
   const idle = () => soon(() => expect(state().running).toBeNull());
@@ -175,6 +177,238 @@ describe("programmer", () => {
   });
 });
 
+const T76: DeviceInfo = {
+  programmer: "T76",
+  firmware: "00.1.17",
+  chip: null,
+  firmware_status: null,
+  firmware_expected: null,
+  support_warning: "T76 support is experimental!",
+};
+const DEFAULT_ALGORITHMS = "/usr/local/share/minipro/algorithm.xml";
+const MY_ALGORITHMS = "/home/me/xgecu/algorithm.xml";
+
+/** A localStorage stand-in. */
+function memoryStorage() {
+  const stored = new Map<string, string>();
+  return {
+    stored,
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => void stored.set(key, value),
+    removeItem: (key: string) => void stored.delete(key),
+  };
+}
+
+describe("algorithm file", () => {
+  const t76 = (options: FakeEngineOptions = {}) => ({
+    programmer: T76,
+    socket: socketWith("FLASH32@SOIC8", ramp(32)),
+    algorithmFiles: [MY_ALGORITHMS],
+    ...options,
+  });
+
+  it("looks for a T76's algorithm file at detect, and for no other programmer's", async () => {
+    const { controller, state, commands } = setup(t76());
+    expect(state().algorithms).toBeNull();
+    await controller.detect();
+    expect(commands()).toEqual(["detect", "algorithmFile"]);
+    expect(state().algorithms).toEqual({
+      configured: null,
+      found: null,
+      default_path: DEFAULT_ALGORITHMS,
+    });
+
+    const t48 = setup();
+    await t48.controller.detect();
+    expect(t48.commands()).toEqual(["detect"]);
+    expect(t48.state().algorithms).toBeNull();
+  });
+
+  it("says in plain words why a T76 operation failed without the file", async () => {
+    const { controller, state, ready, idle } = setup(t76());
+    await ready("FLASH32@SOIC8");
+    controller.run("check");
+    await idle();
+    expect(state().outcome).toEqual({
+      op: "check",
+      chip: "FLASH32@SOIC8",
+      tone: "error",
+      title: "No algorithm file for the T76",
+      details: [
+        `minipro can't open the algorithm file: ${DEFAULT_ALGORITHMS}: No such file or directory.`,
+        "The T76 needs XGecu's algorithm.xml, a file from the Xgpro package, before it can work on a chip. burnwright doesn't ship or download it.",
+        "minipro stopped before it touched the chip: nothing on it changed.",
+        'Pick your own copy with "Choose file…" under Algorithm file in the Programmer panel, or put it at the path above.',
+      ],
+      retry: null,
+    });
+    // minipro's own lines are in the log, and so is the explanation.
+    const log = logText(state().log);
+    expect(log).toContain(`${DEFAULT_ALGORITHMS}: No such file or directory`);
+    expect(log).toContain("An error occurred while sending bitstream.");
+    expect(log).toContain("No algorithm file for the T76: minipro can't open");
+  });
+
+  it("fails every operation the same way, and changes nothing on the chip", async () => {
+    const { controller, state, fake, ready, idle, dialogs } = setup(
+      t76({ files: { "/image.bin": ramp(32, 100) } }),
+    );
+    await ready("FLASH32@SOIC8");
+    const before = Array.from(fake.socket?.memory ?? []);
+    for (const op of ["read", "blank_check"] as const) {
+      controller.run(op);
+      await idle();
+      expect(state().outcome?.title, op).toBe("No algorithm file for the T76");
+    }
+    expect(state().buffer).toBeNull();
+    dialogs.open.mockResolvedValue("/image.bin");
+    await controller.openFile();
+    for (const op of ["verify", "erase", "write"] as const) {
+      controller.run(op);
+      if (state().confirm) controller.confirm();
+      await idle();
+      expect(state().outcome?.title, op).toBe("No algorithm file for the T76");
+      expect(state().outcome?.retry, op).toBeNull();
+    }
+    expect(Array.from(fake.socket?.memory ?? [])).toEqual(before);
+  });
+
+  it("passes the file the user chooses, and the operation then runs", async () => {
+    const storage = memoryStorage();
+    const { controller, state, fake, dialogs, ready, idle } = setup(
+      t76(),
+      settingsStore(storage),
+    );
+    await ready("FLASH32@SOIC8");
+    dialogs.openAlgorithms.mockResolvedValue(MY_ALGORITHMS);
+    await controller.chooseAlgorithmFile();
+    expect(fake.algorithmPath).toBe(MY_ALGORITHMS);
+    expect(state().algorithms).toEqual({
+      configured: MY_ALGORITHMS,
+      found: MY_ALGORITHMS,
+      default_path: DEFAULT_ALGORITHMS,
+    });
+    expect(storage.stored.get("burnwright.algorithmPath")).toBe(MY_ALGORITHMS);
+    expect(logText(state().log)).toContain(`Algorithm file set to ${MY_ALGORITHMS}.`);
+
+    controller.run("check");
+    await idle();
+    expect(state().outcome?.title).toBe("Chip check passed");
+  });
+
+  it("leaves things alone when the file panel is dismissed", async () => {
+    const { controller, state, fake, commands } = setup(t76());
+    await controller.detect();
+    await controller.chooseAlgorithmFile();
+    expect(fake.algorithmPath).toBeNull();
+    expect(commands()).not.toContain("setAlgorithmPath");
+    expect(state().algorithms?.configured).toBeNull();
+  });
+
+  it("hands the remembered file back to the engine before the first detect", async () => {
+    const storage = memoryStorage();
+    settingsStore(storage).saveAlgorithmPath(MY_ALGORITHMS);
+    const { controller, state, fake, commands } = setup(t76(), settingsStore(storage));
+    await controller.detect();
+    expect(commands()).toEqual(["setAlgorithmPath", "detect", "algorithmFile"]);
+    expect(fake.algorithmPath).toBe(MY_ALGORITHMS);
+    expect(state().algorithms?.found).toBe(MY_ALGORITHMS);
+  });
+
+  it("names a chosen file that has gone missing", async () => {
+    const storage = memoryStorage();
+    settingsStore(storage).saveAlgorithmPath("/gone/algorithm.xml");
+    const { controller, state, ready, idle } = setup(t76(), settingsStore(storage));
+    await ready("FLASH32@SOIC8");
+    expect(state().algorithms).toEqual({
+      configured: "/gone/algorithm.xml",
+      found: null,
+      default_path: DEFAULT_ALGORITHMS,
+    });
+    controller.run("check");
+    await idle();
+    expect(state().outcome?.details[0]).toBe(
+      "minipro can't open the algorithm file: /gone/algorithm.xml: No such file or directory.",
+    );
+  });
+
+  it("clears the choice and forgets it", async () => {
+    const storage = memoryStorage();
+    settingsStore(storage).saveAlgorithmPath(MY_ALGORITHMS);
+    const { controller, state, fake } = setup(t76(), settingsStore(storage));
+    await controller.detect();
+    await controller.clearAlgorithmFile();
+    expect(fake.algorithmPath).toBeNull();
+    expect(storage.stored.has("burnwright.algorithmPath")).toBe(false);
+    expect(state().algorithms).toEqual({
+      configured: null,
+      found: null,
+      default_path: DEFAULT_ALGORITHMS,
+    });
+    expect(logText(state().log)).toContain("Algorithm file choice cleared.");
+  });
+
+  it("doesn't change the file while an operation runs", async () => {
+    const { controller, fake, dialogs, ready, idle } = setup(
+      t76({ algorithmFile: DEFAULT_ALGORITHMS }),
+    );
+    await ready("FLASH32@SOIC8");
+    fake.hold();
+    controller.run("read");
+    dialogs.openAlgorithms.mockResolvedValue(MY_ALGORITHMS);
+    await controller.chooseAlgorithmFile();
+    await controller.clearAlgorithmFile();
+    expect(dialogs.openAlgorithms).not.toHaveBeenCalled();
+    expect(fake.algorithmPath).toBeNull();
+    fake.release();
+    await idle();
+  });
+
+  it("says when the file opened and has nothing for the chip", async () => {
+    const { controller, state, fake, ready, idle } = setup(
+      t76({ algorithmFile: DEFAULT_ALGORITHMS }),
+    );
+    await ready("FLASH32@SOIC8");
+    fake.failNext({
+      kind: "unusable_algorithms",
+      message: "minipro can't use the algorithm file: No algorithm SPI25F11 was found.",
+      device_state: null,
+    });
+    controller.run("read");
+    await idle();
+    expect(state().outcome).toEqual({
+      op: "read",
+      chip: "FLASH32@SOIC8",
+      tone: "error",
+      title: "minipro can't use the algorithm file",
+      details: [
+        "minipro can't use the algorithm file: No algorithm SPI25F11 was found.",
+        "The file opened, but minipro couldn't get what FLASH32@SOIC8 needs from it. It may come from a different Xgpro version than this T76's firmware goes with, be made for another programmer, be damaged, or not be an algorithm.xml at all.",
+        "minipro stopped before it touched the chip: nothing on it changed.",
+        'Pick another file with "Choose file…" under Algorithm file in the Programmer panel.',
+      ],
+      retry: null,
+    });
+  });
+
+  it("doesn't point a T56 at a control it doesn't have", async () => {
+    const { controller, state, fake, ready, idle } = setup({
+      programmer: { ...T76, programmer: "T56", support_warning: null },
+      socket: socketWith("FLASH32@SOIC8", ramp(32)),
+    });
+    await ready("FLASH32@SOIC8");
+    fake.failNext({
+      kind: "missing_algorithms",
+      message: `minipro can't open the algorithm file: ${DEFAULT_ALGORITHMS}: No such file or directory`,
+      device_state: null,
+    });
+    controller.run("read");
+    await idle();
+    expect(state().outcome?.title).toBe("No algorithm file for the T56");
+    expect(last(state().outcome?.details ?? [])).toBe("Put your own copy at the path above.");
+  });
+});
+
 describe("chip picker", () => {
   it("searches as the user types and fills in each result's size", async () => {
     const { controller, state } = setup();
@@ -270,7 +504,7 @@ describe("chip picker", () => {
     };
     const first = new DeviceController({
       engine: createFakeEngine({ chips: CHIPS }),
-      dialogs: { open: async () => null, save: async () => null },
+      dialogs: { open: async () => null, save: async () => null, openAlgorithms: async () => null },
       recent: recentStore(storage),
     });
     first.selectChip({ name: "EEPROM16", package: null });
@@ -278,7 +512,7 @@ describe("chip picker", () => {
     first.selectChip({ name: "EEPROM16", package: null });
     const second = new DeviceController({
       engine: createFakeEngine({ chips: CHIPS }),
-      dialogs: { open: async () => null, save: async () => null },
+      dialogs: { open: async () => null, save: async () => null, openAlgorithms: async () => null },
       recent: recentStore(storage),
     });
     expect(second.getState().chip.recent.map((c) => c.name)).toEqual([

@@ -4,6 +4,7 @@ import {
   deviceMayBeInconsistent,
   errorMessage,
   isEngineError,
+  programmerFromModel,
   type ChipCheck,
   type EngineErrorKind,
 } from "../engine";
@@ -181,18 +182,68 @@ export function checkOutcome(chip: string, check: ChipCheck): Outcome {
 }
 
 /**
+ * `text` with a full stop, and its first letter left alone: for engine
+ * messages that start with "minipro", which is never capitalised.
+ */
+function fullStop(text: string): string {
+  const trimmed = text.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+/** What's true of every failure to load a bitstream: it comes before the chip. */
+const CHIP_UNTOUCHED = "minipro stopped before it touched the chip: nothing on it changed.";
+
+/**
  * How a failed or cancelled operation is reported. `overrides` are the
  * checks that were already off for this run; a retry adds one more.
+ * `programmer` is the detected model's name ("T76"), for the failures that
+ * are about the programmer and not the chip.
  */
 export function failureOutcome(
   op: OpKind,
   chip: string,
   err: unknown,
   overrides: Overrides,
+  programmer: string | null = null,
 ): Outcome {
   const label = OP_LABELS[op];
   const base = { op, chip, retry: null };
   const kind = errorKind(err);
+
+  if (kind === "missing_algorithms" || kind === "unusable_algorithms") {
+    const model = programmer ?? "programmer";
+    // burnwright can point a T76 at a file; any other model (a T56) reads
+    // it from where its minipro looks.
+    const canChoose = programmerFromModel(programmer ?? "") === "t76";
+    if (kind === "missing_algorithms") {
+      return {
+        ...base,
+        tone: "error",
+        title: `No algorithm file for the ${model}`,
+        details: [
+          fullStop(plainMessage(err)),
+          `The ${model} needs XGecu's algorithm.xml, a file from the Xgpro package, before it can work on a chip. burnwright doesn't ship or download it.`,
+          CHIP_UNTOUCHED,
+          canChoose
+            ? 'Pick your own copy with "Choose file…" under Algorithm file in the Programmer panel, or put it at the path above.'
+            : "Put your own copy at the path above.",
+        ],
+      };
+    }
+    return {
+      ...base,
+      tone: "error",
+      title: "minipro can't use the algorithm file",
+      details: [
+        fullStop(plainMessage(err)),
+        `The file opened, but minipro couldn't get what ${chip} needs from it. It may come from a different Xgpro version than this ${model}'s firmware goes with, be made for another programmer, be damaged, or not be an algorithm.xml at all.`,
+        CHIP_UNTOUCHED,
+        canChoose
+          ? 'Pick another file with "Choose file…" under Algorithm file in the Programmer panel.'
+          : "Replace the file minipro reads with one that matches.",
+      ],
+    };
+  }
 
   if (kind === "cancelled") {
     return deviceMayBeInconsistent(err)

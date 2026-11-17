@@ -10,6 +10,7 @@ vi.mock("@tauri-apps/api/core", () => {
 });
 
 import {
+  algorithmFileMissing,
   chipAvailableOn,
   deviceMayBeInconsistent,
   engine,
@@ -39,6 +40,31 @@ function lastArgs(command: string): DeviceArgs {
 
 beforeEach(() => {
   invoke.mockReset();
+});
+
+describe("algorithm file", () => {
+  it("asks for the state and sets the path by the commands' names", async () => {
+    const status = { configured: null, found: null, default_path: "/s/algorithm.xml" };
+    invoke.mockResolvedValue(status);
+    await expect(engine.algorithmFile()).resolves.toEqual(status);
+    expect(invoke).toHaveBeenLastCalledWith("algorithm_file");
+    await engine.setAlgorithmPath("/home/me/algorithm.xml");
+    expect(invoke).toHaveBeenLastCalledWith("set_algorithm_path", {
+      path: "/home/me/algorithm.xml",
+    });
+    await engine.setAlgorithmPath(null);
+    expect(invoke).toHaveBeenLastCalledWith("set_algorithm_path", { path: null });
+  });
+
+  it("is missing only when burnwright knows where minipro looks", () => {
+    const base = { configured: null, found: null, default_path: null };
+    expect(algorithmFileMissing({ ...base, default_path: "/s/algorithm.xml" })).toBe(true);
+    expect(algorithmFileMissing({ ...base, configured: "/x.xml" })).toBe(true);
+    expect(algorithmFileMissing(base)).toBe(false);
+    expect(
+      algorithmFileMissing({ ...base, found: "/s/algorithm.xml", default_path: "/s/algorithm.xml" }),
+    ).toBe(false);
+  });
 });
 
 describe("device commands", () => {
