@@ -159,8 +159,14 @@ export type Confirm =
   | { kind: "verify_size"; chip: string; overrides: Overrides }
   /** Stop a running write or erase. */
   | { kind: "cancel"; op: "write" | "erase"; chip: string }
-  /** Replace a buffer that has unsaved edits. */
-  | { kind: "replace_buffer"; by: "read" | "file"; overrides: Overrides };
+  /** Replace a buffer that holds something no file has. */
+  | { kind: "replace_buffer"; by: "read" | "file"; unsaved: Unsaved; overrides: Overrides };
+
+/**
+ * What the buffer holds that isn't in any file: a chip read that was never
+ * saved, or edits made since the last load or save.
+ */
+export type Unsaved = "read" | "edits";
 
 /** The chip's contents, read back after a failed verify, to diff against the buffer. */
 export interface DiffState {
@@ -616,12 +622,17 @@ export function visibleRecent(state: DeviceState): RecentChip[] {
   return state.chip.recent.filter((r) => chipListOf(r.programmer) === list);
 }
 
-/** Whether the buffer has edits that aren't in a file. */
-export function hasUnsavedEdits(buffer: BufferState | null): boolean {
-  if (!buffer) return false;
-  return buffer.saved === buffer.original
-    ? buffer.edited
-    : buffer.bytes !== buffer.saved;
+/**
+ * What replacing or dropping the buffer would lose, or `null` when a file
+ * has all of it. A chip read counts until it's saved, edited or not: the
+ * chip it came from may not read the same way twice.
+ */
+export function unsavedBuffer(buffer: BufferState | null): Unsaved | null {
+  if (!buffer) return null;
+  if (buffer.source.kind === "chip" && buffer.path === null) return "read";
+  const edits =
+    buffer.saved === buffer.original ? buffer.edited : buffer.bytes !== buffer.saved;
+  return edits ? "edits" : null;
 }
 
 /** How the buffer compares with the selected chip. */

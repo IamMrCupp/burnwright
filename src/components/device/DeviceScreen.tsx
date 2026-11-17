@@ -5,9 +5,9 @@ import { confirmCopy } from "../../lib/device/messages";
 import {
   activeProgrammer,
   bufferSizeCheck,
-  hasUnsavedEdits,
   operationAvailability,
   selectedInfo,
+  unsavedBuffer,
   visibleRecent,
   type Availability,
   type OpKind,
@@ -116,7 +116,7 @@ export function DeviceScreen({ controller, footer }: DeviceScreenProps) {
           />
           <BufferPanel
             buffer={state.buffer}
-            unsaved={hasUnsavedEdits(state.buffer)}
+            unsaved={unsavedBuffer(state.buffer)}
             size={stableSize}
             chip={chipName}
             fileError={state.fileError}

@@ -1,13 +1,13 @@
 import { memo, useCallback } from "react";
 import { isSizeMismatch, sizeCheckText, type SizeCheck } from "../../lib/device/chip";
 import { fileName, formatByteCount } from "../../lib/device/format";
-import type { BufferState, DiffState } from "../../lib/device/state";
+import type { BufferState, DiffState, Unsaved } from "../../lib/device/state";
 import { HexDiffView, HexEditor } from "../hexview";
 
 export interface BufferPanelProps {
   buffer: BufferState | null;
-  /** Whether the buffer has edits that aren't in a file. */
-  unsaved: boolean;
+  /** What the buffer holds that isn't in a file, if anything. */
+  unsaved: Unsaved | null;
   /** How the buffer compares with the selected chip. */
   size: SizeCheck;
   /** The selected chip's name, for the size line. */
@@ -90,7 +90,13 @@ export const BufferPanel = memo(function BufferPanel({
                 {describeSource(buffer)}
               </span>
               <span>{formatByteCount(buffer.bytes.length)}</span>
-              {unsaved && <span className="buffer-unsaved">Edited, not saved</span>}
+              {unsaved && (
+                <span className="buffer-unsaved">
+                  {unsaved === "read" && !buffer.edited
+                    ? "Not saved to a file"
+                    : "Edited, not saved"}
+                </span>
+              )}
             </p>
             {sizeLine && (
               <p
