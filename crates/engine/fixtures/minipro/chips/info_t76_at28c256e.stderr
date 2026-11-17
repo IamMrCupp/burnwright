@@ -1,0 +1,14 @@
+Using overridden database file /opt/burnwright/minipro-t76/logicic.xml
+Using overridden database file /opt/burnwright/minipro-t76/infoic.xml
+
+---------------Chip Info----------------
+Name: AT28C256E
+Available on: T76
+Memory: 32768 Bytes
+Package: DIP28
+Protocol: 0x07
+/usr/local/share/minipro/algorithm.xml: No such file or directory
+algorithm.xml: No such file or directory
+Read buffer size: 512 Bytes
+Write buffer size: 128 Bytes
+----------------------------------------

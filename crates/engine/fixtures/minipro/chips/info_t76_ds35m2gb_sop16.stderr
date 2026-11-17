@@ -1,0 +1,14 @@
+Using overridden database file /opt/burnwright/minipro-t76/logicic.xml
+Using overridden database file /opt/burnwright/minipro-t76/infoic.xml
+
+---------------Chip Info----------------
+Name: DS35M2GB(x4)@SOP16
+Available on: T76
+Memory: 285212672 Bytes
+Package: DIP16
+Protocol: 0x2d
+/usr/local/share/minipro/algorithm.xml: No such file or directory
+algorithm.xml: No such file or directory
+Read buffer size: 8704 Bytes
+Write buffer size: 2176 Bytes
+----------------------------------------

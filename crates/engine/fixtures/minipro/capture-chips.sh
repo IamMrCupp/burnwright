@@ -94,5 +94,7 @@ list list_t76_mt28fw512aba1 t76 MT28FW512ABA1   # two names with a tab in them
 info info_t76_w25q32bv_soic8 t76 W25Q32BV@SOIC8                 # banner, algorithm.xml, SPI clocks
 info info_t76_auto_emmc_sd_adp t76 'AUTO-EMMC(4Bits) @SD_ADP'   # a space in the name
 info info_t76_atmega328p_dip28 t76 ATMEGA328P@DIP28             # words + data
+info info_t76_ds35m2gb_sop16 t76 'DS35M2GB(x4)@SOP16'           # SPI NAND: a real size here, 0 on 0.7.4
+info info_t76_at28c256e t76 AT28C256E                           # 0.7.4 can't parse its entry; this build can
 
 ls -l "$out"
