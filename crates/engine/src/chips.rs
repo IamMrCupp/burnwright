@@ -52,6 +52,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
+use crate::algorithms::ALGORITHM_FILE;
 use crate::cli::MiniproEngine;
 use crate::locate::MiniproBinary;
 use crate::{Engine, EngineError, EngineResult, OpContext};
@@ -146,9 +147,6 @@ const MAX_NAME_LEN: usize = 96;
 /// How minipro announces a database passed with `--infoic` / `--logicic`.
 /// Not an error.
 const DATABASE_NOTICE: &str = "Using overridden database file";
-
-/// The T76 build's algorithm file. See [`is_algorithm_file`].
-const ALGORITHM_FILE: &str = "algorithm.xml";
 
 /// What minipro appends to names from a `<custom>` database section.
 const CUSTOM_SUFFIX: &str = "(custom)";
@@ -619,17 +617,12 @@ pub(crate) fn database_problem(lines: &[String]) -> Option<&str> {
         }
         line.rsplit_once(": ").is_some_and(|(path, _)| {
             let path = path.trim_end().to_ascii_lowercase();
-            path.ends_with(".xml") && !is_algorithm_file(&path)
+            // The T76 build looks for `algorithm.xml` on every `-d`. That
+            // isn't a chip database and burnwright never ships it, so the
+            // list and the chip info are whole without it.
+            path.ends_with(".xml") && !crate::algorithms::is_algorithm_file(&path)
         })
     })
-}
-
-/// Whether `path` (lowercased) is `algorithm.xml`, the XGecu algorithm file
-/// the T76 build looks for on every `-d`. It isn't a chip database and
-/// burnwright never ships it, so the list and the chip info are whole
-/// without it.
-fn is_algorithm_file(path: &str) -> bool {
-    path.rsplit(['/', '\\']).next() == Some(ALGORITHM_FILE)
 }
 
 /// The line minipro prints when it finds a chip's entry and can't parse it
