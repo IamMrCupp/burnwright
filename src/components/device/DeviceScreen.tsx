@@ -5,6 +5,7 @@ import { confirmCopy } from "../../lib/device/messages";
 import {
   activeProgrammer,
   bufferSizeCheck,
+  needsAlgorithmFile,
   operationAvailability,
   selectedInfo,
   unsavedBuffer,
@@ -93,6 +94,9 @@ export function DeviceScreen({ controller, footer }: DeviceScreenProps) {
             busy={busy}
             onDetect={controller.detect}
             onChoose={controller.chooseProgrammer}
+            algorithms={needsAlgorithmFile(state) ? state.algorithms : undefined}
+            onChooseAlgorithms={controller.chooseAlgorithmFile}
+            onClearAlgorithms={controller.clearAlgorithmFile}
           />
           <ChipPicker
             chip={state.chip}

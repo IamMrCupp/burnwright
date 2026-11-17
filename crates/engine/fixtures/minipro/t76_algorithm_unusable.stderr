@@ -1,0 +1,13 @@
+Found T76 00.1.17 (0x111)
+Warning: T76 support is experimental!
+Device code: 00000000
+Serial code: 000000000000000000000000
+Manufactured: 2025-04-2917:15
+USB speed: 480Mbps (USB 2.0)
+Supply voltage: 5.14 V (USB)
+
+Using overridden database file /opt/burnwright/minipro-t76/logicic.xml
+Using overridden database file /opt/burnwright/minipro-t76/infoic.xml
+Using overridden database file /opt/burnwright/minipro-t76/logicic.xml
+No algorithm SPI25F11 was found.
+An error occurred while sending bitstream.

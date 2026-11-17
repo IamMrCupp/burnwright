@@ -34,6 +34,7 @@ function setup(options: FakeEngineOptions = {}) {
   const dialogs = {
     open: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
     save: vi.fn<(suggested: string) => Promise<string | null>>().mockResolvedValue(null),
+    openAlgorithms: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
   };
   const controller = new DeviceController({ engine: fake, dialogs });
   render(<DeviceScreen controller={controller} footer="burnwright test" />);
@@ -92,6 +93,51 @@ describe("programmer bar", () => {
     // With a programmer on USB there's no model to choose.
     expect(within(bar).queryByRole("combobox")).toBeNull();
     expect(button("Detect again")).toBeEnabled();
+  });
+
+  it("tells a T76 owner about the algorithm file and lets them choose their own", async () => {
+    const { fake, dialogs } = setup({
+      programmer: {
+        programmer: "T76",
+        firmware: "00.1.17",
+        chip: null,
+        firmware_status: null,
+        firmware_expected: null,
+        support_warning: "T76 support is experimental!",
+      },
+      algorithmFiles: ["/home/me/xgecu/algorithm.xml"],
+    });
+    click("Detect");
+    const bar = screen.getByRole("region", { name: "Programmer" });
+    const alert = await within(bar).findByRole("alert");
+    expect(alert).toHaveTextContent("No algorithm file for the T76");
+    expect(alert).toHaveTextContent("XGecu's algorithm.xml, a file from the Xgpro package");
+    expect(alert).toHaveTextContent("burnwright doesn't ship or download it");
+    expect(alert).toHaveTextContent("/usr/local/share/minipro/algorithm.xml");
+    expect(within(bar).getByText("none chosen")).toBeInTheDocument();
+    expect(within(bar).queryByRole("button", { name: "Clear" })).toBeNull();
+
+    dialogs.openAlgorithms.mockResolvedValue("/home/me/xgecu/algorithm.xml");
+    click("Choose file…");
+    expect(
+      await within(bar).findByText("/home/me/xgecu/algorithm.xml (chosen here)"),
+    ).toBeInTheDocument();
+    expect(fake.algorithmPath).toBe("/home/me/xgecu/algorithm.xml");
+    // Nothing left to warn about.
+    expect(within(bar).queryByRole("alert")).toBeNull();
+
+    click("Clear");
+    expect(await within(bar).findByText("none chosen")).toBeInTheDocument();
+    expect(within(bar).getByRole("alert")).toHaveTextContent("No algorithm file for the T76");
+  });
+
+  it("has no algorithm file control for a programmer that carries its own", async () => {
+    setup();
+    click("Detect");
+    const bar = screen.getByRole("region", { name: "Programmer" });
+    await within(bar).findByText("T48, firmware 01.1.32");
+    expect(within(bar).queryByText("Algorithm file")).toBeNull();
+    expect(within(bar).queryByRole("button", { name: "Choose file…" })).toBeNull();
   });
 
   it("says why there's no programmer and lets you choose a chip list", async () => {

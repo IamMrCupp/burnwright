@@ -30,6 +30,7 @@
 //! [`EngineError::Cancelled`] with [`DeviceState::MayBeInconsistent`].
 
 use std::ffi::OsString;
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -153,7 +154,19 @@ impl MiniproEngine {
         ctx: &OpContext,
     ) -> EngineResult<ProcessOutput> {
         self.run_raw(operation, args, stdin, ctx)
-            .map_err(EngineError::from)
+            .map_err(|err| self.engine_error(err))
+    }
+
+    /// `err` as an [`EngineError`]. Unlike the plain conversion, this knows
+    /// which algorithm file the binary was pointed at, so a failure to open
+    /// it is recognised whatever the file is called.
+    fn engine_error(&self, err: ProcessError) -> EngineError {
+        match err {
+            ProcessError::Failed {
+                message, stderr, ..
+            } => classify_failure(message, &stderr, self.binary.algorithms()),
+            other => other.into(),
+        }
     }
 }
 
@@ -272,7 +285,7 @@ impl Engine for MiniproEngine {
         // programmer, unknown part) is an error.
         let explained = chip_id.is_some() || matches!(pins, Some(PinCheck::BadContact { .. }));
         match (failure, found) {
-            (Some(err), _) if !explained => Err(err.into()),
+            (Some(err), _) if !explained => Err(self.engine_error(err)),
             (_, None) => Err(EngineError::Minipro(
                 "minipro didn't report the programmer".into(),
             )),
@@ -324,7 +337,7 @@ impl Engine for MiniproEngine {
             {
                 Ok(false)
             }
-            Err(err) => Err(err.into()),
+            Err(err) => Err(self.engine_error(err)),
         }
     }
 
@@ -466,7 +479,7 @@ impl From<ProcessError> for EngineError {
             }
             ProcessError::Failed {
                 message, stderr, ..
-            } => classify_failure(message, &stderr),
+            } => classify_failure(message, &stderr, None),
             ProcessError::Cancelled {
                 operation,
                 device_state,
@@ -478,13 +491,24 @@ impl From<ProcessError> for EngineError {
     }
 }
 
-fn classify_failure(message: String, stderr: &str) -> EngineError {
+/// What a failed run was, from what minipro printed. `algorithms` is the file
+/// it was given with `--algorithms`, if any.
+fn classify_failure(message: String, stderr: &str, algorithms: Option<&Path>) -> EngineError {
     let lines = stderr_lines(stderr);
     if lines.iter().any(|l| {
         let l = l.to_ascii_lowercase();
         l.starts_with("no programmer found") || l.starts_with("[no programmer found]")
     }) {
         return EngineError::NoProgrammer;
+    }
+    // A T76 (or T56) with no usable algorithm file. minipro's last word is
+    // "An error occurred while sending bitstream.", which says nothing; the
+    // reason is a line or two above it.
+    if let Some(problem) = crate::algorithms::open_problem(&lines, algorithms) {
+        return EngineError::MissingAlgorithms(problem.trim().to_string());
+    }
+    if let Some(problem) = crate::algorithms::content_problem(&lines) {
+        return EngineError::UnusableAlgorithms(problem.trim().to_string());
     }
     if let Some(mismatch) = lines.iter().find_map(|l| parse_invalid_chip_id(l)) {
         return mismatch;
@@ -1047,19 +1071,85 @@ mod tests {
         assert_eq!(
             classify_failure(
                 "Verification failed at address 0x0010: File=0x3C, Device=0xFF".into(),
-                ""
+                "",
+                None
             ),
             EngineError::VerifyFailed(
                 "Verification failed at address 0x0010: File=0x3C, Device=0xFF".into()
             )
         );
         assert_eq!(
-            classify_failure("No programmer found.".into(), "No programmer found.\n"),
+            classify_failure(
+                "No programmer found.".into(),
+                "No programmer found.\n",
+                None
+            ),
             EngineError::NoProgrammer
         );
         assert_eq!(
-            classify_failure("Device FOO not found!".into(), "Device FOO not found!\n"),
+            classify_failure(
+                "Device FOO not found!".into(),
+                "Device FOO not found!\n",
+                None
+            ),
             EngineError::Minipro("Device FOO not found!".into())
+        );
+    }
+
+    #[test]
+    fn a_t76_without_its_algorithm_file_is_its_own_failure() {
+        // All three were captured from a real T76 (capture-t76-algorithm.sh).
+        // minipro's last line is the same in each, and says nothing.
+        let last = || "An error occurred while sending bitstream.".to_string();
+
+        // No file anywhere minipro looks: the full path it tried.
+        assert_eq!(
+            classify_failure(last(), &fixture("t76_algorithm_missing.stderr"), None),
+            EngineError::MissingAlgorithms(
+                "/usr/local/share/minipro/algorithm.xml: No such file or directory".into()
+            )
+        );
+        // A file passed with --algorithms that isn't there.
+        let chosen = Path::new("/opt/burnwright/missing/algorithm.xml");
+        assert_eq!(
+            classify_failure(
+                last(),
+                &fixture("t76_algorithm_missing_override.stderr"),
+                Some(chosen)
+            ),
+            EngineError::MissingAlgorithms(
+                "/opt/burnwright/missing/algorithm.xml: No such file or directory".into()
+            )
+        );
+        // A chosen file that goes by another name is known by its path.
+        let renamed = "Found T76 00.1.17 (0x111)\n\
+                       /home/me/t76-13.19.xml: Permission denied\n\
+                       An error occurred while sending bitstream.\n";
+        assert_eq!(
+            classify_failure(last(), renamed, Some(Path::new("/home/me/t76-13.19.xml"))),
+            EngineError::MissingAlgorithms("/home/me/t76-13.19.xml: Permission denied".into())
+        );
+        assert_eq!(
+            classify_failure(last(), renamed, None),
+            EngineError::Minipro(last())
+        );
+        // A file minipro opened, with no bitstream for the chip in it.
+        assert_eq!(
+            classify_failure(
+                last(),
+                &fixture("t76_algorithm_unusable.stderr"),
+                Some(Path::new("/opt/burnwright/minipro-t76/logicic.xml"))
+            ),
+            EngineError::UnusableAlgorithms("No algorithm SPI25F11 was found.".into())
+        );
+        // The same last line with a file that loaded is a USB failure, not
+        // a file problem.
+        let usb = "Found T76 00.1.17 (0x111)\n\
+                   Using T76 SPI25F11 algorithm..\n\
+                   An error occurred while sending bitstream.\n";
+        assert_eq!(
+            classify_failure(last(), usb, None),
+            EngineError::Minipro(last())
         );
     }
 
