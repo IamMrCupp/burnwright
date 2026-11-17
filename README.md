@@ -13,6 +13,19 @@ macOS · Linux · Windows. No closed-source vendor software required.
 > out-of-date firmware, a T76 on a USB 3 link). The T76 runs on its own bundled
 > minipro build, which hasn't been through the app on a real T76 yet.
 
+## Help test it
+
+Got one of these programmers and a chip in a drawer? Read the chip with Xgpro
+or the minipro command line, read it with burnwright, and compare the two
+files. Five minutes, and a read can't hurt the chip. Then file a
+[hardware test report](https://github.com/IamMrCupp/burnwright/issues/new?template=hardware-test.yml),
+pass or fail.
+
+The procedure, including when a write test is safe, is in
+[docs/testing-on-hardware.md](docs/testing-on-hardware.md). What's been
+confirmed so far, and by whom, is in
+[docs/tested-hardware.md](docs/tested-hardware.md).
+
 ## Releases
 
 Each [GitHub release](https://github.com/IamMrCupp/burnwright/releases) carries

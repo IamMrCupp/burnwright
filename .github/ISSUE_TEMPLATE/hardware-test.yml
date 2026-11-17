@@ -1,0 +1,121 @@
+name: Hardware test report
+description: You tried burnwright on a real programmer and a real chip. Say what happened, pass or fail.
+title: "hardware: <chip> on <programmer>"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        One report per chip, per programmer. A failure is worth as much as a pass, and "it never found my programmer" counts.
+
+        The procedure is in [docs/testing-on-hardware.md](https://github.com/IamMrCupp/burnwright/blob/main/docs/testing-on-hardware.md). Results land in [docs/tested-hardware.md](https://github.com/IamMrCupp/burnwright/blob/main/docs/tested-hardware.md).
+  - type: dropdown
+    id: programmer
+    attributes:
+      label: Programmer
+      options:
+        - TL866A
+        - TL866CS
+        - TL866II+
+        - T48
+        - T56
+        - T76
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Programmer firmware
+      description: As burnwright shows it next to the programmer's name. Leave blank if it never found the programmer.
+      placeholder: "e.g. 01.1.32"
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      placeholder: "e.g. macOS 15.1, Ubuntu 24.04, Windows 11 23H2"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: burnwright version
+      description: Paste the line at the bottom of the window. It carries the minipro versions too.
+      placeholder: "burnwright v0.10.2 · minipro 0.7.4 · T76 build …"
+    validations:
+      required: true
+  - type: dropdown
+    id: installer
+    attributes:
+      label: How you installed it
+      options:
+        - .dmg
+        - .deb
+        - AppImage
+        - Windows setup.exe
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: chip
+    attributes:
+      label: Chip
+      description: The name you picked in burnwright's chip list, plus what's printed on the part if it differs. Say if you used a clip or an adapter instead of the socket.
+      placeholder: "e.g. W25Q64JV@SOIC8, on a SOIC8 clip"
+    validations:
+      required: true
+  - type: checkboxes
+    id: operations
+    attributes:
+      label: What you tried
+      options:
+        - label: Read
+        - label: Verify
+        - label: Blank check
+        - label: Erase
+        - label: Write
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Everything I tried matched
+        - Something came out wrong
+        - It never got as far as the chip
+    validations:
+      required: true
+  - type: textarea
+    id: checked
+    attributes:
+      label: How you checked
+      description: Which tool you compared against (Xgpro, the minipro CLI, a known-good image), and whether the two files' hashes matched.
+      placeholder: "Read with Xgpro 12.90, read with burnwright, SHA-256 of both files identical."
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What went wrong
+      description: "Skip this if nothing did. Otherwise, say what you did, what you expected and what you got. Include any message burnwright showed, word for word."
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Press "Copy log" in burnwright's Log panel and paste it here. It's every minipro command burnwright ran and what minipro printed.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: credit
+    attributes:
+      label: Credit
+      description: How to name you in the tested-hardware table. Blank means your GitHub handle. Write "none" to be left out.
