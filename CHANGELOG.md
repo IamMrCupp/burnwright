@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/IamMrCupp/burnwright/compare/v0.11.0...v0.12.0) (2026-11-17)
+
+
+### Features
+
+* **engine:** add a Backend trait and a Bench layer that requires a backup before any write ([c7835d2](https://github.com/IamMrCupp/burnwright/commit/c7835d208e3a30e084eb92b009b4926a88d59394))
+
 ## [0.11.0](https://github.com/IamMrCupp/burnwright/compare/v0.10.2...v0.11.0) (2026-11-17)
 
 
