@@ -39,6 +39,9 @@ if [ "$rc" -ne 0 ] || [ "$status" != "Accepted" ]; then
   die "notarization failed (notarytool exit $rc, status \"${status:-unknown}\")"
 fi
 
-xcrun stapler staple "$dmg"
-xcrun stapler validate "$dmg"
+# stapler.sh tries again when Apple's ticket lookup drops its connection.
+# Notarizing again wouldn't help, so only the stapling is retried.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$here/stapler.sh" staple "$dmg"
+"$here/stapler.sh" validate "$dmg"
 echo "Notarized and stapled $(basename "$dmg") (submission $id)."

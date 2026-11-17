@@ -86,7 +86,7 @@ signed first:
 
 1. `scripts/macos/signing.sh setup` imports the certificate into a temporary keychain and writes the API key to a file, both under `$RUNNER_TEMP`.
 2. Tauri's bundler signs `Contents/MacOS/burnwright-minipro` (the sidecar), then the app binary, then `burnwright.app` — hardened runtime on, secure timestamp from Apple. It notarizes the `.app`, staples the ticket to it, builds the `.dmg` around it and signs that.
-3. `scripts/macos/notarize-dmg.sh` notarizes and staples the `.dmg`. Tauri stops at signing it, and an unstapled disk image can't prove itself on a Mac that's offline.
+3. `scripts/macos/notarize-dmg.sh` notarizes and staples the `.dmg`. Tauri stops at signing it, and an unstapled disk image can't prove itself on a Mac that's offline. Every `stapler` call, here and in step 5, goes through `scripts/macos/stapler.sh`: `stapler` asks Apple for the ticket, that lookup sometimes drops its connection on a build Apple just accepted, and the script tries up to six times before it gives up.
 4. `scripts/macos/signing.sh cleanup` deletes the keychain and the key file — before the verification steps, and even when an earlier step failed.
 5. `scripts/macos/verify-signing.sh` runs the checks under [Check a release](#check-a-release-is-signed-and-notarized) and fails the job if any of them do.
 6. Only then is the `.dmg` uploaded to the release. A build that fails notarization never reaches users.

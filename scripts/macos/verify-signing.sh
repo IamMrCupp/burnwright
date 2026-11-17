@@ -20,6 +20,7 @@ set -euo pipefail
 die() { echo "FAIL: $*" >&2; exit 1; }
 section() { printf '\n=== %s ===\n' "$*"; }
 
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 scratch="$(mktemp -d)"
 mnt="$scratch/mnt"
 trap 'hdiutil detach "$mnt" >/dev/null 2>&1 || true; rm -rf "$scratch"' EXIT
@@ -70,7 +71,7 @@ verify_app() {
   gatekeeper .app -a -t exec -vv "$app"
 
   section "stapler validate $(basename "$app")"
-  xcrun stapler validate "$app"
+  "$here/stapler.sh" validate "$app"
 
   local f n=0 entitlements
   while IFS= read -r f; do
@@ -95,7 +96,7 @@ verify_dmg() {
   check_signature "$dmg" no-runtime
 
   section "stapler validate $(basename "$dmg")"
-  xcrun stapler validate "$dmg"
+  "$here/stapler.sh" validate "$dmg"
 
   section "spctl -a -t open $(basename "$dmg")"
   gatekeeper .dmg -a -t open --context context:primary-signature -vv "$dmg"
