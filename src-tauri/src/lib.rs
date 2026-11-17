@@ -7,6 +7,8 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        // The system's open and save panels, for image files.
+        .plugin(tauri_plugin_dialog::init())
         .manage(ops::DeviceOps::default())
         // Chip lists, loaded once per programmer and kept until the app quits.
         .manage(engine::ChipCatalog::new())
