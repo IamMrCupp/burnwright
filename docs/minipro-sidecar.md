@@ -38,18 +38,74 @@ with a space in them, which are kept, and 98 that end with a space or hold a
 tab, which are left out: minipro matches names exactly and burnwright trims
 the ones it passes, so those couldn't be selected anyway.
 
-The T76 also needs XGecu's per-family FPGA algorithm files. They're vendor
-files: burnwright doesn't ship them, and you extract them yourself with
-upstream's `dump-alg-minipro.bash`. For now the T76 sidecar finds
-`algorithm.xml` wherever minipro itself looks: `MINIPRO_HOME`, else minipro's
-share directory (`/usr/local/share/minipro`, or `%ProgramData%\minipro` on
-Windows). A burnwright setting that passes `--algorithms` is still to
-come.
+The T76 also needs XGecu's `algorithm.xml`, which burnwright never ships. See
+[The T76's algorithm file](#the-t76s-algorithm-file).
 
 When an upstream release fixes the AVR and T48 regressions and keeps T76
 support, move `vendor/minipro` to it and drop `vendor/minipro-t76`, the
 `t76` variant in `scripts/minipro/`, its `tauri.conf.json` entries and
 `crates/engine/src/route.rs`.
+
+## The T76's algorithm file
+
+The T76 is FPGA-based and holds no bitstreams. At the start of every chip
+operation minipro uploads the one the chip family needs
+(`t76_send_bitstream()` in `vendor/minipro-t76/src/t76.c`), and it reads them
+from `algorithm.xml`. XGecu ships those bitstreams inside Xgpro, so the file
+is vendor data. burnwright doesn't ship it, download it or build it, and it
+isn't in the repo, a fixture or a test. The user supplies their own, built
+from the Xgpro package with upstream's `dump-alg-minipro.bash`.
+
+Where the T76 build looks (`get_database_file()` in
+`vendor/minipro-t76/src/database.c`):
+
+1. The file given with `--algorithms <file>`, and nowhere else. If it isn't
+   there, that's the error — minipro doesn't fall back.
+2. Otherwise `algorithm.xml` in the working directory.
+3. Then `$MINIPRO_HOME/algorithm.xml` if `MINIPRO_HOME` is set, else
+   `algorithm.xml` in the share directory compiled in. The sidecars are built
+   with upstream's default prefix, so that's
+   `/usr/local/share/minipro/algorithm.xml` on Linux and macOS. On Windows
+   it's `%ProgramData%\minipro\algorithm.xml`, and `MINIPRO_HOME` isn't read.
+
+What burnwright does with that:
+
+- **The setting.** "Choose file…" under Algorithm file in the Programmer
+  panel (shown once a T76 is detected) stores the path. Every T76 chip
+  operation then runs with `--algorithms <that file>`
+  (`MiniproRoutes::for_operation` in `crates/engine/src/route.rs`). Chip
+  list and chip info queries don't get it, and neither does any other
+  programmer. The Rust side holds the path for the session; the frontend
+  keeps it in the webview's local storage and hands it back at startup.
+  Only the path is stored. The file stays where it is.
+- **The error.** When minipro can't open the file, the operation fails with
+  `missing_algorithms` and the path minipro tried. When it opens the file and
+  finds no usable bitstream for the chip ("No algorithm SPI25F11 was found.",
+  a parse error, a bad CRC), it fails with `unusable_algorithms`. Both come
+  before anything is sent to the chip. minipro's own last line in either
+  case is "An error occurred while sending bitstream.", which it also prints
+  for a real USB failure, so burnwright goes by the lines above it
+  (`crates/engine/src/algorithms.rs`).
+- **The notice.** After a detect finds a T76, burnwright checks the same
+  places minipro would and warns in the Programmer panel if no file is
+  there. For a minipro you set yourself it can't know the compiled-in share
+  directory, so it stays quiet unless a file is chosen or `MINIPRO_HOME` is
+  set.
+
+The bitstreams are tied to the programmer's firmware. Upstream's `t76.md`
+pairs Xgpro T76 V13.19 with firmware 00.1.17, and says a mismatch shows up as
+a bad or empty chip ID.
+
+The fixtures for this (`crates/engine/fixtures/minipro/t76_algorithm_*.stderr`)
+were captured from a real T76 with `capture-t76-algorithm.sh`. Each run fails
+before minipro touches the socket, and none of them involves an XGecu file:
+the "unusable" one hands minipro its own `logicic.xml`.
+
+The T56 loads bitstreams from `algorithm.xml` too, under the stable build,
+from the same default places. burnwright recognises the same failure there
+but has no setting for it yet: 0.7.4 reads a different layout of the file
+(`algorithms_t56` where the T76 build has `algorithms_T56` and
+`algorithms_T76`), and nobody has tried a T56 here.
 
 ## Where things land
 

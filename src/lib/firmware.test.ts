@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { DeviceInfo } from "./engine";
+import type { AlgorithmFile, DeviceInfo } from "./engine";
 import { deviceNotices } from "./firmware";
 
 const t48: DeviceInfo = {
@@ -110,6 +110,72 @@ describe("deviceNotices", () => {
     expect(notice.severity).toBe("info");
     expect(notice.title).toBe("T48 support is not yet complete");
     expect(notice.detail).toMatch(/minipro's own note/);
+  });
+
+  describe("a T76's algorithm file", () => {
+    const t76: DeviceInfo = { ...t48, programmer: "T76", firmware: "00.1.17" };
+    const none: AlgorithmFile = {
+      configured: null,
+      found: null,
+      default_path: "/usr/local/share/minipro/algorithm.xml",
+    };
+
+    it("warns before the first operation when minipro will find none", () => {
+      expect(deviceNotices(t76, none)).toEqual([
+        {
+          severity: "warning",
+          title: "No algorithm file for the T76",
+          detail:
+            "The T76 needs XGecu's algorithm.xml, a file from the Xgpro package, before it can work on a chip. burnwright doesn't ship or download it, and minipro found none at /usr/local/share/minipro/algorithm.xml. Until there is one, every read, write, erase and chip check on this T76 will fail before it reaches the chip. Choose your own copy below, or put it at that path.",
+        },
+      ]);
+    });
+
+    it("names a chosen file that isn't there any more", () => {
+      const [notice] = deviceNotices(t76, { ...none, configured: "/home/me/algorithm.xml" });
+      expect(notice.severity).toBe("warning");
+      expect(notice.title).toBe("The chosen algorithm file isn't there");
+      expect(notice.detail).toContain(
+        "T76 operations are pointed at /home/me/algorithm.xml, and no file is there now.",
+      );
+      expect(notice.detail).toMatch(/Choose the file again below, or clear the choice/);
+    });
+
+    it("says nothing when there is a file, or when it can't tell", () => {
+      const found = "/usr/local/share/minipro/algorithm.xml";
+      expect(deviceNotices(t76, { ...none, found })).toEqual([]);
+      expect(
+        deviceNotices(t76, { configured: "/x/algorithm.xml", found: "/x/algorithm.xml", default_path: null }),
+      ).toEqual([]);
+      // A minipro burnwright didn't build: where it looks isn't known.
+      expect(deviceNotices(t76, { configured: null, found: null, default_path: null })).toEqual([]);
+      // The engine hasn't answered.
+      expect(deviceNotices(t76, null)).toEqual([]);
+      expect(deviceNotices(t76)).toEqual([]);
+    });
+
+    it("is only ever about a T76", () => {
+      expect(deviceNotices(t48, none)).toEqual([]);
+      expect(deviceNotices({ ...t48, programmer: "T56" }, none)).toEqual([]);
+    });
+
+    it("comes first: nothing works without it", () => {
+      const notices = deviceNotices(
+        {
+          ...t76,
+          firmware: "00.1.07",
+          firmware_status: "out_of_date",
+          firmware_expected: "00.1.17",
+          support_warning: "T76 support is experimental!",
+        },
+        none,
+      );
+      expect(notices.map((n) => n.title)).toEqual([
+        "No algorithm file for the T76",
+        "Firmware is out of date",
+        "T76 support is experimental",
+      ]);
+    });
   });
 
   it("puts the firmware warning ahead of the support note", () => {

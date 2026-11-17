@@ -1,5 +1,10 @@
 import { memo, useId } from "react";
-import { PROGRAMMERS, programmerFromModel, type Programmer } from "../../lib/engine";
+import {
+  PROGRAMMERS,
+  programmerFromModel,
+  type AlgorithmFile,
+  type Programmer,
+} from "../../lib/engine";
 import type { ProgrammerState } from "../../lib/device/state";
 import { DeviceNotices, ProgrammerDiagnosis } from "../detect";
 
@@ -9,6 +14,27 @@ export interface ProgrammerBarProps {
   busy: boolean;
   onDetect: () => void;
   onChoose: (programmer: Programmer) => void;
+  /**
+   * Where the detected programmer's `algorithm.xml` stands. `undefined`
+   * for a programmer that doesn't take one; `null` when the engine
+   * couldn't say.
+   */
+  algorithms?: AlgorithmFile | null;
+  onChooseAlgorithms?: () => void;
+  onClearAlgorithms?: () => void;
+}
+
+/** Which file minipro will read its bitstreams from, in a line. */
+function algorithmText(algorithms: AlgorithmFile | null): string {
+  if (!algorithms) return "not known";
+  if (algorithms.configured !== null) {
+    return algorithms.found === null
+      ? `${algorithms.configured} (chosen here, not found)`
+      : `${algorithms.configured} (chosen here)`;
+  }
+  return algorithms.found === null
+    ? "none chosen"
+    : `${algorithms.found} (found by minipro)`;
 }
 
 function statusText(programmer: ProgrammerState): string {
@@ -42,6 +68,9 @@ export const ProgrammerBar = memo(function ProgrammerBar({
   busy,
   onDetect,
   onChoose,
+  algorithms,
+  onChooseAlgorithms,
+  onClearAlgorithms,
 }: ProgrammerBarProps) {
   const selectId = useId();
   const { status, device } = programmer;
@@ -88,7 +117,29 @@ export const ProgrammerBar = memo(function ProgrammerBar({
         </div>
       )}
 
-      {found && <DeviceNotices device={device} />}
+      {found && <DeviceNotices device={device} algorithms={algorithms ?? null} />}
+      {found && algorithms !== undefined && (
+        <div className="programmer-algorithms">
+          <p>
+            <span className="programmer-algorithms-label">Algorithm file</span>{" "}
+            <span className="programmer-algorithms-file">{algorithmText(algorithms)}</span>
+          </p>
+          <div className="programmer-algorithms-actions">
+            <button type="button" onClick={onChooseAlgorithms} disabled={busy}>
+              Choose file…
+            </button>
+            {algorithms?.configured != null && (
+              <button type="button" onClick={onClearAlgorithms} disabled={busy}>
+                Clear
+              </button>
+            )}
+          </div>
+          <p className="hint">
+            Your own copy of XGecu's algorithm.xml. burnwright reads it where it is and
+            doesn't ship, download or copy it.
+          </p>
+        </div>
+      )}
       {status === "none" && programmer.diagnosis && (
         <ProgrammerDiagnosis diagnosis={programmer.diagnosis} />
       )}

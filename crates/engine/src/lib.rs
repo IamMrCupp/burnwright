@@ -9,6 +9,7 @@
 //! do-nothing placeholder. Phase 1 may swap in an FFI-backed engine via the
 //! `minipro-sys` crate, also behind [`Engine`].
 
+pub mod algorithms;
 pub mod chips;
 pub mod cli;
 pub mod diagnose;
@@ -18,6 +19,7 @@ pub mod process;
 pub mod progress;
 pub mod route;
 
+pub use algorithms::{AlgorithmFile, AlgorithmSearch};
 pub use chips::{
     ChipCatalog, ChipDetail, ChipEntry, ChipInfo, ChipKind, ChipList, ChipMemory, ChipSearch,
     ChipSocket, MemoryUnit, Programmer,
@@ -86,6 +88,17 @@ pub enum EngineError {
     /// `logicic.xml`). The message is the line it printed, with the path.
     #[error("minipro can't read its chip database: {0}")]
     MissingDatabase(String),
+    /// minipro couldn't open `algorithm.xml`, the FPGA bitstreams a T76 (or
+    /// T56) needs before it can work on a chip. It stopped before the chip
+    /// was touched. The message is the line minipro printed, with the path
+    /// it tried. burnwright never ships that file: see [`algorithms`].
+    #[error("minipro can't open the algorithm file: {0}")]
+    MissingAlgorithms(String),
+    /// minipro opened the algorithm file and couldn't get the chip's
+    /// bitstream from it: no entry by that name, or one it can't decode. It
+    /// stopped before the chip was touched. The message is minipro's line.
+    #[error("minipro can't use the algorithm file: {0}")]
+    UnusableAlgorithms(String),
     /// This minipro doesn't know the programmer model asked for (the T76,
     /// under minipro 0.7.4). The payload is the model.
     #[error("this minipro doesn't support the {0}")]
@@ -476,6 +489,30 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&EngineError::UnknownChip("X".into())).unwrap(),
             r#"{"kind":"unknown_chip","message":"X"}"#
+        );
+    }
+
+    #[test]
+    fn algorithm_errors_say_what_minipro_said() {
+        assert_eq!(
+            EngineError::MissingAlgorithms(
+                "/usr/local/share/minipro/algorithm.xml: No such file or directory".into()
+            )
+            .to_string(),
+            "minipro can't open the algorithm file: \
+             /usr/local/share/minipro/algorithm.xml: No such file or directory"
+        );
+        assert_eq!(
+            EngineError::UnusableAlgorithms("No algorithm SPI25F11 was found.".into()).to_string(),
+            "minipro can't use the algorithm file: No algorithm SPI25F11 was found."
+        );
+        assert_eq!(
+            serde_json::to_string(&EngineError::MissingAlgorithms("x".into())).unwrap(),
+            r#"{"kind":"missing_algorithms","message":"x"}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&EngineError::UnusableAlgorithms("x".into())).unwrap(),
+            r#"{"kind":"unusable_algorithms","message":"x"}"#
         );
     }
 

@@ -109,6 +109,22 @@ fn main() {
             a_wrong_chip_id_stops_the_operation_with_its_own_error,
         ),
         (
+            "a_t76_without_an_algorithm_file_says_so_for_every_operation",
+            a_t76_without_an_algorithm_file_says_so_for_every_operation,
+        ),
+        (
+            "a_chosen_algorithm_file_goes_to_t76_operations_only",
+            a_chosen_algorithm_file_goes_to_t76_operations_only,
+        ),
+        (
+            "a_chosen_algorithm_file_that_is_gone_is_named",
+            a_chosen_algorithm_file_that_is_gone_is_named,
+        ),
+        (
+            "an_algorithm_file_without_the_chips_bitstream_says_so",
+            an_algorithm_file_without_the_chips_bitstream_says_so,
+        ),
+        (
             "text_minipro_would_decode_never_reaches_it",
             text_minipro_would_decode_never_reaches_it,
         ),
@@ -730,6 +746,144 @@ fn a_wrong_chip_id_stops_the_operation_with_its_own_error() {
         mismatch
     );
     assert_eq!(engine.erase(PART, &ctx()).unwrap_err(), mismatch);
+}
+
+/// What a T76 prints for any chip operation with no `algorithm.xml` where
+/// minipro looks. Captured from a real one (`capture-t76-algorithm.sh`).
+fn a_t76_without_an_algorithm_file_says_so_for_every_operation() {
+    let missing = || {
+        EngineError::MissingAlgorithms(
+            "/usr/local/share/minipro/algorithm.xml: No such file or directory".into(),
+        )
+    };
+    let fake = |name: &str| {
+        Fake::new(name)
+            .fixture("t76_algorithm_missing.stderr")
+            .exit("1")
+    };
+    let image = [0xA5u8; 64];
+
+    let f = fake("alg-check");
+    assert_eq!(
+        f.engine().check_chip(PART, false, &ctx()).unwrap_err(),
+        missing()
+    );
+    let f = fake("alg-read");
+    assert_eq!(
+        f.engine().read(PART, MemoryKind::Code, &ctx()).unwrap_err(),
+        missing()
+    );
+    let f = fake("alg-write");
+    assert_eq!(
+        f.engine()
+            .write(PART, MemoryKind::Code, &image, &ctx())
+            .unwrap_err(),
+        missing()
+    );
+    let f = fake("alg-verify");
+    assert_eq!(
+        f.engine()
+            .verify(PART, MemoryKind::Code, &image, &ctx())
+            .unwrap_err(),
+        missing()
+    );
+    let f = fake("alg-blank");
+    assert_eq!(f.engine().blank_check(PART, &ctx()).unwrap_err(), missing());
+    let f = fake("alg-erase");
+    assert_eq!(f.engine().erase(PART, &ctx()).unwrap_err(), missing());
+    // No file was set, so none was passed: minipro searched on its own.
+    assert_eq!(f.calls(), vec![args(&["-p", PART, "-E"])]);
+}
+
+fn a_chosen_algorithm_file_goes_to_t76_operations_only() {
+    let file = std::path::Path::new("/home/me/xgecu/algorithm.xml");
+    let stable = Fake::new("alg-route-stable").fixture("t48_read_id.stderr");
+    let t76 = Fake::new("alg-route-t76").fixture("t48_read_id.stderr");
+    let routes = MiniproRoutes::split(stable.binary.clone(), t76.binary.clone());
+
+    let engine = MiniproEngine::new(routes.for_operation(MiniproBuild::T76, Some(file)));
+    engine.check_chip(PART, false, &ctx()).unwrap();
+    engine.erase(PART, &ctx()).unwrap();
+    let with_file = |rest: &[&str]| {
+        let mut call = args(&["--algorithms", "/home/me/xgecu/algorithm.xml"]);
+        call.extend(args(rest));
+        call
+    };
+    assert_eq!(
+        t76.calls(),
+        vec![
+            with_file(&["-p", PART, "-D"]),
+            with_file(&["-p", PART, "-E"])
+        ]
+    );
+
+    // A T48 on the stable build never sees it.
+    let engine = MiniproEngine::new(routes.for_operation(MiniproBuild::Stable, Some(file)));
+    engine.check_chip(PART, false, &ctx()).unwrap();
+    assert_eq!(stable.calls(), vec![args(&["-p", PART, "-D"])]);
+
+    // And the command line in the log shows it.
+    let (ctx, events) = recording();
+    MiniproEngine::new(routes.for_operation(MiniproBuild::T76, Some(file)))
+        .check_chip(PART, false, &ctx)
+        .unwrap();
+    let logged = events.lock().unwrap().iter().any(|event| {
+        matches!(event, ProgressEvent::Command { line }
+            if line.contains("--algorithms") && line.contains("/home/me/xgecu/algorithm.xml"))
+    });
+    assert!(logged, "{:?}", events.lock().unwrap());
+}
+
+/// minipro looks nowhere else once it's given a file, and names the one it
+/// was given.
+fn a_chosen_algorithm_file_that_is_gone_is_named() {
+    let fake = Fake::new("alg-gone")
+        .fixture("t76_algorithm_missing_override.stderr")
+        .exit("1");
+    let binary = fake
+        .binary
+        .clone()
+        .with_algorithms(Some(std::path::PathBuf::from(
+            "/opt/burnwright/missing/algorithm.xml",
+        )));
+    let err = MiniproEngine::new(binary)
+        .check_chip(PART, false, &ctx())
+        .unwrap_err();
+    assert_eq!(
+        err,
+        EngineError::MissingAlgorithms(
+            "/opt/burnwright/missing/algorithm.xml: No such file or directory".into()
+        )
+    );
+    assert_eq!(
+        err.to_string(),
+        "minipro can't open the algorithm file: \
+         /opt/burnwright/missing/algorithm.xml: No such file or directory"
+    );
+}
+
+/// The file opened, and has nothing for this chip in it (here, minipro's own
+/// logicic.xml passed as the algorithm file).
+fn an_algorithm_file_without_the_chips_bitstream_says_so() {
+    let fake = Fake::new("alg-unusable")
+        .fixture("t76_algorithm_unusable.stderr")
+        .exit("1");
+    let binary = fake
+        .binary
+        .clone()
+        .with_algorithms(Some(std::path::PathBuf::from(
+            "/opt/burnwright/minipro-t76/logicic.xml",
+        )));
+    let engine = MiniproEngine::new(binary);
+    let unusable = || EngineError::UnusableAlgorithms("No algorithm SPI25F11 was found.".into());
+    assert_eq!(
+        engine.read(PART, MemoryKind::Code, &ctx()).unwrap_err(),
+        unusable()
+    );
+    assert_eq!(
+        engine.check_chip(PART, false, &ctx()).unwrap_err(),
+        unusable()
+    );
 }
 
 fn every_run_reports_its_command_line() {

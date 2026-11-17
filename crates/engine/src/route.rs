@@ -19,6 +19,8 @@
 //! from `PATH` drives everything: there's only one binary, and routing never
 //! swaps it for another.
 
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 use crate::locate::MiniproBinary;
@@ -76,6 +78,20 @@ impl MiniproRoutes {
         match build {
             MiniproBuild::Stable => &self.stable,
             MiniproBuild::T76 => self.t76.as_ref().unwrap_or(&self.stable),
+        }
+    }
+
+    /// The binary for an operation on the chip, on the programmer `build`
+    /// drives: [`binary`](Self::binary), and for the T76 the user's own
+    /// `algorithm.xml` (`algorithms`, see [`crate::algorithms`]) passed as
+    /// `--algorithms`. Every other programmer runs as before: the stable
+    /// build's T56 takes a file in an older layout, and the rest carry
+    /// their bitstreams themselves.
+    pub fn for_operation(&self, build: MiniproBuild, algorithms: Option<&Path>) -> MiniproBinary {
+        let binary = self.binary(build).clone();
+        match build {
+            MiniproBuild::T76 => binary.with_algorithms(algorithms.map(Path::to_path_buf)),
+            MiniproBuild::Stable => binary,
         }
     }
 
@@ -145,6 +161,34 @@ mod tests {
             routes.binary(MiniproBuild::T76).program(),
             std::path::Path::new("/opt/t76")
         );
+    }
+
+    #[test]
+    fn only_t76_operations_get_the_algorithm_file() {
+        let file = Path::new("/home/me/algorithm.xml");
+        let split = MiniproRoutes::split(
+            MiniproBinary::new("/opt/stable"),
+            MiniproBinary::new("/opt/t76"),
+        );
+        let t76 = split.for_operation(MiniproBuild::T76, Some(file));
+        assert_eq!(t76.program(), Path::new("/opt/t76"));
+        assert_eq!(t76.algorithms(), Some(file));
+        let stable = split.for_operation(MiniproBuild::Stable, Some(file));
+        assert_eq!(stable.program(), Path::new("/opt/stable"));
+        assert_eq!(stable.algorithms(), None);
+        // No file chosen: minipro searches for itself.
+        assert_eq!(
+            split.for_operation(MiniproBuild::T76, None).algorithms(),
+            None
+        );
+        // The routes themselves are untouched: chip queries don't get it.
+        assert_eq!(split.binary(MiniproBuild::T76).algorithms(), None);
+
+        // A minipro of the user's own drives the T76 too, with the file.
+        let single = MiniproRoutes::single(MiniproBinary::new("/opt/minipro"));
+        let t76 = single.for_operation(MiniproBuild::T76, Some(file));
+        assert_eq!(t76.program(), Path::new("/opt/minipro"));
+        assert_eq!(t76.algorithms(), Some(file));
     }
 
     #[test]

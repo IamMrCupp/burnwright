@@ -92,6 +92,8 @@ pub fn run() {
             commands::diagnose_programmer,
             commands::minipro_location,
             commands::set_minipro_path,
+            commands::algorithm_file,
+            commands::set_algorithm_path,
             commands::load_image,
             commands::save_image,
             commands::app_info,

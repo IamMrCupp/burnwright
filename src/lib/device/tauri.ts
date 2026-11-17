@@ -5,6 +5,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { engine } from "../engine";
 import type { DeviceController, DeviceDeps, FileDialogs } from "./controller";
 import { recentStore } from "./recent";
+import { settingsStore } from "./settings";
 
 /**
  * The extensions offered first. `engine.loadImage` goes by what a file
@@ -32,6 +33,16 @@ const dialogs: FileDialogs = {
         { name: "Intel HEX", extensions: ["hex"] },
       ],
     }),
+  openAlgorithms: () =>
+    open({
+      title: "Choose your algorithm.xml",
+      multiple: false,
+      directory: false,
+      filters: [
+        { name: "Algorithm file", extensions: ["xml"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    }),
 };
 
 export function tauriDeps(): DeviceDeps {
@@ -39,6 +50,7 @@ export function tauriDeps(): DeviceDeps {
     engine,
     dialogs,
     recent: recentStore(window.localStorage),
+    settings: settingsStore(window.localStorage),
     // `destroy`, not `close`: a close would come straight back as a request.
     closeWindow: () => {
       void getCurrentWindow()
