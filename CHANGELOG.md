@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.10.0](https://github.com/IamMrCupp/burnwright/compare/v0.9.0...v0.10.0) (2026-11-17)
+
+
+### Features
+
+* **app:** add the system file dialogs for opening and saving images ([a29fbcf](https://github.com/IamMrCupp/burnwright/commit/a29fbcf48ff43d7dd50a34c0b27fbd815972924d))
+* **app:** pass minipro's check overrides and new error kinds through the engine wrapper ([3b39bb3](https://github.com/IamMrCupp/burnwright/commit/3b39bb31224eedf9db338567b5af0af138b4bf35))
+* **engine:** report chip ID and image size mismatches as their own errors, with overrides and the command line for a log ([35fb3de](https://github.com/IamMrCupp/burnwright/commit/35fb3dedfa3a17a84852d90c15716ad4e7d69bb7))
+* **ui:** add the buffer panel with open, save and the size check ([e4b9c80](https://github.com/IamMrCupp/burnwright/commit/e4b9c80f69ca88bc719f0850b2fbf3332ba5eb89))
+* **ui:** add the device screen's state, controller and a fake engine to test it against ([fa0dd2a](https://github.com/IamMrCupp/burnwright/commit/fa0dd2a9c11e8f4bc6b409580b40f6b7bdc8e1c9))
+* **ui:** add the log pane ([a1a0e0d](https://github.com/IamMrCupp/burnwright/commit/a1a0e0db201505d1588fb39625fa7f30fb1d9145))
+* **ui:** add the operations panel with progress, cancel and confirmations ([1c95b3a](https://github.com/IamMrCupp/burnwright/commit/1c95b3a68f0a6275122446e3bf6141faff74fbd6))
+* **ui:** add the programmer bar and the chip picker ([901d97e](https://github.com/IamMrCupp/burnwright/commit/901d97e65b2d102197d7a7a8db572c06e33ca848))
+* **ui:** replace the demo page with the device screen ([6ff11e2](https://github.com/IamMrCupp/burnwright/commit/6ff11e238ec31240dbd2d3d9b0cde4c8236f4f53))
+
+
+### Bug Fixes
+
+* **ui:** keep file loads and saves from landing under an operation or its confirmation ([8790f7d](https://github.com/IamMrCupp/burnwright/commit/8790f7d243e9dd763bfb6cbb6a5f097b664e1670))
+* **ui:** keep long chip names on one line in the picker and punctuate the log's outcome line ([53e1f5c](https://github.com/IamMrCupp/burnwright/commit/53e1f5cc014b50b2e581c5c240db922040df0c03))
+
 ## [0.9.0](https://github.com/IamMrCupp/burnwright/compare/v0.8.1...v0.9.0) (2026-11-17)
 
 
