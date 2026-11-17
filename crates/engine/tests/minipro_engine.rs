@@ -154,6 +154,10 @@ fn main() {
             chip_info_for_an_unknown_chip,
         ),
         (
+            "chip_info_for_an_entry_minipro_cannot_parse",
+            chip_info_for_an_entry_minipro_cannot_parse,
+        ),
+        (
             "chip_info_reports_a_missing_database",
             chip_info_reports_a_missing_database,
         ),
@@ -913,6 +917,24 @@ fn chip_info_for_an_unknown_chip() {
         fake.engine()
             .chip_info(Programmer::T48, "NOSUCHCHIP", &ctx()),
         Err(EngineError::UnknownChip("NOSUCHCHIP".into()))
+    );
+    assert_eq!(fake.calls().len(), 1);
+}
+
+fn chip_info_for_an_entry_minipro_cannot_parse() {
+    // 0.7.4 prints "Device AT28C256E not found!" after the parse failure.
+    // The chip is in the list, so it isn't an unknown chip.
+    let fake = Fake::new("info-unparsable")
+        .fixture("chips/info_t48_at28c256e_unparsable.stderr")
+        .exit("1");
+    assert_eq!(
+        fake.engine()
+            .chip_info(Programmer::T48, "AT28C256E", &ctx()),
+        Err(EngineError::Minipro(
+            "minipro can't read its database entry for AT28C256E: \
+             An error occurred while parsing XML database."
+                .into()
+        ))
     );
     assert_eq!(fake.calls().len(), 1);
 }

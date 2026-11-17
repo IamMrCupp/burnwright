@@ -597,6 +597,17 @@ mod tests {
         let err = describe(Programmer::T48, "NOSUCHCHIP").unwrap_err();
         assert_eq!(err.kind, "unknown_chip");
         assert_eq!(err.message, "minipro has no chip called NOSUCHCHIP");
+
+        // 0.7.4 lists AT28C256E and can't parse its entry. That's minipro's
+        // failure, not a chip that doesn't exist.
+        let err = describe(Programmer::T48, "AT28C256E").unwrap_err();
+        assert_eq!(err.kind, "minipro");
+        assert!(err.message.contains("AT28C256E"), "{}", err.message);
+        assert!(err.message.contains("parsing XML"), "{}", err.message);
+
+        // SPI NAND: minipro gives no image size, so neither do we.
+        let chip = describe(Programmer::T48, "DS35M2GB(x4)@SOP16").unwrap();
+        assert_eq!(chip.memory.as_ref().unwrap().bytes, None);
     }
 
     #[test]

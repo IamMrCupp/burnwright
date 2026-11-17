@@ -33,6 +33,13 @@
 //!   `TL866A/CS` for every chip unless the model is exactly `tl866ii`.
 //!   [`chip_info`](crate::Engine::chip_info) asks again as `tl866ii` when it
 //!   sees that.
+//! - **Five listed chips can't be described.** 0.7.4 can't parse the
+//!   `<custom>` entries for `AT28C256E` (three packages), `ATF750C-TEST` and
+//!   `PIC18F46K22(ICSP)`: `-d` prints `An error occurred while parsing XML
+//!   database.` and then `Device … not found!`. [`entry_problem`] looks for
+//!   the first line, so that isn't reported as an unknown chip.
+//! - **SPI NAND parts have a code memory of 0.** `Memory: 0 Bytes + 131102
+//!   Bytes`. [`ChipMemory::bytes`] is `None` for them.
 //! - **A missing database isn't always an error exit.** `-l` exits 0 with a
 //!   short or empty list and a `…xml: No such file or directory` line on
 //!   stderr. That line is what [`database_problem`] looks for.
@@ -330,8 +337,9 @@ pub struct ChipMemory {
     /// What `size` counts.
     pub unit: MemoryUnit,
     /// The code memory in bytes, which is the size of the image minipro
-    /// reads or expects: `size` for bytes, twice that for words. `None` for
-    /// bits (a PLD's fuse map isn't a raw image).
+    /// reads or expects: `size` for bytes, twice that for words. `None` when
+    /// minipro doesn't say: for bits (a PLD's fuse map isn't a raw image),
+    /// and for the chips it gives a code memory of 0 (SPI NAND parts).
     pub bytes: Option<u64>,
     /// The extra memories minipro lists after the main one, in bytes and in
     /// its order: data (EEPROM) first, then a second data area if any.
@@ -501,7 +509,7 @@ fn parse_available_on(value: &str) -> Vec<Programmer> {
 }
 
 /// `"4194304 Bytes"`, `"32768 Bytes + 1024 Bytes"`,
-/// `"2097152 Words + 256 Bytes"`, `"2194 Bits"`.
+/// `"2097152 Words + 256 Bytes"`, `"2194 Bits"`, `"0 Bytes + 131102 Bytes"`.
 fn parse_memory(value: &str) -> Option<ChipMemory> {
     let mut parts = value.split('+').map(str::trim);
     let (size, unit) = parts.next()?.split_once(' ')?;
@@ -513,6 +521,9 @@ fn parse_memory(value: &str) -> Option<ChipMemory> {
         _ => return None,
     };
     let bytes = match unit {
+        // A code memory of 0 isn't an image size: it's minipro not saying
+        // (SPI NAND parts). No image is 0 bytes long.
+        _ if size == 0 => None,
         MemoryUnit::Bytes => Some(size),
         // minipro prints words only for chips it reads two bytes at a time
         // (`word_size` 2 in database.c).
@@ -587,6 +598,17 @@ pub(crate) fn database_problem(lines: &[String]) -> Option<&str> {
         line.rsplit_once(": ")
             .is_some_and(|(path, _)| path.trim_end().to_ascii_lowercase().ends_with(".xml"))
     })
+}
+
+/// The line minipro prints when it finds a chip's entry and can't parse it
+/// (`"An error occurred while parsing XML database."`), if there is one.
+/// 0.7.4 does this for five names from the `<custom>` section, `AT28C256E`
+/// among them, and follows it with `Device … not found!`.
+pub(crate) fn entry_problem(lines: &[String]) -> Option<&str> {
+    lines
+        .iter()
+        .map(String::as_str)
+        .find(|line| line.starts_with("An error occurred while parsing XML"))
 }
 
 /// True when minipro rejected the `-q` model (`"Unknown programmer version
@@ -1000,6 +1022,24 @@ mod tests {
         assert_eq!(chip.is_available_on(Programmer::T56), Some(true));
         assert_eq!(chip.socket, Some(ChipSocket::Dip { pins: 37 }));
         assert_eq!(chip.package.as_deref(), Some("BGA153"));
+    }
+
+    #[test]
+    fn a_zero_code_memory_is_no_image_size() {
+        // SPI NAND: minipro prints the code memory as 0.
+        let chip = info("info_tl866ii_ds35m2gb_sop16.stderr");
+        assert_eq!(chip.name, "DS35M2GB(x4)@SOP16");
+        assert_eq!(
+            chip.memory,
+            Some(ChipMemory {
+                size: 0,
+                unit: MemoryUnit::Bytes,
+                bytes: None,
+                data_sizes: vec![131_102],
+            })
+        );
+        assert_eq!(parse_memory("0 Words").unwrap().bytes, None);
+        assert_eq!(parse_memory("1 Bytes").unwrap().bytes, Some(1));
     }
 
     #[test]

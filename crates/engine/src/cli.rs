@@ -386,7 +386,9 @@ fn list_env(windows: bool) -> Vec<(&'static str, &'static str)> {
 /// Why a chip-database run failed. minipro exits non-zero for a model it
 /// doesn't know, for a chip it can't find, and sometimes for a database it
 /// can't open (which also makes every chip "not found", so that's checked
-/// first). `chip` is the name asked for, for `-d`.
+/// first). It says "not found" as well about a chip whose entry it can't
+/// parse; that chip is in the list, so it isn't unknown. `chip` is the name
+/// asked for, for `-d`.
 fn database_error(programmer: Programmer, chip: Option<&str>, err: ProcessError) -> EngineError {
     if let ProcessError::Failed { stderr, .. } = &err {
         let lines = stderr_lines(stderr);
@@ -396,10 +398,15 @@ fn database_error(programmer: Programmer, chip: Option<&str>, err: ProcessError)
         if let Some(problem) = chips::database_problem(&lines) {
             return EngineError::MissingDatabase(problem.to_string());
         }
-        if let Some(chip) = chip
-            && lines.iter().any(|l| is_device_not_found(l))
-        {
-            return EngineError::UnknownChip(chip.to_string());
+        if let Some(chip) = chip {
+            if let Some(problem) = chips::entry_problem(&lines) {
+                return EngineError::Minipro(format!(
+                    "minipro can't read its database entry for {chip}: {problem}"
+                ));
+            }
+            if lines.iter().any(|l| is_device_not_found(l)) {
+                return EngineError::UnknownChip(chip.to_string());
+            }
         }
     }
     err.into()
@@ -932,14 +939,26 @@ mod tests {
             database_error(Programmer::T76, None, failed(&t76)),
             EngineError::UnsupportedProgrammer("T76".into())
         );
+        // An entry minipro can't parse: it says "not found" about that one
+        // too, but the chip is in the list. The parse failure is the answer.
+        let unparsable = fixture("chips/info_t48_at28c256e_unparsable.stderr");
+        assert!(unparsable.contains("Device AT28C256E not found!"));
+        assert_eq!(
+            database_error(Programmer::T48, Some("AT28C256E"), failed(&unparsable)),
+            EngineError::Minipro(
+                "minipro can't read its database entry for AT28C256E: \
+                 An error occurred while parsing XML database."
+                    .into()
+            )
+        );
         // Anything else stays minipro's own message.
         assert_eq!(
             database_error(
                 Programmer::T48,
-                Some("AT28C256E"),
-                failed("An error occurred while parsing XML database.\n")
+                Some("AT28C256"),
+                failed("Some other complaint.\n")
             ),
-            EngineError::Minipro("An error occurred while parsing XML database.".into())
+            EngineError::Minipro("Some other complaint.".into())
         );
         // A list has no chip to be unknown.
         assert_eq!(

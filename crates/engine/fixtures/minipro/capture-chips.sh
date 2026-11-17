@@ -65,7 +65,9 @@ info info_tl866ii_rp_semc16da1_bga153 tl866ii RP-SEMC16DA1_8Bit@BGA153   # three
 info info_tl866ii_tc58dvg02d5_tsop48 tl866ii TC58DVG02D5TAI0@TSOP48  # needs an adapter
 info info_tl866ii_kmqe60013b_isp tl866ii 'KMQE60013B-B318_(ISP)_1Bit'    # ICSP only
 info info_tl866ii_sm59r03a1c tl866ii SM59R03A1C                      # "TL866II only"
+info info_tl866ii_ds35m2gb_sop16 tl866ii 'DS35M2GB(x4)@SOP16'        # SPI NAND: code memory 0
 info info_t48_unknown t48 NOSUCHCHIP
+info info_t48_at28c256e_unparsable t48 AT28C256E   # a custom entry 0.7.4 can't parse: "not found" too
 
 # Trouble.
 run list_t76_unsupported "${with_db[@]}" -q t76 -l
