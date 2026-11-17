@@ -286,7 +286,17 @@ export type EngineErrorKind =
   | "unsupported_programmer"
   | "busy"
   | "cancelled"
-  | "not_implemented";
+  | "not_implemented"
+  /** The backend can't do this for this chip. */
+  | "unsupported"
+  /** A write or erase came without a backup of the chip from this session. */
+  | "backup_required"
+  /** Taking a backup failed; nothing was written. */
+  | "backup_failed"
+  /** Two reads of an in-circuit chip differed, so neither was kept as a backup. */
+  | "inconsistent_reads"
+  /** The chip answering now isn't the one that was backed up. */
+  | "target_changed";
 
 /** How a device or chip command rejects (mirrors `commands::CommandError`). */
 export interface EngineError {

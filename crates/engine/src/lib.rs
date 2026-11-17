@@ -8,16 +8,29 @@
 //! [`MiniproLocator`] finds the binary it runs. [`StubEngine`] remains as a
 //! do-nothing placeholder. Phase 1 may swap in an FFI-backed engine via the
 //! `minipro-sys` crate, also behind [`Engine`].
+//!
+//! [`Backend`] generalises [`Engine`] for tools other than minipro (issue
+//! #36: flashrom, ITE bridges), with [`MiniproBackend`] as the first one.
+//! [`Bench`] sits above every backend and refuses a write or erase until the
+//! chip has been backed up.
 
+pub mod backend;
+pub mod bench;
 pub mod chips;
 pub mod cli;
 pub mod diagnose;
 pub mod image;
 pub mod locate;
+pub mod minipro_backend;
 pub mod process;
 pub mod progress;
 pub mod route;
 
+pub use backend::{
+    Availability, Backend, BackendId, CancelPolicy, Capabilities, ChipFamily, Identified, OpSet,
+    Probe, ProbeInfo, Session, SpiMaster, TargetSpec,
+};
+pub use bench::{BackupReceipt, Bench, SavedBackup, WaiveReason};
 pub use chips::{
     ChipCatalog, ChipDetail, ChipEntry, ChipInfo, ChipKind, ChipList, ChipMemory, ChipSearch,
     ChipSocket, MemoryUnit, Programmer,
@@ -25,6 +38,7 @@ pub use chips::{
 pub use cli::{ChipCheck, ChipId, MiniproEngine, PinCheck};
 pub use image::{DEFAULT_FILL, ImageError, ImageFormat};
 pub use locate::{LocateError, MINIPRO_ENV, MiniproBinary, MiniproLocator, MiniproSource};
+pub use minipro_backend::MiniproBackend;
 pub use process::{
     CancelHandle, DeviceState, MiniproCommand, MiniproProcess, ProcessError, ProcessOutput,
 };
@@ -102,6 +116,27 @@ pub enum EngineError {
         operation: Operation,
         device_state: DeviceState,
     },
+    /// The backend can't do this for this chip. The message says what.
+    #[error("{0}")]
+    Unsupported(String),
+    /// A write or erase came without a backup of this chip taken in the same
+    /// session (see [`bench::Bench`]). The message says what's missing.
+    #[error("{0}")]
+    BackupRequired(String),
+    /// Taking the backup failed: the chip read back empty or the wrong size,
+    /// or the file couldn't be saved. Nothing was written to the chip.
+    #[error("backup failed: {0}")]
+    BackupFailed(String),
+    /// Two reads of an in-circuit chip differed, so neither is a backup
+    /// worth keeping. Usually a loose clip or a firmware still running.
+    #[error(
+        "two reads of the chip differ from offset 0x{first_difference:X}; check the connection and try again"
+    )]
+    InconsistentReads { first_difference: u64 },
+    /// The chip answering now isn't the one the backup was taken from.
+    /// `expected` and `found` are the backend's chip IDs.
+    #[error("the chip changed since the backup: expected {expected}, found {found}")]
+    TargetChanged { expected: String, found: String },
 }
 
 fn cancelled_message(operation: Operation, state: DeviceState) -> String {
