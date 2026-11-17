@@ -13,12 +13,12 @@ import { recentStore } from "./recent";
 import {
   activeProgrammer,
   bufferSizeCheck,
-  hasUnsavedEdits,
   logText,
   lookupFor,
   operationAvailability,
   selectedInfo,
   selectedLookup,
+  unsavedBuffer,
 } from "./state";
 
 // Small chips, so the tests move bytes, not megabytes.
@@ -65,7 +65,8 @@ function setup(options: FakeEngineOptions = {}) {
     open: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
     save: vi.fn<(suggested: string) => Promise<string | null>>().mockResolvedValue(null),
   };
-  const controller = new DeviceController({ engine: fake, dialogs });
+  const closeWindow = vi.fn<() => void>();
+  const controller = new DeviceController({ engine: fake, dialogs, closeWindow });
   const state = () => controller.getState();
   /** Wait for the running operation to end. */
   const idle = () => soon(() => expect(state().running).toBeNull());
@@ -76,7 +77,7 @@ function setup(options: FakeEngineOptions = {}) {
     await soon(() => expect(selectedLookup(state())?.status).not.toBe("loading"));
   };
   const commands = () => fake.calls.map((call) => call.command);
-  return { fake, dialogs, controller, state, idle, ready, commands };
+  return { fake, dialogs, closeWindow, controller, state, idle, ready, commands };
 }
 
 describe("programmer", () => {
@@ -331,7 +332,7 @@ describe("buffer", () => {
       source: { kind: "file", path: "/tmp/image.bin" },
       path: "/tmp/image.bin",
     });
-    expect(hasUnsavedEdits(state().buffer)).toBe(false);
+    expect(unsavedBuffer(state().buffer)).toBeNull();
   });
 
   it("leaves the buffer alone when the open dialog is dismissed", async () => {
@@ -360,11 +361,11 @@ describe("buffer", () => {
     dialogs.open.mockResolvedValue("/a.bin");
     await controller.openFile();
     controller.editBuffer(bytes(9, 1, 2, 3), true);
-    expect(hasUnsavedEdits(state().buffer)).toBe(true);
+    expect(unsavedBuffer(state().buffer)).toBe("edits");
     await controller.save();
     expect(dialogs.save).not.toHaveBeenCalled();
     expect(fake.saved["/a.bin"]).toEqual(bytes(9, 1, 2, 3));
-    expect(hasUnsavedEdits(state().buffer)).toBe(false);
+    expect(unsavedBuffer(state().buffer)).toBeNull();
 
     await ready("EEPROM16");
     controller.run("read");
@@ -395,7 +396,7 @@ describe("buffer", () => {
     await controller.save();
     // Undo: the bytes are the originals again, which the file no longer holds.
     controller.editBuffer(ramp(4), false);
-    expect(hasUnsavedEdits(state().buffer)).toBe(true);
+    expect(unsavedBuffer(state().buffer)).toBe("edits");
   });
 
   it("asks before a file replaces unsaved edits", async () => {
@@ -1114,7 +1115,7 @@ describe("reading over edits", () => {
     controller.confirm();
     await idle();
     expect(state().buffer?.bytes).toEqual(ramp(16));
-    expect(hasUnsavedEdits(state().buffer)).toBe(false);
+    expect(unsavedBuffer(state().buffer)).toBe("read");
   });
 });
 
@@ -1230,7 +1231,7 @@ describe("files and operations keep out of each other's way", () => {
     await saving;
     expect(fake.saved["/b.bin"]).toEqual(edited);
     expect(state().fileBusy).toBeNull();
-    expect(hasUnsavedEdits(state().buffer)).toBe(false);
+    expect(unsavedBuffer(state().buffer)).toBeNull();
     expect(fake.calls.some((c) => c.command === "read")).toBe(false);
   });
 
@@ -1276,5 +1277,280 @@ describe("files and operations keep out of each other's way", () => {
     edited[1] = 0x55;
     controller.editBuffer(edited, true);
     expect(state().outcome).toBeNull();
+  });
+});
+
+describe("a chip read that isn't in a file", () => {
+  const context = { size: { status: "none" } as const, bufferLength: 16, availability: null };
+
+  it("asks before another read replaces it, edited or not", async () => {
+    const { controller, state, ready, idle, fake } = setup({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+    expect(unsavedBuffer(state().buffer)).toBe("read");
+
+    controller.run("read");
+    expect(state().running).toBeNull();
+    expect(state().confirm).toEqual({
+      kind: "replace_buffer",
+      by: "read",
+      unsaved: "read",
+      overrides: { ignoreChipId: false, ignoreSize: false },
+    });
+    expect(confirmCopy(state().confirm!, context).paragraphs).toEqual([
+      "The buffer holds a chip read that hasn't been saved to a file. Reading the chip replaces it.",
+    ]);
+    controller.dismissConfirm();
+    expect(fake.calls.filter((c) => c.command === "read")).toHaveLength(1);
+
+    // Edits on top of it don't make it any more saved.
+    const edited = ramp(16);
+    edited[3] = 0x11;
+    controller.editBuffer(edited, true);
+    expect(unsavedBuffer(state().buffer)).toBe("read");
+    controller.run("read");
+    controller.confirm();
+    await idle();
+    expect(fake.calls.filter((c) => c.command === "read")).toHaveLength(2);
+    expect(state().buffer?.bytes).toEqual(ramp(16));
+  });
+
+  it("asks before a file replaces it", async () => {
+    const { controller, state, ready, idle, dialogs } = setup({
+      files: { "/a.bin": ramp(4) },
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+    dialogs.open.mockResolvedValue("/a.bin");
+
+    await controller.openFile();
+    expect(dialogs.open).not.toHaveBeenCalled();
+    expect(state().confirm).toMatchObject({ kind: "replace_buffer", by: "file", unsaved: "read" });
+    expect(confirmCopy(state().confirm!, context).paragraphs).toEqual([
+      "The buffer holds a chip read that hasn't been saved to a file. Opening a file replaces it.",
+    ]);
+    controller.dismissConfirm();
+    expect(state().buffer?.bytes).toEqual(ramp(16));
+
+    await controller.openFile();
+    controller.confirm();
+    await soon(() => expect(state().buffer?.bytes).toEqual(ramp(4)));
+  });
+
+  it("stops asking once the read is saved", async () => {
+    const { controller, state, ready, idle, dialogs, fake } = setup({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+    dialogs.save.mockResolvedValue("/out/dump.bin");
+    await controller.save();
+    expect(unsavedBuffer(state().buffer)).toBeNull();
+
+    controller.run("read");
+    expect(state().confirm).toBeNull();
+    await idle();
+    expect(fake.calls.filter((c) => c.command === "read")).toHaveLength(2);
+    // The new read is a new buffer, and isn't in dump.bin.
+    expect(state().buffer?.path).toBeNull();
+    expect(unsavedBuffer(state().buffer)).toBe("read");
+  });
+});
+
+describe("closing the window", () => {
+  const context = { size: { status: "none" } as const, bufferLength: 16, availability: null };
+
+  /** A write of a saved file to EEPROM16, held before it finishes. */
+  async function heldWrite() {
+    const made = setup({
+      files: { "/image.bin": ramp(16, 0x20) },
+      socket: socketWith("EEPROM16", new Uint8Array(16)),
+    });
+    made.dialogs.open.mockResolvedValue("/image.bin");
+    await made.controller.openFile();
+    await made.ready("EEPROM16");
+    made.fake.hold();
+    made.controller.run("write");
+    made.controller.confirm();
+    expect(made.state().running?.op).toBe("write");
+    return made;
+  }
+
+  it("closes at once when there is nothing to lose", async () => {
+    const { controller, state, dialogs, closeWindow } = setup({
+      files: { "/a.bin": ramp(4) },
+    });
+    expect(controller.requestClose()).toBe(true);
+    dialogs.open.mockResolvedValue("/a.bin");
+    await controller.openFile();
+    expect(controller.requestClose()).toBe(true);
+    expect(state().confirm).toBeNull();
+    // The window closes itself when it's told it may.
+    expect(closeWindow).not.toHaveBeenCalled();
+  });
+
+  it("asks before closing over a chip read that isn't saved", async () => {
+    const { controller, state, ready, idle, closeWindow } = setup({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+
+    expect(controller.requestClose()).toBe(false);
+    expect(state().confirm).toEqual({ kind: "close", stop: null, unsaved: "read" });
+    expect(confirmCopy(state().confirm!, context)).toEqual({
+      title: "Close without saving?",
+      paragraphs: [
+        "The buffer holds a chip read that hasn't been saved to a file. Closing loses it.",
+      ],
+      confirm: "Close without saving",
+      cancel: "Keep burnwright open",
+    });
+    controller.dismissConfirm();
+    expect(closeWindow).not.toHaveBeenCalled();
+
+    expect(controller.requestClose()).toBe(false);
+    controller.confirm();
+    expect(state().confirm).toBeNull();
+    expect(closeWindow).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks before closing over edits that aren't saved", async () => {
+    const { controller, state, dialogs, closeWindow } = setup({ files: { "/a.bin": ramp(4) } });
+    dialogs.open.mockResolvedValue("/a.bin");
+    await controller.openFile();
+    controller.editBuffer(bytes(9, 1, 2, 3), true);
+
+    expect(controller.requestClose()).toBe(false);
+    expect(state().confirm).toEqual({ kind: "close", stop: null, unsaved: "edits" });
+    expect(confirmCopy(state().confirm!, context).paragraphs).toEqual([
+      "The buffer has edits that haven't been saved to a file. Closing loses them.",
+    ]);
+    controller.dismissConfirm();
+    await controller.save();
+    expect(controller.requestClose()).toBe(true);
+    expect(closeWindow).not.toHaveBeenCalled();
+  });
+
+  it("asks before stopping a write, stops it, and only then closes", async () => {
+    const { controller, state, fake, closeWindow } = await heldWrite();
+
+    expect(controller.requestClose()).toBe(false);
+    expect(state().confirm).toEqual({
+      kind: "close",
+      stop: { op: "write", chip: "EEPROM16" },
+      unsaved: null,
+    });
+    expect(confirmCopy(state().confirm!, context)).toEqual({
+      title: "Stop the write and close?",
+      paragraphs: [
+        "A write to EEPROM16 is running. Closing stops it and leaves EEPROM16 half-programmed: it will need erasing or writing again before it's any use.",
+      ],
+      confirm: "Stop the write and close",
+      cancel: "Keep writing",
+    });
+    // "Keep writing": the write goes on and the window stays.
+    controller.dismissConfirm();
+    expect(state().running?.cancelling).toBe(false);
+
+    expect(controller.requestClose()).toBe(false);
+    controller.confirm();
+    expect(state().confirm).toBeNull();
+    expect(state().running?.cancelling).toBe(true);
+    // Not before minipro has stopped.
+    expect(closeWindow).not.toHaveBeenCalled();
+    fake.release();
+    await soon(() => expect(closeWindow).toHaveBeenCalledTimes(1));
+    expect(state().running).toBeNull();
+    expect(state().outcome?.title).toBe("Write cancelled");
+  });
+
+  it("names an erase, and the unsaved buffer with it", async () => {
+    const { controller, state, ready, idle, fake } = setup({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+    fake.hold();
+    controller.run("erase");
+    controller.confirm();
+
+    expect(controller.requestClose()).toBe(false);
+    expect(confirmCopy(state().confirm!, context)).toEqual({
+      title: "Stop the erase and close?",
+      paragraphs: [
+        "An erase of EEPROM16 is running. Closing stops it and leaves EEPROM16 half-erased: it will need erasing again before it's any use.",
+        "The buffer holds a chip read that hasn't been saved to a file. Closing loses it.",
+      ],
+      confirm: "Stop the erase and close",
+      cancel: "Keep erasing",
+    });
+    controller.dismissConfirm();
+    fake.release();
+    await idle();
+  });
+
+  it("stops a read without asking, then closes", async () => {
+    const { controller, state, ready, fake, closeWindow } = setup({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    fake.hold();
+    controller.run("read");
+
+    expect(controller.requestClose()).toBe(false);
+    expect(state().confirm).toBeNull();
+    expect(state().running?.cancelling).toBe(true);
+    expect(closeWindow).not.toHaveBeenCalled();
+    fake.release();
+    await soon(() => expect(closeWindow).toHaveBeenCalledTimes(1));
+  });
+
+  it("lets a second close through when the operation won't stop", async () => {
+    const { controller, fake, closeWindow } = await heldWrite();
+    expect(controller.requestClose()).toBe(false);
+    controller.confirm();
+    // Still held: minipro hasn't stopped. The user must be able to leave.
+    expect(controller.requestClose()).toBe(true);
+    expect(closeWindow).not.toHaveBeenCalled();
+    fake.release();
+  });
+
+  it("drops the question when the write finishes while it's up", async () => {
+    const { controller, state, idle, fake, closeWindow } = await heldWrite();
+    expect(controller.requestClose()).toBe(false);
+    expect(state().confirm?.kind).toBe("close");
+    fake.release();
+    await idle();
+    expect(state().outcome?.title).toBe("Wrote EEPROM16");
+    // The write is done and the buffer is in its file: nothing left to ask.
+    expect(state().confirm).toBeNull();
+    expect(closeWindow).not.toHaveBeenCalled();
+    expect(controller.requestClose()).toBe(true);
+  });
+
+  it("asks only about the buffer once a write it would have stopped is over", async () => {
+    const { controller, state, ready, idle, fake } = setup({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+    fake.hold();
+    controller.run("write");
+    controller.confirm();
+    expect(controller.requestClose()).toBe(false);
+    expect(state().confirm).toMatchObject({ kind: "close", stop: { op: "write" } });
+    fake.release();
+    await idle();
+    expect(state().confirm).toEqual({ kind: "close", stop: null, unsaved: "read" });
   });
 });

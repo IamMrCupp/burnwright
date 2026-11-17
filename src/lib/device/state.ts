@@ -159,8 +159,23 @@ export type Confirm =
   | { kind: "verify_size"; chip: string; overrides: Overrides }
   /** Stop a running write or erase. */
   | { kind: "cancel"; op: "write" | "erase"; chip: string }
-  /** Replace a buffer that has unsaved edits. */
-  | { kind: "replace_buffer"; by: "read" | "file"; overrides: Overrides };
+  /** Replace a buffer that holds something no file has. */
+  | { kind: "replace_buffer"; by: "read" | "file"; unsaved: Unsaved; overrides: Overrides }
+  /**
+   * Close the window. `stop` is the write or erase that closing would cut
+   * short; `unsaved` is what the buffer would lose. At least one is set.
+   */
+  | {
+      kind: "close";
+      stop: { op: "write" | "erase"; chip: string } | null;
+      unsaved: Unsaved | null;
+    };
+
+/**
+ * What the buffer holds that isn't in any file: a chip read that was never
+ * saved, or edits made since the last load or save.
+ */
+export type Unsaved = "read" | "edits";
 
 /** The chip's contents, read back after a failed verify, to diff against the buffer. */
 export interface DiffState {
@@ -616,12 +631,27 @@ export function visibleRecent(state: DeviceState): RecentChip[] {
   return state.chip.recent.filter((r) => chipListOf(r.programmer) === list);
 }
 
-/** Whether the buffer has edits that aren't in a file. */
-export function hasUnsavedEdits(buffer: BufferState | null): boolean {
-  if (!buffer) return false;
-  return buffer.saved === buffer.original
-    ? buffer.edited
-    : buffer.bytes !== buffer.saved;
+/**
+ * What replacing or dropping the buffer would lose, or `null` when a file
+ * has all of it. A chip read counts until it's saved, edited or not: the
+ * chip it came from may not read the same way twice.
+ */
+export function unsavedBuffer(buffer: BufferState | null): Unsaved | null {
+  if (!buffer) return null;
+  if (buffer.source.kind === "chip" && buffer.path === null) return "read";
+  const edits =
+    buffer.saved === buffer.original ? buffer.edited : buffer.bytes !== buffer.saved;
+  return edits ? "edits" : null;
+}
+
+/** The write or erase that stopping now would leave half-done, if one is running. */
+export function mutatingOp(
+  state: DeviceState,
+): { op: "write" | "erase"; chip: string } | null {
+  const running = state.running;
+  if (!running || running.phase !== "main") return null;
+  if (running.op !== "write" && running.op !== "erase") return null;
+  return { op: running.op, chip: running.chip };
 }
 
 /** How the buffer compares with the selected chip. */
