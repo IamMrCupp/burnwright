@@ -199,6 +199,18 @@ impl MiniproCommand {
         self.operation
     }
 
+    /// The command line as you'd type it into this host's shell (cmd.exe on
+    /// Windows), for a log:
+    /// the program, then every argument, quoted where the shell needs it.
+    /// The environment and anything piped to stdin aren't part of it.
+    pub fn command_line(&self) -> String {
+        std::iter::once(&self.program)
+            .chain(&self.args)
+            .map(|arg| quote_arg(&arg.to_string_lossy(), cfg!(windows)))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     /// Start minipro. `on_event` runs on a background thread for every
     /// progress event, in order, as stderr arrives.
     pub fn spawn<F>(self, on_event: F) -> Result<MiniproProcess, ProcessError>
@@ -261,6 +273,23 @@ impl MiniproCommand {
         F: FnMut(ProgressEvent) + Send + 'static,
     {
         self.spawn(on_event)?.wait()
+    }
+}
+
+/// One word of a command line for a log. Plain words pass through. Anything
+/// a shell would split or interpret is quoted: in single quotes for a POSIX
+/// shell, in double quotes for cmd.exe (`windows`), where a backslash is a
+/// path separator and stays as it is. PowerShell takes the same line, except
+/// that a quoted program path needs `&` in front of it there.
+fn quote_arg(arg: &str, windows: bool) -> String {
+    let plain =
+        |c: char| c.is_ascii_alphanumeric() || "_@%+=:,./-".contains(c) || (windows && c == '\\');
+    if !arg.is_empty() && arg.chars().all(plain) {
+        arg.to_string()
+    } else if windows {
+        format!("\"{}\"", arg.replace('"', "\\\""))
+    } else {
+        format!("'{}'", arg.replace('\'', "'\\''"))
     }
 }
 

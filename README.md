@@ -4,12 +4,14 @@ Open-source, cross-platform GUI for XGecu / MiniPRO universal programmers
 (T48, T56, T76, TL866II+), built on the [minipro](https://gitlab.com/DavidGriffith/minipro) engine.
 macOS · Linux · Windows. No closed-source vendor software required.
 
-> **Status: early, but it runs.** The installers detect a programmer, explain why
-> when they can't find one (USB permissions, out-of-date firmware, a T76 on a USB 3
-> link), and include a hex editor that runs on sample data for now. Read, write,
-> verify, blank check and erase work in the engine but have no screen yet — that's
-> [#53](https://github.com/IamMrCupp/burnwright/issues/53). The T76 runs on its
-> own bundled minipro build, which hasn't been through the app on a real T76 yet.
+> **Status: early, but it runs.** There's a real screen now: pick a chip, then
+> read, verify, blank-check, erase or write it, with a hex editor for the image
+> and a log of every minipro command. It's tested against a fake minipro — it
+> hasn't read or written a real chip yet, so treat a write as unproven until it
+> has. Main (code) memory only for now: no EEPROM data memory, no fuses. The
+> installers also explain why they can't find a programmer (USB permissions,
+> out-of-date firmware, a T76 on a USB 3 link). The T76 runs on its own bundled
+> minipro build, which hasn't been through the app on a real T76 yet.
 
 ## Releases
 
@@ -36,6 +38,10 @@ Each installer carries its own build of minipro (with libusb linked in) and its
 chip databases, so there's nothing else to install. Building from source needs
 that sidecar too: run `pnpm sidecar` once before `pnpm tauri dev`. See
 [docs/minipro-sidecar.md](docs/minipro-sidecar.md).
+
+To work on the screen with no programmer and no Rust build, run `pnpm dev` and
+open `http://localhost:1420` in a browser. Outside the Tauri window the page runs
+against a pretend programmer and chip (`src/dev/`), which never ships in a build.
 
 ## Linux: USB access
 
