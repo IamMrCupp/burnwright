@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.1](https://github.com/IamMrCupp/burnwright/compare/v0.8.0...v0.8.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **engine:** give no image size for chips with a zero code memory ([9f59a68](https://github.com/IamMrCupp/burnwright/commit/9f59a688dc5fd933bf17f5ade6abd5667c54c69e))
+* **engine:** report a chip entry minipro can't parse as its own error, not an unknown chip ([1b360a8](https://github.com/IamMrCupp/burnwright/commit/1b360a85e607b5b4462d4f980acbbaf3b75504d1))
+
 ## [0.8.0](https://github.com/IamMrCupp/burnwright/compare/v0.7.0...v0.8.0) (2026-11-12)
 
 
