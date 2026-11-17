@@ -7,6 +7,11 @@
 //! - `op_id`: an id the frontend picks, so [`cancel_operation`] can stop it.
 //! - `on_progress`: a [`Channel`] that receives every [`ProgressEvent`].
 //!
+//! The commands that work on the chip (read, write, verify, blank check,
+//! erase) also take `overrides`: the checks of minipro's the user chose to
+//! turn off for that run, after seeing `chip_id_mismatch` or
+//! `size_mismatch`.
+//!
 //! Only one device operation runs at a time; a second one fails with
 //! `busy`. Errors reach the frontend as a [`CommandError`] object (the `Err`
 //! arm of the JS `invoke` promise). A cancelled write or erase carries
@@ -26,7 +31,7 @@ use engine::diagnose::Diagnosis;
 use engine::{
     ChipCatalog, ChipCheck, ChipInfo, ChipList, ChipSearch, DeviceInfo, DeviceState, Engine,
     EngineError, EngineResult, ImageFormat, MemoryKind, MiniproBuild, MiniproEngine, MiniproRoutes,
-    MiniproSource, OpContext, Programmer, ProgressEvent,
+    MiniproSource, OpContext, Overrides, Programmer, ProgressEvent,
 };
 use serde::Serialize;
 use tauri::State;
@@ -38,8 +43,9 @@ use crate::ops::DeviceOps;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CommandError {
     /// Machine-readable kind: `minipro`, `no_programmer`, `minipro_not_found`,
-    /// `verify_failed`, `invalid_input`, `unknown_chip`, `missing_database`,
-    /// `unsupported_programmer`, `busy`, `cancelled` or `not_implemented`.
+    /// `verify_failed`, `chip_id_mismatch`, `size_mismatch`, `invalid_input`,
+    /// `unknown_chip`, `missing_database`, `unsupported_programmer`, `busy`,
+    /// `cancelled` or `not_implemented`.
     pub kind: &'static str,
     /// Human-readable message.
     pub message: String,
@@ -55,6 +61,8 @@ impl From<EngineError> for CommandError {
             EngineError::NoProgrammer => ("no_programmer", None),
             EngineError::MiniproNotFound(_) => ("minipro_not_found", None),
             EngineError::VerifyFailed(_) => ("verify_failed", None),
+            EngineError::ChipIdMismatch { .. } => ("chip_id_mismatch", None),
+            EngineError::SizeMismatch { .. } => ("size_mismatch", None),
             EngineError::InvalidInput(_) => ("invalid_input", None),
             EngineError::UnknownChip(_) => ("unknown_chip", None),
             EngineError::MissingDatabase(_) => ("missing_database", None),
@@ -74,8 +82,14 @@ type CommandResult<T> = Result<T, CommandError>;
 
 /// Run one device operation: find minipro (the build the last detected
 /// programmer needs), claim the programmer, then run `op` on a blocking
-/// thread with progress going to `sink`.
-async fn run_op<T, S, F>(ops: &DeviceOps, op_id: String, sink: S, op: F) -> CommandResult<T>
+/// thread with progress going to `sink` and the checks in `overrides` off.
+async fn run_op<T, S, F>(
+    ops: &DeviceOps,
+    op_id: String,
+    overrides: Overrides,
+    sink: S,
+    op: F,
+) -> CommandResult<T>
 where
     T: Send + 'static,
     S: Fn(ProgressEvent) + Send + Sync + 'static,
@@ -83,19 +97,28 @@ where
 {
     let binary = locate_routes(ops)?.binary(ops.build()).clone();
     let engine = MiniproEngine::new(binary);
-    run_blocking(ops, op_id, sink, move |ctx| op(&engine, ctx)).await
+    run_blocking(ops, op_id, overrides, sink, move |ctx| op(&engine, ctx)).await
 }
 
 /// Claim the programmer, then run `op` on a blocking thread with progress
 /// going to `sink`.
-async fn run_blocking<T, S, F>(ops: &DeviceOps, op_id: String, sink: S, op: F) -> CommandResult<T>
+async fn run_blocking<T, S, F>(
+    ops: &DeviceOps,
+    op_id: String,
+    overrides: Overrides,
+    sink: S,
+    op: F,
+) -> CommandResult<T>
 where
     T: Send + 'static,
     S: Fn(ProgressEvent) + Send + Sync + 'static,
     F: FnOnce(&OpContext) -> EngineResult<T> + Send + 'static,
 {
     let (guard, cancel) = ops.begin(op_id)?;
-    let ctx = OpContext::new().with_cancel(cancel).with_progress(sink);
+    let ctx = OpContext::new()
+        .with_cancel(cancel)
+        .with_progress(sink)
+        .with_overrides(overrides);
     let joined = tauri::async_runtime::spawn_blocking(move || op(&ctx)).await;
     drop(guard);
     let result = joined.map_err(|e| EngineError::Minipro(format!("engine task failed: {e}")))?;
@@ -127,9 +150,13 @@ pub async fn detect(
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<DeviceInfo> {
     let routes = locate_routes(&ops)?;
-    let (info, build) = run_blocking(&ops, op_id, channel_sink(on_progress), move |ctx| {
-        engine::route::detect(&routes, ctx)
-    })
+    let (info, build) = run_blocking(
+        &ops,
+        op_id,
+        Overrides::default(),
+        channel_sink(on_progress),
+        move |ctx| engine::route::detect(&routes, ctx),
+    )
     .await?;
     ops.set_build(build);
     Ok(info)
@@ -145,9 +172,13 @@ pub async fn check_chip(
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<ChipCheck> {
-    run_op(&ops, op_id, channel_sink(on_progress), move |e, ctx| {
-        e.check_chip(&part, pin_check, ctx)
-    })
+    run_op(
+        &ops,
+        op_id,
+        Overrides::default(),
+        channel_sink(on_progress),
+        move |e, ctx| e.check_chip(&part, pin_check, ctx),
+    )
     .await
 }
 
@@ -157,12 +188,17 @@ pub async fn read(
     ops: State<'_, DeviceOps>,
     part: String,
     kind: MemoryKind,
+    overrides: Option<Overrides>,
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<Vec<u8>> {
-    run_op(&ops, op_id, channel_sink(on_progress), move |e, ctx| {
-        e.read(&part, kind, ctx)
-    })
+    run_op(
+        &ops,
+        op_id,
+        overrides.unwrap_or_default(),
+        channel_sink(on_progress),
+        move |e, ctx| e.read(&part, kind, ctx),
+    )
     .await
 }
 
@@ -173,12 +209,17 @@ pub async fn write(
     part: String,
     kind: MemoryKind,
     data: Vec<u8>,
+    overrides: Option<Overrides>,
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<()> {
-    run_op(&ops, op_id, channel_sink(on_progress), move |e, ctx| {
-        e.write(&part, kind, &data, ctx)
-    })
+    run_op(
+        &ops,
+        op_id,
+        overrides.unwrap_or_default(),
+        channel_sink(on_progress),
+        move |e, ctx| e.write(&part, kind, &data, ctx),
+    )
     .await
 }
 
@@ -189,12 +230,17 @@ pub async fn verify(
     part: String,
     kind: MemoryKind,
     data: Vec<u8>,
+    overrides: Option<Overrides>,
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<()> {
-    run_op(&ops, op_id, channel_sink(on_progress), move |e, ctx| {
-        e.verify(&part, kind, &data, ctx)
-    })
+    run_op(
+        &ops,
+        op_id,
+        overrides.unwrap_or_default(),
+        channel_sink(on_progress),
+        move |e, ctx| e.verify(&part, kind, &data, ctx),
+    )
     .await
 }
 
@@ -203,12 +249,17 @@ pub async fn verify(
 pub async fn blank_check(
     ops: State<'_, DeviceOps>,
     part: String,
+    overrides: Option<Overrides>,
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<bool> {
-    run_op(&ops, op_id, channel_sink(on_progress), move |e, ctx| {
-        e.blank_check(&part, ctx)
-    })
+    run_op(
+        &ops,
+        op_id,
+        overrides.unwrap_or_default(),
+        channel_sink(on_progress),
+        move |e, ctx| e.blank_check(&part, ctx),
+    )
     .await
 }
 
@@ -217,12 +268,17 @@ pub async fn blank_check(
 pub async fn erase(
     ops: State<'_, DeviceOps>,
     part: String,
+    overrides: Option<Overrides>,
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<()> {
-    run_op(&ops, op_id, channel_sink(on_progress), move |e, ctx| {
-        e.erase(&part, ctx)
-    })
+    run_op(
+        &ops,
+        op_id,
+        overrides.unwrap_or_default(),
+        channel_sink(on_progress),
+        move |e, ctx| e.erase(&part, ctx),
+    )
     .await
 }
 
@@ -454,6 +510,50 @@ mod tests {
             CommandError::from(EngineError::VerifyFailed("x".into())).kind,
             "verify_failed"
         );
+    }
+
+    #[test]
+    fn mismatches_have_their_own_kinds() {
+        let err = CommandError::from(EngineError::ChipIdMismatch {
+            expected: "0xEF4016".into(),
+            found: "0xC22016".into(),
+            detected: Some("MX25L3206E".into()),
+        });
+        assert_eq!(
+            serde_json::to_value(&err).unwrap(),
+            serde_json::json!({
+                "kind": "chip_id_mismatch",
+                "message": "chip ID mismatch: expected 0xEF4016, found 0xC22016 (MX25L3206E)",
+                "device_state": null,
+            })
+        );
+        let err = CommandError::from(EngineError::SizeMismatch {
+            image: 1024,
+            chip: 4_194_304,
+        });
+        assert_eq!(err.kind, "size_mismatch");
+        assert_eq!(
+            err.message,
+            "the image is 1024 bytes and the chip takes 4194304"
+        );
+    }
+
+    #[test]
+    fn run_op_hands_the_overrides_to_the_operation() {
+        let ops = DeviceOps::default();
+        ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
+        let seen = tauri::async_runtime::block_on(run_op(
+            &ops,
+            "op".into(),
+            Overrides {
+                ignore_chip_id: true,
+                ignore_size: false,
+            },
+            |_| {},
+            |_, ctx| Ok(ctx.overrides()),
+        ))
+        .unwrap();
+        assert!(seen.ignore_chip_id && !seen.ignore_size);
     }
 
     #[test]
@@ -719,6 +819,7 @@ mod tests {
         let err = tauri::async_runtime::block_on(run_op(
             &ops,
             "op".into(),
+            Overrides::default(),
             |_| {},
             |e, ctx| e.detect(ctx),
         ))
@@ -743,6 +844,7 @@ mod tests {
         let value = tauri::async_runtime::block_on(run_op(
             &ops,
             "op".into(),
+            Overrides::default(),
             |_| {},
             |_, ctx| {
                 ctx.emit(ProgressEvent::Info {
@@ -758,8 +860,14 @@ mod tests {
         let ops = DeviceOps::default();
         ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
         let (_held, _) = ops.begin("held".into()).unwrap();
-        let err = tauri::async_runtime::block_on(run_op(&ops, "op".into(), |_| {}, |_, _| Ok(())))
-            .unwrap_err();
+        let err = tauri::async_runtime::block_on(run_op(
+            &ops,
+            "op".into(),
+            Overrides::default(),
+            |_| {},
+            |_, _| Ok(()),
+        ))
+        .unwrap_err();
         assert_eq!(err.kind, "busy");
     }
 
