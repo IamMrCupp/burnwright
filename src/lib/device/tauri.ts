@@ -1,8 +1,9 @@
 // The device screen's dependencies in the real app: the Tauri engine, the
-// system's file panels and the webview's localStorage.
+// system's file panels, the webview's localStorage and the app's window.
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { engine } from "../engine";
-import type { DeviceDeps, FileDialogs } from "./controller";
+import type { DeviceController, DeviceDeps, FileDialogs } from "./controller";
 import { recentStore } from "./recent";
 
 /**
@@ -34,5 +35,27 @@ const dialogs: FileDialogs = {
 };
 
 export function tauriDeps(): DeviceDeps {
-  return { engine, dialogs, recent: recentStore(window.localStorage) };
+  return {
+    engine,
+    dialogs,
+    recent: recentStore(window.localStorage),
+    // `destroy`, not `close`: a close would come straight back as a request.
+    closeWindow: () => {
+      void getCurrentWindow()
+        .destroy()
+        .catch(() => {});
+    },
+  };
+}
+
+/**
+ * Put every request to close the window to the controller first: the title
+ * bar's close button, Alt+F4, and on macOS Cmd+Q and the Quit menu item,
+ * which the app sends this way (`request_close` in src-tauri/src/lib.rs).
+ * The controller either lets the window go or keeps it and asks.
+ */
+export function guardWindowClose(controller: Pick<DeviceController, "requestClose">): void {
+  void getCurrentWindow().onCloseRequested((event) => {
+    if (!controller.requestClose()) event.preventDefault();
+  });
 }

@@ -160,7 +160,16 @@ export type Confirm =
   /** Stop a running write or erase. */
   | { kind: "cancel"; op: "write" | "erase"; chip: string }
   /** Replace a buffer that holds something no file has. */
-  | { kind: "replace_buffer"; by: "read" | "file"; unsaved: Unsaved; overrides: Overrides };
+  | { kind: "replace_buffer"; by: "read" | "file"; unsaved: Unsaved; overrides: Overrides }
+  /**
+   * Close the window. `stop` is the write or erase that closing would cut
+   * short; `unsaved` is what the buffer would lose. At least one is set.
+   */
+  | {
+      kind: "close";
+      stop: { op: "write" | "erase"; chip: string } | null;
+      unsaved: Unsaved | null;
+    };
 
 /**
  * What the buffer holds that isn't in any file: a chip read that was never
@@ -633,6 +642,16 @@ export function unsavedBuffer(buffer: BufferState | null): Unsaved | null {
   const edits =
     buffer.saved === buffer.original ? buffer.edited : buffer.bytes !== buffer.saved;
   return edits ? "edits" : null;
+}
+
+/** The write or erase that stopping now would leave half-done, if one is running. */
+export function mutatingOp(
+  state: DeviceState,
+): { op: "write" | "erase"; chip: string } | null {
+  const running = state.running;
+  if (!running || running.phase !== "main") return null;
+  if (running.op !== "write" && running.op !== "erase") return null;
+  return { op: running.op, chip: running.chip };
 }
 
 /** How the buffer compares with the selected chip. */
