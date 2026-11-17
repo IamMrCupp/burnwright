@@ -9,6 +9,7 @@
 // and chip ID checks minipro makes, and a write that leaves the chip
 // half-done when it's cancelled.
 import type {
+  AlgorithmFile,
   ChipCheck,
   ChipEntry,
   ChipInfo,
@@ -50,6 +51,13 @@ export interface FakeEngineOptions {
   socket?: FakeSocket | null;
   /** What `diagnoseProgrammer` answers. */
   diagnosis?: Diagnosis;
+  /**
+   * An `algorithm.xml` that exists where minipro looks on its own. Default:
+   * none, as on a machine where nobody has installed one. Only a T76 cares.
+   */
+  algorithmFile?: string | null;
+  /** Paths that hold a usable algorithm file, for `setAlgorithmPath`. */
+  algorithmFiles?: string[];
   /** Files `loadImage` can open, by path. */
   files?: Record<string, Uint8Array>;
   /** Milliseconds between progress steps. Default 0: as fast as the event loop. */
@@ -82,7 +90,12 @@ export interface FakeEngine extends DeviceEngine {
   release(): void;
   /** Fail the next device operation with `error`, before it touches the chip. */
   failNext(error: EngineError): void;
+  /** The algorithm file chosen with `setAlgorithmPath`. */
+  algorithmPath: string | null;
 }
+
+/** Where the bundled T76 minipro looks when no file is chosen. */
+export const FAKE_ALGORITHM_DEFAULT = "/usr/local/share/minipro/algorithm.xml";
 
 const T48: DeviceInfo = {
   programmer: "T48",
@@ -242,6 +255,45 @@ export function createFakeEngine(options: FakeEngineOptions = {}): FakeEngine {
 
   const find = (name: string) => chips.find((c) => c.info.name === name);
 
+  const algorithmFiles = new Set(options.algorithmFiles ?? []);
+  const installed = options.algorithmFile ?? null;
+  if (installed !== null) algorithmFiles.add(installed);
+
+  function algorithmStatus(): AlgorithmFile {
+    const configured = fake.algorithmPath;
+    if (configured !== null) {
+      return {
+        configured,
+        found: algorithmFiles.has(configured) ? configured : null,
+        default_path: FAKE_ALGORITHM_DEFAULT,
+      };
+    }
+    return { configured: null, found: installed, default_path: FAKE_ALGORITHM_DEFAULT };
+  }
+
+  /**
+   * A T76 loads a bitstream from the algorithm file before anything else,
+   * and stops there without one. The lines are minipro's.
+   */
+  function loadAlgorithm(programmer: DeviceInfo, opts: OperationOptions) {
+    if (programmer.programmer !== "T76") return;
+    const status = algorithmStatus();
+    if (status.found !== null) return;
+    const lines =
+      status.configured !== null
+        ? [`${status.configured}: No such file or directory`]
+        : [
+            `${FAKE_ALGORITHM_DEFAULT}: No such file or directory`,
+            "algorithm.xml: No such file or directory",
+          ];
+    for (const message of lines) opts.onProgress?.({ type: "info", message });
+    opts.onProgress?.({ type: "info", message: "An error occurred while sending bitstream." });
+    throw engineError(
+      "missing_algorithms",
+      `minipro can't open the algorithm file: ${lines[0]}`,
+    );
+  }
+
   /** One progress step: wait if held, wait `stepMs`, then stop if cancelled. */
   async function step(operation: string, mutates: boolean, signal?: AbortSignal) {
     if (held) await held;
@@ -312,6 +364,7 @@ export function createFakeEngine(options: FakeEngineOptions = {}): FakeEngine {
       opts.onProgress?.({ type: "error", message });
       throw engineError("minipro", message);
     }
+    loadAlgorithm(programmer, opts);
     const socket = fake.socket;
     if (!socket) {
       const message = "Overcurrent protection!";
@@ -392,6 +445,18 @@ export function createFakeEngine(options: FakeEngineOptions = {}): FakeEngine {
     },
     failNext(error) {
       nextFailure = error;
+    },
+    algorithmPath: null,
+
+    async algorithmFile() {
+      fake.calls.push({ command: "algorithmFile" });
+      return algorithmStatus();
+    },
+
+    async setAlgorithmPath(path) {
+      fake.calls.push({ command: "setAlgorithmPath", path: path ?? undefined });
+      fake.algorithmPath = path === null || path === "" ? null : path;
+      return algorithmStatus();
     },
 
     async detect(opts = {}) {
