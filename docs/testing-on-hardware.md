@@ -76,8 +76,17 @@ said.
 4. For a second opinion, **Open…** `reference.bin` in burnwright and press
    **Verify**. It should report no differences.
 
-If the files are different sizes, the other tool probably saved more than main
-memory (a data EEPROM, config bytes). Say so in the report, with both sizes.
+If the files are different sizes, the other tool saved more than main memory.
+Xgpro is reported to do this by default for some SPI flash: it appends the
+chip's OTP region to the saved file, so a 16 MB GD25LQ128D comes out as
+16,780,288 bytes instead of 16,777,216. That's not a failed test. Hash only
+as many bytes of the reference as `burnwright.bin` holds:
+
+```bash
+head -c 16777216 reference.bin | shasum -a 256
+```
+
+Say in the report that the sizes differed, with both sizes.
 
 Comparing against Xgpro tests the whole stack, minipro included. Comparing
 against the minipro command line tests only burnwright's part. Both are
