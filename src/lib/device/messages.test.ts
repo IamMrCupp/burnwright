@@ -86,3 +86,41 @@ describe("a chip ID that is all ones or all zeros", () => {
     ]);
   });
 });
+
+describe("a T76 operation that fails for want of its algorithm file", () => {
+  const error = (kind: string, message: string) => ({ kind, message, device_state: null });
+
+  it("says nothing was read or written, not that the chip was never touched", () => {
+    // For NAND and eMMC parts minipro powers the socket adapter and runs pin
+    // detection before it looks for the algorithm, so "untouched" isn't true.
+    const missing = failureOutcome(
+      "read",
+      "MT29F4G08ABADA@TSOP48",
+      error(
+        "missing_algorithms",
+        "minipro can't open the algorithm file: /usr/local/share/minipro/algorithm.xml: No such file or directory",
+      ),
+      NO_OVERRIDES,
+      "T76",
+    );
+    const unusable = failureOutcome(
+      "check",
+      "MT29F4G08ABADA@TSOP48",
+      error(
+        "unusable_algorithms",
+        "minipro can't use the algorithm file: No algorithm NAND_08 was found.",
+      ),
+      NO_OVERRIDES,
+      "T76",
+    );
+    for (const outcome of [missing, unusable]) {
+      expect(outcome.details).toContain(
+        "minipro stopped before any read or write: nothing on the chip changed.",
+      );
+      expect(outcome.details.join(" ")).not.toMatch(/touched/);
+    }
+    expect(missing.title).toBe("No algorithm file for the T76");
+    expect(unusable.title).toBe("minipro can't use the algorithm file");
+  });
+});
+
