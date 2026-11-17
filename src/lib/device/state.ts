@@ -198,6 +198,12 @@ export interface DeviceState {
   buffer: BufferState | null;
   /** Why the last open or save failed. */
   fileError: string | null;
+  /**
+   * A file is being picked and opened, or the buffer is being saved. Until
+   * it's done no operation starts: the buffer an operation works on, and
+   * the one its confirmation described, must be the one on screen.
+   */
+  fileBusy: "opening" | "saving" | null;
   running: RunningOp | null;
   outcome: Outcome | null;
   confirm: Confirm | null;
@@ -233,6 +239,7 @@ export function initialState(recent: RecentChip[] = []): DeviceState {
     },
     buffer: null,
     fileError: null,
+    fileBusy: null,
     running: null,
     outcome: null,
     confirm: null,
@@ -259,6 +266,8 @@ export type Action =
   | { type: "buffer_edited"; bytes: Uint8Array; edited: boolean }
   | { type: "buffer_saved"; path: string; bytes: Uint8Array }
   | { type: "file_failed"; message: string }
+  | { type: "file_started"; what: "opening" | "saving" }
+  | { type: "file_finished" }
   | { type: "confirm_opened"; confirm: Confirm }
   | { type: "confirm_closed" }
   | { type: "op_started"; op: OpKind; chip: string; heading: string }
@@ -416,12 +425,19 @@ export function reducer(state: DeviceState, action: Action): DeviceState {
         },
         fileError: null,
         diff: null,
+        // The last outcome, and any retry it offers, was about other bytes.
+        outcome: null,
       };
     case "buffer_edited":
       if (!state.buffer) return state;
+      // The editor also reports the bytes it was just given.
+      if (state.buffer.bytes === action.bytes && state.buffer.edited === action.edited) {
+        return state;
+      }
       return {
         ...state,
         buffer: { ...state.buffer, bytes: action.bytes, edited: action.edited },
+        outcome: null,
       };
     case "buffer_saved":
       if (!state.buffer) return state;
@@ -434,6 +450,10 @@ export function reducer(state: DeviceState, action: Action): DeviceState {
       };
     case "file_failed":
       return { ...state, fileError: action.message };
+    case "file_started":
+      return { ...state, fileBusy: action.what };
+    case "file_finished":
+      return { ...state, fileBusy: null };
 
     case "confirm_opened":
       return { ...state, confirm: action.confirm };
@@ -620,6 +640,8 @@ const no = (reason: string): Availability => ({ enabled: false, reason });
 
 export function operationAvailability(state: DeviceState, op: OpKind): Availability {
   if (state.running) return no("Another operation is running.");
+  if (state.fileBusy === "opening") return no("A file is being opened.");
+  if (state.fileBusy === "saving") return no("The buffer is being saved.");
   if (state.programmer.status === "detecting") return no("Looking for a programmer.");
   if (state.programmer.status !== "found") return no("No programmer detected.");
   const { selected } = state.chip;

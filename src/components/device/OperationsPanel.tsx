@@ -65,7 +65,9 @@ export const OperationsPanel = memo(function OperationsPanel({
     : [...new Set(OPERATIONS.map((op) => availability[op].reason).filter(Boolean))];
 
   return (
-    <section className="panel ops" aria-label="Operations">
+    // Focusable from code only: the confirmation dialog hands the focus
+    // here when the button that opened it has been disabled.
+    <section className="panel ops" aria-label="Operations" tabIndex={-1}>
       <div className="ops-buttons" role="group" aria-label="Chip operations">
         {OPERATIONS.map((op) => (
           <button
@@ -103,7 +105,12 @@ export const OperationsPanel = memo(function OperationsPanel({
             <span className="ops-percent" aria-hidden="true">
               {running.percent === null ? "" : `${running.percent}%`}
             </span>
-            <button type="button" onClick={onCancel} disabled={running.cancelling}>
+            <button
+              type="button"
+              className="ops-cancel"
+              onClick={onCancel}
+              disabled={running.cancelling}
+            >
               {running.cancelling ? "Stopping…" : "Cancel"}
             </button>
           </div>

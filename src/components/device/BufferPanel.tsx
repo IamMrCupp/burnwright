@@ -16,6 +16,8 @@ export interface BufferPanelProps {
   fileError: string | null;
   /** An operation is running: the buffer can't change under it. */
   busy: boolean;
+  /** A file is being opened or saved: the file buttons wait. */
+  fileBusy: boolean;
   /** The chip's contents after a failed verify, to show against the buffer. */
   diff: DiffState | null;
   onOpen: () => void;
@@ -42,6 +44,7 @@ export const BufferPanel = memo(function BufferPanel({
   chip,
   fileError,
   busy,
+  fileBusy,
   diff,
   onOpen,
   onSave,
@@ -62,13 +65,13 @@ export const BufferPanel = memo(function BufferPanel({
         <div className="panel-bar">
           <h2>Buffer</h2>
           <div className="buffer-actions">
-            <button type="button" onClick={onOpen} disabled={busy}>
+            <button type="button" onClick={onOpen} disabled={busy || fileBusy}>
               Open…
             </button>
-            <button type="button" onClick={onSave} disabled={!buffer}>
+            <button type="button" onClick={onSave} disabled={!buffer || busy || fileBusy}>
               Save
             </button>
-            <button type="button" onClick={onSaveAs} disabled={!buffer}>
+            <button type="button" onClick={onSaveAs} disabled={!buffer || busy || fileBusy}>
               Save as…
             </button>
           </div>

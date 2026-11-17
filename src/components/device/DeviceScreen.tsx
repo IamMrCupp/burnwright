@@ -29,6 +29,18 @@ export interface DeviceScreenProps {
 const OPS: readonly OpKind[] = ["read", "verify", "blank_check", "check", "erase", "write"];
 
 /**
+ * Where the focus goes after a confirmation whose button is now disabled:
+ * the running operation's Cancel button, or the operations panel when even
+ * that is off (a stop is already on its way).
+ */
+function operationsFocus(): HTMLElement | null {
+  return (
+    document.querySelector<HTMLElement>(".ops-cancel:not(:disabled)") ??
+    document.querySelector<HTMLElement>(".ops")
+  );
+}
+
+/**
  * The screen where a chip is picked and worked on: programmer and chip on
  * the left; operations, the buffer and the log on the right. All of its
  * state lives in the controller; this only lays it out.
@@ -109,6 +121,7 @@ export function DeviceScreen({ controller, footer }: DeviceScreenProps) {
             chip={chipName}
             fileError={state.fileError}
             busy={busy}
+            fileBusy={state.fileBusy !== null}
             diff={state.diff}
             onOpen={controller.openFile}
             onSave={controller.save}
@@ -124,6 +137,7 @@ export function DeviceScreen({ controller, footer }: DeviceScreenProps) {
           copy={confirm}
           onConfirm={controller.confirm}
           onCancel={controller.dismissConfirm}
+          fallbackFocus={operationsFocus}
         />
       )}
     </>

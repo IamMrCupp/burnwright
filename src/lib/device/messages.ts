@@ -322,12 +322,20 @@ export function confirmCopy(confirm: Confirm, context: ConfirmContext): ConfirmC
           ? `This replaces what's on ${chip} with the buffer. minipro erases the chip first if it needs erasing. It can't be undone.`
           : `This replaces what's on ${chip} with the buffer (${formatByteCount(context.bufferLength)}). minipro erases the chip first if it needs erasing. It can't be undone.`,
       ];
-      const size = sizeParagraph(context.size, "write");
-      if (size) paragraphs.push(size);
-      else if (confirm.overrides.ignoreSize) {
+      if (mismatch) {
+        const size = sizeParagraph(context.size, "write");
+        if (size) paragraphs.push(size);
+      } else if (confirm.overrides.ignoreSize) {
+        // minipro already refused this buffer as the wrong size, and the
+        // user chose to go on: its check is off for this run.
         paragraphs.push(
-          "minipro is told to ignore the image size: it writes the bytes the buffer and the chip both have.",
+          context.size.status === "unknown"
+            ? "minipro gives no image size for this chip, so burnwright can't say how far off the buffer is. minipro is told to ignore the size: it writes the bytes the buffer and the chip both have, and leaves the rest."
+            : "minipro is told to ignore the image size: it writes the bytes the buffer and the chip both have, and leaves the rest.",
         );
+      } else {
+        const size = sizeParagraph(context.size, "write");
+        if (size) paragraphs.push(size);
       }
       if (confirm.overrides.ignoreChipId) {
         paragraphs.push(

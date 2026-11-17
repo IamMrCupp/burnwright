@@ -4,6 +4,9 @@
 //
 // Rules it keeps:
 // - One device operation at a time; the picker, the buffer and detect wait.
+// - No operation starts while a file is being opened or saved, and no file
+//   is opened or saved while one runs: the bytes an operation works on are
+//   the ones on screen, and the ones its confirmation described.
 // - Write and Erase never start without a confirmation that names the chip.
 // - The buffer goes to minipro as it is. When it isn't the chip's size, the
 //   user is told first, and the size check is only turned off on their say.
@@ -272,7 +275,7 @@ export class DeviceController {
 
   /** Open an image file into the buffer. Asks first when that would lose edits. */
   openFile = async (): Promise<void> => {
-    if (this.state.running) return;
+    if (this.state.running || this.state.fileBusy) return;
     if (hasUnsavedEdits(this.state.buffer)) {
       this.dispatch({
         type: "confirm_opened",
@@ -283,25 +286,36 @@ export class DeviceController {
     await this.pickAndLoad();
   };
 
+  /**
+   * Pick a file and load it. Operations wait from the moment the panel
+   * opens until the bytes are in: a load that landed later would swap the
+   * buffer under a confirmation or a running write.
+   */
   private async pickAndLoad(): Promise<void> {
-    let path: string | null;
+    if (this.state.running || this.state.fileBusy) return;
+    this.dispatch({ type: "file_started", what: "opening" });
     try {
-      path = await this.dialogs.open();
-    } catch (err) {
-      this.fileFailed(`Couldn't show the open dialog: ${errorMessage(err)}`);
-      return;
-    }
-    if (!path) return;
-    try {
-      const bytes = Uint8Array.from(await this.engine.loadImage(path));
-      this.dispatch({ type: "buffer_loaded", bytes, source: { kind: "file", path } });
-      this.dispatch({
-        type: "logged",
-        kind: "note",
-        text: `Opened ${path}: ${formatByteCount(bytes.length)}.`,
-      });
-    } catch (err) {
-      this.fileFailed(`Couldn't open ${fileName(path)}: ${errorMessage(err)}`);
+      let path: string | null;
+      try {
+        path = await this.dialogs.open();
+      } catch (err) {
+        this.fileFailed(`Couldn't show the open dialog: ${errorMessage(err)}`);
+        return;
+      }
+      if (!path) return;
+      try {
+        const bytes = Uint8Array.from(await this.engine.loadImage(path));
+        this.dispatch({ type: "buffer_loaded", bytes, source: { kind: "file", path } });
+        this.dispatch({
+          type: "logged",
+          kind: "note",
+          text: `Opened ${path}: ${formatByteCount(bytes.length)}.`,
+        });
+      } catch (err) {
+        this.fileFailed(`Couldn't open ${fileName(path)}: ${errorMessage(err)}`);
+      }
+    } finally {
+      this.dispatch({ type: "file_finished" });
     }
   }
 
@@ -311,32 +325,43 @@ export class DeviceController {
   /** Save the buffer to a file the user picks. */
   saveAs = (): Promise<void> => this.saveTo(null);
 
+  /**
+   * Operations wait while this runs, and it waits for them: a read that
+   * finished mid-save would be labelled with the file the old bytes went to.
+   */
   private async saveTo(known: string | null): Promise<void> {
-    const buffer = this.state.buffer;
-    if (!buffer) return;
-    let path = known;
-    if (!path) {
-      const chip = this.state.chip.selected?.name ?? "image";
-      const suggested = buffer.path ?? `${chip.replace(/[^A-Za-z0-9._-]+/g, "_")}.bin`;
-      try {
-        path = await this.dialogs.save(suggested);
-      } catch (err) {
-        this.fileFailed(`Couldn't show the save dialog: ${errorMessage(err)}`);
-        return;
-      }
-      if (!path) return;
-    }
-    const bytes = buffer.bytes;
+    if (!this.state.buffer || this.state.running || this.state.fileBusy) return;
+    this.dispatch({ type: "file_started", what: "saving" });
     try {
-      await this.engine.saveImage(path, Array.from(bytes));
-      this.dispatch({ type: "buffer_saved", path, bytes });
-      this.dispatch({
-        type: "logged",
-        kind: "note",
-        text: `Saved ${formatByteCount(bytes.length)} to ${path}.`,
-      });
-    } catch (err) {
-      this.fileFailed(`Couldn't save ${fileName(path)}: ${errorMessage(err)}`);
+      let path = known;
+      if (!path) {
+        const chip = this.state.chip.selected?.name ?? "image";
+        const suggested =
+          this.state.buffer.path ?? `${chip.replace(/[^A-Za-z0-9._-]+/g, "_")}.bin`;
+        try {
+          path = await this.dialogs.save(suggested);
+        } catch (err) {
+          this.fileFailed(`Couldn't show the save dialog: ${errorMessage(err)}`);
+          return;
+        }
+        if (!path) return;
+      }
+      // The bytes as they are now: the editor stays live while the panel is up.
+      const bytes = this.state.buffer?.bytes;
+      if (!bytes) return;
+      try {
+        await this.engine.saveImage(path, Array.from(bytes));
+        this.dispatch({ type: "buffer_saved", path, bytes });
+        this.dispatch({
+          type: "logged",
+          kind: "note",
+          text: `Saved ${formatByteCount(bytes.length)} to ${path}.`,
+        });
+      } catch (err) {
+        this.fileFailed(`Couldn't save ${fileName(path)}: ${errorMessage(err)}`);
+      }
+    } finally {
+      this.dispatch({ type: "file_finished" });
     }
   }
 
