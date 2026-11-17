@@ -740,6 +740,11 @@ describe("size mismatches", () => {
       kind: "write",
       overrides: { ignoreSize: true },
     });
+    // And the dialog says what will happen now, not what would have.
+    const copy = copyFor(state());
+    expect(copy.paragraphs.join(" ")).toContain("minipro is told to ignore the size");
+    expect(copy.paragraphs.join(" ")).not.toContain("stops if the size is wrong");
+    expect(copy.confirm).toBe("Write NAND@SOP16 anyway");
     controller.confirm();
     await idle();
     expect(last(fake.calls)).toMatchObject({
@@ -1110,5 +1115,166 @@ describe("reading over edits", () => {
     await idle();
     expect(state().buffer?.bytes).toEqual(ramp(16));
     expect(hasUnsavedEdits(state().buffer)).toBe(false);
+  });
+});
+
+describe("files and operations keep out of each other's way", () => {
+  /** A promise the test settles by hand. */
+  function deferred<T>() {
+    let resolve: (value: T) => void = () => {};
+    const promise = new Promise<T>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  it("starts no operation while a file is being picked or loaded", async () => {
+    const { controller, state, ready, idle, fake, dialogs } = setup({
+      files: { "/full.bin": ramp(16), "/short.bin": ramp(10, 0x80) },
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    dialogs.open.mockResolvedValue("/full.bin");
+    await controller.openFile();
+    await ready("EEPROM16");
+
+    // The panel is up, and then the load is on its way.
+    const picked = deferred<string | null>();
+    dialogs.open.mockReturnValue(picked.promise);
+    const opening = controller.openFile();
+    expect(state().fileBusy).toBe("opening");
+    for (const op of ["read", "verify", "blank_check", "erase", "write", "check"] as const) {
+      expect(operationAvailability(state(), op)).toEqual({
+        enabled: false,
+        reason: "A file is being opened.",
+      });
+      controller.run(op);
+    }
+    expect(state().confirm).toBeNull();
+    expect(state().running).toBeNull();
+    // A second Open doesn't stack up behind the first.
+    await controller.openFile();
+    expect(dialogs.open).toHaveBeenCalledTimes(2);
+
+    picked.resolve("/short.bin");
+    await opening;
+    expect(state().fileBusy).toBeNull();
+    expect(state().buffer?.bytes).toEqual(ramp(10, 0x80));
+
+    // Now the write is asked about the buffer that will be written.
+    controller.run("write");
+    expect(bufferSizeCheck(state())).toEqual({ status: "short", buffer: 10, chip: 16 });
+    controller.dismissConfirm();
+    expect(fake.calls.some((c) => c.command === "write")).toBe(false);
+    await idle();
+  });
+
+  it("frees the screen again when the open panel is dismissed or the load fails", async () => {
+    const { controller, state, dialogs } = setup();
+    dialogs.open.mockResolvedValueOnce(null);
+    await controller.openFile();
+    expect(state().fileBusy).toBeNull();
+    dialogs.open.mockResolvedValueOnce("/nope.bin");
+    await controller.openFile();
+    expect(state().fileBusy).toBeNull();
+    expect(state().fileError).toContain("Couldn't open nope.bin");
+    dialogs.open.mockRejectedValueOnce(new Error("no window"));
+    await controller.openFile();
+    expect(state().fileBusy).toBeNull();
+    expect(state().fileError).toBe("Couldn't show the open dialog: no window");
+  });
+
+  it("doesn't open or save a file under a running operation", async () => {
+    const { controller, state, ready, idle, fake, dialogs } = setup({
+      files: { "/a.bin": ramp(16, 3) },
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    dialogs.open.mockResolvedValue("/a.bin");
+    await controller.openFile();
+    await ready("EEPROM16");
+    dialogs.open.mockClear();
+    fake.hold();
+    controller.run("read");
+    await controller.openFile();
+    await controller.save();
+    await controller.saveAs();
+    expect(dialogs.open).not.toHaveBeenCalled();
+    expect(dialogs.save).not.toHaveBeenCalled();
+    expect(fake.saved).toEqual({});
+    fake.release();
+    await idle();
+    // The read is what it says it is: from the chip, with no file's name on it.
+    expect(state().buffer?.source).toEqual({ kind: "chip", chip: "EEPROM16" });
+    expect(state().buffer?.path).toBeNull();
+  });
+
+  it("starts no operation while the buffer is being saved, and saves the bytes as they are then", async () => {
+    const { controller, state, ready, fake, dialogs } = setup({
+      files: { "/a.bin": ramp(16) },
+      socket: socketWith("EEPROM16", ramp(16, 0x40)),
+    });
+    dialogs.open.mockResolvedValue("/a.bin");
+    await controller.openFile();
+    await ready("EEPROM16");
+    const where = deferred<string | null>();
+    dialogs.save.mockReturnValue(where.promise);
+    const saving = controller.saveAs();
+    expect(state().fileBusy).toBe("saving");
+    expect(operationAvailability(state(), "read").reason).toBe("The buffer is being saved.");
+    controller.run("read");
+    expect(state().running).toBeNull();
+    // An edit made while the panel is up goes into the file.
+    const edited = ramp(16);
+    edited[0] = 0x77;
+    controller.editBuffer(edited, true);
+    where.resolve("/b.bin");
+    await saving;
+    expect(fake.saved["/b.bin"]).toEqual(edited);
+    expect(state().fileBusy).toBeNull();
+    expect(hasUnsavedEdits(state().buffer)).toBe(false);
+    expect(fake.calls.some((c) => c.command === "read")).toBe(false);
+  });
+
+  it("drops the last outcome, and its override, when the buffer changes", async () => {
+    const { controller, state, ready, idle, fake, dialogs } = setup({
+      files: { "/a.bin": ramp(16), "/short.bin": ramp(10) },
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    dialogs.open.mockResolvedValue("/a.bin");
+    await controller.openFile();
+    await ready("EEPROM16");
+    fake.failNext({
+      kind: "size_mismatch",
+      message: "the image is 16 bytes and the chip takes 32",
+      device_state: null,
+    });
+    controller.run("verify");
+    await idle();
+    expect(state().outcome?.retry).not.toBeNull();
+
+    // Another file: the offer to ignore the size was about the old one.
+    dialogs.open.mockResolvedValue("/short.bin");
+    await controller.openFile();
+    expect(state().outcome).toBeNull();
+    controller.retry();
+    expect(state().running).toBeNull();
+    expect(fake.calls.filter((c) => c.command === "verify")).toHaveLength(1);
+    // Verifying the new buffer asks about its own mismatch.
+    controller.run("verify");
+    expect(state().confirm).toMatchObject({ kind: "verify_size" });
+    controller.dismissConfirm();
+
+    // An edit clears a "passed" that no longer describes the buffer.
+    dialogs.open.mockResolvedValue("/a.bin");
+    await controller.openFile();
+    controller.run("verify");
+    await idle();
+    expect(state().outcome?.title).toBe("Verify passed");
+    // The editor handing back the bytes it was given isn't an edit.
+    controller.editBuffer(state().buffer!.bytes, false);
+    expect(state().outcome?.title).toBe("Verify passed");
+    const edited = ramp(16);
+    edited[1] = 0x55;
+    controller.editBuffer(edited, true);
+    expect(state().outcome).toBeNull();
   });
 });

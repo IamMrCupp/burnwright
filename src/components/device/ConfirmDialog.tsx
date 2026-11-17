@@ -5,25 +5,46 @@ export interface ConfirmDialogProps {
   copy: ConfirmCopy;
   onConfirm: () => void;
   onCancel: () => void;
+  /**
+   * Where the focus goes when the dialog closes and the control that opened
+   * it can't take it back (a Write button is disabled once the write runs).
+   */
+  fallbackFocus?: () => HTMLElement | null;
 }
 
 /**
  * A modal question with two answers. Backing out is the default: it has
  * the focus when the dialog opens, Escape picks it, and so does a click
- * outside. Tab stays inside the dialog, and the focus goes back to where it
- * was when the dialog closes.
+ * outside. Tab stays inside the dialog. When it closes, the focus goes back
+ * to where it was, or to `fallbackFocus` if that control is now disabled or
+ * gone, so a keyboard user isn't dropped at the top of the page.
  */
-export function ConfirmDialog({ copy, onConfirm, onCancel }: ConfirmDialogProps) {
+export function ConfirmDialog({
+  copy,
+  onConfirm,
+  onCancel,
+  fallbackFocus,
+}: ConfirmDialogProps) {
   const titleId = useId();
   const bodyId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
 
+  // The latest fallback, for the cleanup below to call.
+  const fallbackRef = useRef(fallbackFocus);
+  useEffect(() => {
+    fallbackRef.current = fallbackFocus;
+  }, [fallbackFocus]);
+
   useEffect(() => {
     const before = document.activeElement;
     cancelRef.current?.focus();
     return () => {
-      if (before instanceof HTMLElement && before.isConnected) before.focus();
+      // Nothing had the focus (a mouse click in a webview that doesn't
+      // focus buttons): leave it that way.
+      if (!(before instanceof HTMLElement) || before === document.body) return;
+      const usable = before.isConnected && !before.matches(":disabled");
+      (usable ? before : fallbackRef.current?.())?.focus();
     };
   }, []);
 

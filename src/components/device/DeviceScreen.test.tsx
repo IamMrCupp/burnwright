@@ -275,6 +275,59 @@ describe("the whole flow", () => {
     expect(screen.queryByRole("alertdialog")).toBeNull();
   });
 
+  it("hands the focus to Cancel when the button that opened the dialog is disabled", async () => {
+    const { fake } = setup({ socket: { chip: "EEPROM16", memory: ramp(16) } });
+    await pick("EEPROM16");
+    fake.hold();
+    // By keyboard: Erase has the focus, the dialog takes it and gives it back.
+    button("Erase").focus();
+    click("Erase");
+    fireEvent.click(screen.getByRole("button", { name: "Erase EEPROM16" }));
+    // Erase is disabled while it runs, so the focus goes to the way out.
+    expect(button("Erase")).toBeDisabled();
+    expect(button("Cancel")).toHaveFocus();
+
+    // Stopping disables Cancel too: the focus stays in the operations panel.
+    click("Cancel");
+    fireEvent.click(screen.getByRole("button", { name: "Stop the erase" }));
+    expect(button("Stopping…")).toBeDisabled();
+    expect(operations()).toHaveFocus();
+    act(() => fake.release());
+    expect(await outcome("Erase cancelled")).toHaveTextContent("may be half-erased");
+  });
+
+  it("turns the file buttons off while an operation runs or a file is on its way", async () => {
+    const { fake, dialogs } = setup({
+      files: { "/image.bin": ramp(16) },
+      socket: { chip: "EEPROM16", memory: ramp(16) },
+    });
+    await pick("EEPROM16");
+    await openFile(dialogs, "/image.bin");
+    expect(button("Save")).toBeEnabled();
+
+    let choose: (path: string | null) => void = () => {};
+    dialogs.open.mockReturnValue(
+      new Promise((resolve) => {
+        choose = resolve;
+      }),
+    );
+    click("Open…");
+    expect(button("Open…")).toBeDisabled();
+    expect(button("Save")).toBeDisabled();
+    expect(button("Write")).toBeDisabled();
+    expect(within(operations()).getByText("A file is being opened.")).toBeInTheDocument();
+    await act(async () => choose(null));
+    expect(button("Write")).toBeEnabled();
+
+    fake.hold();
+    click("Read");
+    expect(button("Save")).toBeDisabled();
+    expect(button("Save as…")).toBeDisabled();
+    act(() => fake.release());
+    await outcome("Read EEPROM16");
+    expect(button("Save")).toBeEnabled();
+  });
+
   it("shows progress and a Cancel button while an operation runs", async () => {
     const { fake } = setup({ socket: { chip: "EEPROM16", memory: ramp(16) } });
     await pick("EEPROM16");
