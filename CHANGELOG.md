@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.0](https://github.com/IamMrCupp/burnwright/compare/v0.10.2...v0.11.0) (2026-11-17)
+
+
+### Features
+
+* **engine:** report a T76 operation that fails for want of algorithm.xml as its own error, and pass the user's file to minipro ([f558af5](https://github.com/IamMrCupp/burnwright/commit/f558af5787afb5821da68ae5eef9599fd2a88202))
+* **ui:** explain a T76 with no algorithm file and let the user choose their own ([f558af5](https://github.com/IamMrCupp/burnwright/commit/f558af5787afb5821da68ae5eef9599fd2a88202))
+
 ## [0.10.2](https://github.com/IamMrCupp/burnwright/compare/v0.10.1...v0.10.2) (2026-11-17)
 
 
