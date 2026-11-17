@@ -1152,6 +1152,32 @@ mod tests {
     }
 
     #[test]
+    fn the_t76_build_differs_on_the_two_entries_the_stable_build_trips_on() {
+        // The T76 build works the SPI NAND size out (blocks x pages x page
+        // and spare), so the same part has an image size there.
+        let chip = info("info_t76_ds35m2gb_sop16.stderr");
+        assert_eq!(chip.name, "DS35M2GB(x4)@SOP16");
+        assert_eq!(
+            chip.memory,
+            Some(ChipMemory {
+                size: 285_212_672,
+                unit: MemoryUnit::Bytes,
+                bytes: Some(285_212_672),
+                data_sizes: vec![],
+            })
+        );
+
+        // AT28C256E is a custom entry 0.7.4 can't parse. In the T76's own
+        // database it's an ordinary chip.
+        let lines = lines("info_t76_at28c256e.stderr");
+        assert_eq!(entry_problem(&lines), None);
+        assert_eq!(database_problem(&lines), None);
+        let chip = ChipInfo::parse(&lines).unwrap();
+        assert_eq!(chip.name, "AT28C256E");
+        assert_eq!(chip.memory.unwrap().bytes, Some(32_768));
+    }
+
+    #[test]
     fn word_and_bit_memories_parse() {
         let chip = info("info_tl866ii_s29gl032m_bga48.stderr");
         assert_eq!(
