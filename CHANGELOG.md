@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.0](https://github.com/IamMrCupp/burnwright/compare/v0.8.1...v0.9.0) (2026-11-17)
+
+
+### Features
+
+* **app:** report the T76 build's version with its commit ([c00d24f](https://github.com/IamMrCupp/burnwright/commit/c00d24f319cddd991253847c6c981732ca2bee57))
+* **app:** send T76 chip queries to the T76 build ([c00d24f](https://github.com/IamMrCupp/burnwright/commit/c00d24f319cddd991253847c6c981732ca2bee57))
+* **engine:** read the T76 build's chip lists and chip info ([c00d24f](https://github.com/IamMrCupp/burnwright/commit/c00d24f319cddd991253847c6c981732ca2bee57))
+* **engine:** route the T76 to its own minipro build ([c00d24f](https://github.com/IamMrCupp/burnwright/commit/c00d24f319cddd991253847c6c981732ca2bee57))
+
 ## [0.8.1](https://github.com/IamMrCupp/burnwright/compare/v0.8.0...v0.8.1) (2026-11-17)
 
 
