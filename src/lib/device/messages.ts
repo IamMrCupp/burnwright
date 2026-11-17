@@ -190,8 +190,14 @@ function fullStop(text: string): string {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
-/** What's true of every failure to load a bitstream: it comes before the chip. */
-const CHIP_UNTOUCHED = "minipro stopped before it touched the chip: nothing on it changed.";
+/**
+ * What's true of every failure to load a bitstream: it comes before any
+ * read or write. Not "before the chip was touched": for NAND and eMMC parts
+ * the T76 build powers the socket adapter and runs pin detection first
+ * (`t76_send_bitstream()` in `vendor/minipro-t76/src/t76.c`).
+ */
+const NOTHING_READ_OR_WRITTEN =
+  "minipro stopped before any read or write: nothing on the chip changed.";
 
 /**
  * How a failed or cancelled operation is reported. `overrides` are the
@@ -223,7 +229,7 @@ export function failureOutcome(
         details: [
           fullStop(plainMessage(err)),
           `The ${model} needs XGecu's algorithm.xml, a file from the Xgpro package, before it can work on a chip. burnwright doesn't ship or download it.`,
-          CHIP_UNTOUCHED,
+          NOTHING_READ_OR_WRITTEN,
           canChoose
             ? 'Pick your own copy with "Choose file…" under Algorithm file in the Programmer panel, or put it at the path above.'
             : "Put your own copy at the path above.",
@@ -237,7 +243,7 @@ export function failureOutcome(
       details: [
         fullStop(plainMessage(err)),
         `The file opened, but minipro couldn't get what ${chip} needs from it. It may come from a different Xgpro version than this ${model}'s firmware goes with, be made for another programmer, be damaged, or not be an algorithm.xml at all.`,
-        CHIP_UNTOUCHED,
+        NOTHING_READ_OR_WRITTEN,
         canChoose
           ? 'Pick another file with "Choose file…" under Algorithm file in the Programmer panel.'
           : "Replace the file minipro reads with one that matches.",
