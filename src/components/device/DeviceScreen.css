@@ -135,6 +135,29 @@
   margin-top: 0.5rem;
 }
 
+.programmer-algorithms {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+
+.programmer-algorithms p {
+  margin: 0;
+}
+
+.programmer-algorithms-label {
+  font-weight: 600;
+}
+
+.programmer-algorithms-file {
+  overflow-wrap: anywhere;
+}
+
+.programmer-algorithms-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .programmer-model label {
   margin-right: 0.5rem;
 }

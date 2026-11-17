@@ -3,6 +3,7 @@
 // results, and the components render what the selectors return.
 import {
   programmerFromModel,
+  type AlgorithmFile,
   type ChipEntry,
   type ChipInfo,
   type ChipSearch,
@@ -209,6 +210,11 @@ export const LOG_LIMIT = 2000;
 
 export interface DeviceState {
   programmer: ProgrammerState;
+  /**
+   * Where the T76's `algorithm.xml` stands, once the engine has been asked.
+   * Only a T76 needs it; see `needsAlgorithmFile`.
+   */
+  algorithms: AlgorithmFile | null;
   chip: ChipState;
   buffer: BufferState | null;
   /** Why the last open or save failed. */
@@ -245,6 +251,7 @@ export function initialState(recent: RecentChip[] = []): DeviceState {
       error: null,
       manual: "t48",
     },
+    algorithms: null,
     chip: {
       query: "",
       search: IDLE_SEARCH,
@@ -271,6 +278,7 @@ export type Action =
   | { type: "diagnosed"; diagnosis: Diagnosis | null }
   | { type: "detect_failed"; message: string }
   | { type: "programmer_chosen"; programmer: Programmer }
+  | { type: "algorithms_checked"; algorithms: AlgorithmFile | null }
   | { type: "query_changed"; query: string }
   | { type: "search_done"; query: string; result: ChipSearch }
   | { type: "search_failed"; query: string; message: string }
@@ -347,6 +355,9 @@ export function reducer(state: DeviceState, action: Action): DeviceState {
         ...state.programmer,
         manual: action.programmer,
       });
+
+    case "algorithms_checked":
+      return { ...state, algorithms: action.algorithms };
 
     case "query_changed": {
       const query = action.query;
@@ -596,6 +607,14 @@ export function detectedProgrammer(state: DeviceState): Programmer | null {
   const { status, device } = state.programmer;
   if (status !== "found" || !device) return null;
   return programmerFromModel(device.programmer);
+}
+
+/**
+ * Whether the detected programmer loads its bitstreams from `algorithm.xml`
+ * and burnwright can point it at one: the T76.
+ */
+export function needsAlgorithmFile(state: DeviceState): boolean {
+  return detectedProgrammer(state) === "t76";
 }
 
 /** Whose chip list the picker searches: the detected programmer's, else the one chosen by hand. */

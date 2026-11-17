@@ -1,6 +1,7 @@
 //! Device-operation bookkeeping for the command layer: one operation at a
 //! time, cancel by operation id, the configured minipro path, the bundled
-//! ones, and which bundled build the last detected programmer needs.
+//! ones, which bundled build the last detected programmer needs, and the
+//! user's own algorithm file for a T76.
 //!
 //! The frontend picks an id for every device operation and passes it along.
 //! `cancel_operation(id)` then reaches the running operation's
@@ -29,6 +30,7 @@ struct Inner {
     active: Option<(String, CancelHandle)>,
     early_cancels: VecDeque<String>,
     minipro_path: Option<PathBuf>,
+    algorithm_path: Option<PathBuf>,
     bundled: Bundled,
     build: MiniproBuild,
 }
@@ -130,6 +132,18 @@ impl DeviceOps {
     /// Set (or, with `None`, clear) the minipro path override.
     pub fn set_minipro_path(&self, path: Option<PathBuf>) {
         self.lock().minipro_path = path.filter(|p| !p.as_os_str().is_empty());
+    }
+
+    /// The `algorithm.xml` chosen in the app for a T76, if any.
+    pub fn algorithm_path(&self) -> Option<PathBuf> {
+        self.lock().algorithm_path.clone()
+    }
+
+    /// Set (or, with `None`, clear) the T76's algorithm file. It's the
+    /// user's own copy of XGecu's file, read where it lies: burnwright
+    /// doesn't copy, ship or download it.
+    pub fn set_algorithm_path(&self, path: Option<PathBuf>) {
+        self.lock().algorithm_path = path.filter(|p| !p.as_os_str().is_empty());
     }
 
     /// Record where the installer put minipro.
@@ -251,6 +265,22 @@ mod tests {
         assert_eq!(ops.lock().early_cancels.len(), EARLY_CANCELS);
         let (_g, handle) = ops.begin("id0".into()).unwrap();
         assert!(!handle.is_cancelled(), "oldest entry was dropped");
+    }
+
+    #[test]
+    fn algorithm_path_setting() {
+        let ops = DeviceOps::default();
+        assert_eq!(ops.algorithm_path(), None);
+        ops.set_algorithm_path(Some("/home/me/algorithm.xml".into()));
+        assert_eq!(
+            ops.algorithm_path(),
+            Some(PathBuf::from("/home/me/algorithm.xml"))
+        );
+        ops.set_algorithm_path(Some(PathBuf::new()));
+        assert_eq!(ops.algorithm_path(), None);
+        ops.set_algorithm_path(Some("/x".into()));
+        ops.set_algorithm_path(None);
+        assert_eq!(ops.algorithm_path(), None);
     }
 
     #[test]

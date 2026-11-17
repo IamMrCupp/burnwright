@@ -15,6 +15,8 @@
 //   replaced or closed away without asking.
 // - The window doesn't close under a running operation: the operation is
 //   stopped first, and a write or erase asks before that.
+// - The T76's algorithm file is the user's own: the screen only ever holds
+//   its path, and hands that to the engine.
 import {
   errorMessage,
   isEngineError,
@@ -39,12 +41,14 @@ import {
   writeOutcome,
 } from "./messages";
 import type { RecentStore } from "./recent";
+import type { SettingsStore } from "./settings";
 import {
   activeProgrammer,
   bufferSizeCheck,
   initialState,
   lookupKey,
   mutatingOp,
+  needsAlgorithmFile,
   NO_OVERRIDES,
   OP_LABELS,
   operationAvailability,
@@ -64,6 +68,8 @@ export type DeviceEngine = Pick<
   EngineApi,
   | "detect"
   | "diagnoseProgrammer"
+  | "algorithmFile"
+  | "setAlgorithmPath"
   | "searchChips"
   | "chipInfo"
   | "checkChip"
@@ -81,6 +87,8 @@ export interface FileDialogs {
   open(): Promise<string | null>;
   /** `suggested` is a file name or path to start from. */
   save(suggested: string): Promise<string | null>;
+  /** Pick the user's own `algorithm.xml` for a T76. */
+  openAlgorithms(): Promise<string | null>;
 }
 
 export interface DeviceDeps {
@@ -88,6 +96,8 @@ export interface DeviceDeps {
   dialogs: FileDialogs;
   /** Where recent chips are kept between runs. Without one they last for the session. */
   recent?: RecentStore;
+  /** Where settings are kept between runs. Without one they last for the session. */
+  settings?: SettingsStore;
   /**
    * Closes the app's window for good, without asking it again. Called once
    * `requestClose` has said no and the user, or a stopped operation, has
@@ -108,7 +118,10 @@ export class DeviceController {
   private readonly engine: DeviceEngine;
   private readonly dialogs: FileDialogs;
   private readonly recent: RecentStore | undefined;
+  private readonly settings: SettingsStore | undefined;
   private readonly closeWindow: () => void;
+  /** Settles once the remembered algorithm file has been handed to the engine. */
+  private readonly restored: Promise<void>;
 
   /** Cancels the running operation. */
   private abort: AbortController | null = null;
@@ -123,8 +136,10 @@ export class DeviceController {
     this.engine = deps.engine;
     this.dialogs = deps.dialogs;
     this.recent = deps.recent;
+    this.settings = deps.settings;
     this.closeWindow = deps.closeWindow ?? (() => {});
     this.state = initialState(deps.recent?.load() ?? []);
+    this.restored = this.restoreAlgorithmFile();
   }
 
   // --- store -----------------------------------------------------------
@@ -157,9 +172,14 @@ export class DeviceController {
     const before = activeProgrammer(this.state);
     this.dispatch({ type: "detect_started" });
     this.dispatch({ type: "logged", kind: "heading", text: "Detect programmer" });
+    // No operation can start before a detect, so this is where the engine
+    // is sure to have the remembered algorithm file.
+    await this.restored;
     try {
       const device = await this.engine.detect({ onProgress: this.onProgress });
       this.dispatch({ type: "detect_found", device });
+      // The file can come and go between detects; look again each time.
+      if (needsAlgorithmFile(this.state)) await this.refreshAlgorithms();
     } catch (err) {
       if (isNoProgrammer(err)) {
         await this.reportNoProgrammer();
@@ -197,6 +217,81 @@ export class DeviceController {
     const { query, selected } = this.state.chip;
     if (query.trim() !== "") this.search(query);
     if (selected) void this.lookUp(now, selected.name, true);
+  }
+
+  // --- algorithm file --------------------------------------------------
+
+  /** Hand the engine the algorithm file remembered from the last run. */
+  private async restoreAlgorithmFile(): Promise<void> {
+    const path = this.settings?.loadAlgorithmPath() ?? null;
+    if (path === null) return;
+    try {
+      const algorithms = await this.engine.setAlgorithmPath(path);
+      this.dispatch({ type: "algorithms_checked", algorithms });
+    } catch {
+      // The setting stays remembered; the next operation says what's wrong.
+    }
+  }
+
+  /** Ask the engine whether minipro will find an algorithm file. */
+  private async refreshAlgorithms(): Promise<void> {
+    const algorithms = await this.engine.algorithmFile().catch(() => null);
+    this.dispatch({ type: "algorithms_checked", algorithms });
+  }
+
+  /**
+   * Pick the user's own `algorithm.xml` for a T76. burnwright keeps the
+   * path and nothing else: minipro reads the file where it is.
+   */
+  chooseAlgorithmFile = async (): Promise<void> => {
+    if (this.state.running) return;
+    let path: string | null;
+    try {
+      path = await this.dialogs.openAlgorithms();
+    } catch (err) {
+      this.dispatch({
+        type: "logged",
+        kind: "error",
+        text: `Couldn't show the open dialog: ${errorMessage(err)}`,
+      });
+      return;
+    }
+    if (!path) return;
+    if (await this.setAlgorithmFile(path)) {
+      this.dispatch({
+        type: "logged",
+        kind: "note",
+        text: `Algorithm file set to ${path}. T76 operations pass it to minipro.`,
+      });
+    }
+  };
+
+  /** Go back to wherever minipro looks for the file on its own. */
+  clearAlgorithmFile = async (): Promise<void> => {
+    if (this.state.running) return;
+    if (await this.setAlgorithmFile(null)) {
+      this.dispatch({
+        type: "logged",
+        kind: "note",
+        text: "Algorithm file choice cleared. minipro looks for algorithm.xml in its own places.",
+      });
+    }
+  };
+
+  private async setAlgorithmFile(path: string | null): Promise<boolean> {
+    try {
+      const algorithms = await this.engine.setAlgorithmPath(path);
+      this.settings?.saveAlgorithmPath(path);
+      this.dispatch({ type: "algorithms_checked", algorithms });
+      return true;
+    } catch (err) {
+      this.dispatch({
+        type: "logged",
+        kind: "error",
+        text: `Couldn't set the algorithm file: ${plainMessage(err)}`,
+      });
+      return false;
+    }
   }
 
   // --- chip picker -----------------------------------------------------
@@ -611,8 +706,21 @@ export class DeviceController {
         }
       }
     } catch (err) {
-      outcome = failureOutcome(op, chip, err, overrides);
+      outcome = failureOutcome(
+        op,
+        chip,
+        err,
+        overrides,
+        this.state.programmer.device?.programmer ?? null,
+      );
       lostProgrammer = isNoProgrammer(err);
+      // The file went missing, or was never there: let the panel say so too.
+      if (
+        isEngineError(err) &&
+        (err.kind === "missing_algorithms" || err.kind === "unusable_algorithms")
+      ) {
+        await this.refreshAlgorithms();
+      }
       if (
         (op === "verify" || op === "write") &&
         isEngineError(err) &&
