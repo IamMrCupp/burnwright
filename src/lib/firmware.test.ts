@@ -27,7 +27,7 @@ describe("deviceNotices", () => {
     expect(notice.severity).toBe("warning");
     expect(notice.title).toBe("Firmware is out of date");
     expect(notice.detail).toContain(
-      "This T48 runs firmware 00.1.03, and minipro expects 01.1.32.",
+      "This T48 runs firmware 1.03, and minipro expects 1.32. minipro prints these as 00.1.03 and 01.1.32: the first number isn't part of the firmware version.",
     );
     expect(notice.detail).toMatch(/Reads and writes may fail or misbehave/);
     expect(notice.detail).toMatch(/XGecu's firmware file/);
@@ -43,10 +43,45 @@ describe("deviceNotices", () => {
     });
     expect(notice.severity).toBe("info");
     expect(notice.title).toBe("Firmware is newer than minipro expects");
-    expect(notice.detail).toContain(
-      "This T48 runs firmware 00.1.35, and this minipro was written for 01.1.32.",
+    // "00.1.35" beside "01.1.32" reads as older. It's 1.35 against 1.32.
+    expect(notice.detail).toBe(
+      "This T48 runs firmware 1.35, and this minipro was written for 1.32. minipro prints these as 00.1.35 and 01.1.32: the first number isn't part of the firmware version. Nothing to fix. If something misbehaves, try a newer burnwright: it carries a newer minipro.",
     );
-    expect(notice.detail).toMatch(/Nothing to fix/);
+  });
+
+  it("quotes the versions whole when they agree on the first number", () => {
+    const [newer] = deviceNotices({
+      ...t48,
+      programmer: "TL866II+",
+      firmware: "04.2.133",
+      firmware_status: "newer_than_expected",
+      firmware_expected: "04.2.132",
+    });
+    expect(newer.detail).toContain(
+      "This TL866II+ runs firmware 04.2.133, and this minipro was written for 04.2.132. Nothing to fix.",
+    );
+    const [outdated] = deviceNotices({
+      ...t48,
+      programmer: "T76",
+      firmware: "00.1.07",
+      firmware_status: "out_of_date",
+      firmware_expected: "00.1.17",
+    });
+    expect(outdated.detail).toContain(
+      "This T76 runs firmware 00.1.07, and minipro expects 00.1.17. Reads and writes",
+    );
+  });
+
+  it("quotes a version it can't take apart as it is", () => {
+    const [notice] = deviceNotices({
+      ...t48,
+      firmware: "1.35-beta",
+      firmware_status: "newer_than_expected",
+      firmware_expected: "01.1.32",
+    });
+    expect(notice.detail).toContain(
+      "This T48 runs firmware 1.35-beta, and this minipro was written for 01.1.32. Nothing to fix.",
+    );
   });
 
   it("still reads when minipro left out a version", () => {

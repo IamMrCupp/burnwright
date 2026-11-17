@@ -32,7 +32,8 @@ describe("DeviceNotices", () => {
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("Warning");
     expect(alert).toHaveTextContent("Firmware is out of date");
-    expect(alert).toHaveTextContent("minipro expects 01.1.32");
+    expect(alert).toHaveTextContent("minipro expects 1.32");
+    expect(alert).toHaveTextContent("minipro prints these as 00.1.03 and 01.1.32");
     // The support note is there too, but it isn't an alert.
     expect(
       screen.getByRole("heading", { name: /T48 support is not yet complete/ }),
