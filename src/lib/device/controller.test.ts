@@ -570,7 +570,7 @@ describe("operations", () => {
     expect(text).toContain(
       "== Read FLASH32@SOIC8 ==\n$ minipro -p FLASH32@SOIC8 -c code -r -\nFound T48 01.1.32\nChip ID: 0xEF4016  OK\nReading Code...",
     );
-    expect(text).toContain("Read FLASH32@SOIC8 32 bytes from the chip are in the buffer.");
+    expect(text).toContain("Read FLASH32@SOIC8: 32 bytes from the chip are in the buffer.");
     controller.clearLog();
     expect(state().log).toEqual([]);
   });
