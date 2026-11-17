@@ -23,15 +23,23 @@
 //! `op_id`, run alongside a device operation, and work with nothing plugged
 //! in. The lists live in a Tauri-managed [`ChipCatalog`].
 //!
+//! A T76 needs XGecu's `algorithm.xml` before it can work on a chip, and
+//! burnwright never supplies it. [`set_algorithm_path`] points minipro at the
+//! user's own copy for T76 operations; [`algorithm_file`] says whether
+//! minipro will find one. An operation that fails for want of it rejects
+//! with `missing_algorithms`, or `unusable_algorithms` when the file has
+//! nothing for the chip.
+//!
 //! The TS mirror of this surface lives in `src/lib/engine.ts`.
 
 use std::path::PathBuf;
 
 use engine::diagnose::Diagnosis;
 use engine::{
-    ChipCatalog, ChipCheck, ChipInfo, ChipList, ChipSearch, DeviceInfo, DeviceState, Engine,
-    EngineError, EngineResult, ImageFormat, MemoryKind, MiniproBuild, MiniproEngine, MiniproRoutes,
-    MiniproSource, OpContext, Overrides, Programmer, ProgressEvent,
+    AlgorithmFile, AlgorithmSearch, ChipCatalog, ChipCheck, ChipInfo, ChipList, ChipSearch,
+    DeviceInfo, DeviceState, Engine, EngineError, EngineResult, ImageFormat, MemoryKind,
+    MiniproBuild, MiniproEngine, MiniproRoutes, MiniproSource, OpContext, Overrides, Programmer,
+    ProgressEvent,
 };
 use serde::Serialize;
 use tauri::State;
@@ -44,8 +52,9 @@ use crate::ops::DeviceOps;
 pub struct CommandError {
     /// Machine-readable kind: `minipro`, `no_programmer`, `minipro_not_found`,
     /// `verify_failed`, `chip_id_mismatch`, `size_mismatch`, `invalid_input`,
-    /// `unknown_chip`, `missing_database`, `unsupported_programmer`, `busy`,
-    /// `cancelled` or `not_implemented`.
+    /// `unknown_chip`, `missing_database`, `missing_algorithms`,
+    /// `unusable_algorithms`, `unsupported_programmer`, `busy`, `cancelled`
+    /// or `not_implemented`.
     pub kind: &'static str,
     /// Human-readable message.
     pub message: String,
@@ -66,6 +75,8 @@ impl From<EngineError> for CommandError {
             EngineError::InvalidInput(_) => ("invalid_input", None),
             EngineError::UnknownChip(_) => ("unknown_chip", None),
             EngineError::MissingDatabase(_) => ("missing_database", None),
+            EngineError::MissingAlgorithms(_) => ("missing_algorithms", None),
+            EngineError::UnusableAlgorithms(_) => ("unusable_algorithms", None),
             EngineError::UnsupportedProgrammer(_) => ("unsupported_programmer", None),
             EngineError::Busy => ("busy", None),
             EngineError::Cancelled { device_state, .. } => ("cancelled", Some(*device_state)),
@@ -81,7 +92,8 @@ impl From<EngineError> for CommandError {
 type CommandResult<T> = Result<T, CommandError>;
 
 /// Run one device operation: find minipro (the build the last detected
-/// programmer needs), claim the programmer, then run `op` on a blocking
+/// programmer needs, pointed at the user's algorithm file when that
+/// programmer is a T76), claim the programmer, then run `op` on a blocking
 /// thread with progress going to `sink` and the checks in `overrides` off.
 async fn run_op<T, S, F>(
     ops: &DeviceOps,
@@ -95,7 +107,7 @@ where
     S: Fn(ProgressEvent) + Send + Sync + 'static,
     F: FnOnce(&MiniproEngine, &OpContext) -> EngineResult<T> + Send + 'static,
 {
-    let binary = locate_routes(ops)?.binary(ops.build()).clone();
+    let binary = locate_routes(ops)?.for_operation(ops.build(), ops.algorithm_path().as_deref());
     let engine = MiniproEngine::new(binary);
     run_blocking(ops, op_id, overrides, sink, move |ctx| op(&engine, ctx)).await
 }
@@ -436,6 +448,37 @@ pub fn set_minipro_path(
     locate(&ops)
 }
 
+/// Whether minipro will find an `algorithm.xml` for a T76, without running
+/// it: the file chosen in the app, or failing that the first of minipro's
+/// own places that has one. Never fails; a minipro whose share directory
+/// burnwright doesn't know just has no `default_path`.
+#[tauri::command]
+pub fn algorithm_file(ops: State<'_, DeviceOps>) -> AlgorithmFile {
+    algorithm_status(&ops)
+}
+
+fn algorithm_status(ops: &DeviceOps) -> AlgorithmFile {
+    // The share directory is only known for a minipro burnwright built.
+    let bundled = ops
+        .locator()
+        .locate_routes()
+        .is_ok_and(|routes| routes.binary(MiniproBuild::T76).source() == MiniproSource::Sidecar);
+    AlgorithmSearch::from_env()
+        .configured(ops.algorithm_path())
+        .share_dir(engine::algorithms::share_dir(bundled))
+        .status()
+}
+
+/// Point T76 operations at the user's own `algorithm.xml` (`None` or `""`
+/// goes back to minipro's own search). The file is passed to minipro as
+/// `--algorithms` and read where it lies; nothing is copied. Returns the new
+/// state. Kept for the session; the frontend remembers it between runs.
+#[tauri::command]
+pub fn set_algorithm_path(ops: State<'_, DeviceOps>, path: Option<String>) -> AlgorithmFile {
+    ops.set_algorithm_path(path.map(PathBuf::from));
+    algorithm_status(&ops)
+}
+
 /// Load an image file (raw `.bin` or Intel HEX) as a flat byte buffer
 /// starting at address 0. `format` defaults to a guess from the extension;
 /// `fill` (default `0xFF`) fills addresses a HEX file leaves out. All parsing
@@ -575,6 +618,97 @@ mod tests {
             CommandError::from(EngineError::UnsupportedProgrammer("T76".into())).kind,
             "unsupported_programmer"
         );
+    }
+
+    #[test]
+    fn algorithm_errors_keep_their_kinds() {
+        let err = CommandError::from(EngineError::MissingAlgorithms(
+            "/usr/local/share/minipro/algorithm.xml: No such file or directory".into(),
+        ));
+        assert_eq!(
+            serde_json::to_value(&err).unwrap(),
+            serde_json::json!({
+                "kind": "missing_algorithms",
+                "message": "minipro can't open the algorithm file: \
+                            /usr/local/share/minipro/algorithm.xml: No such file or directory",
+                "device_state": null,
+            })
+        );
+        let err = CommandError::from(EngineError::UnusableAlgorithms(
+            "No algorithm SPI25F11 was found.".into(),
+        ));
+        assert_eq!(err.kind, "unusable_algorithms");
+        assert_eq!(
+            err.message,
+            "minipro can't use the algorithm file: No algorithm SPI25F11 was found."
+        );
+    }
+
+    #[test]
+    fn run_op_points_only_a_t76_at_the_algorithm_file() {
+        let ops = DeviceOps::default();
+        ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
+        ops.set_algorithm_path(Some("/home/me/algorithm.xml".into()));
+        let seen = |ops: &DeviceOps| {
+            tauri::async_runtime::block_on(run_op(
+                ops,
+                "op".into(),
+                Overrides::default(),
+                |_| {},
+                |engine, _| Ok(engine.binary().algorithms().map(PathBuf::from)),
+            ))
+            .unwrap()
+        };
+        // Nothing detected yet, or a T48: the stable build, and no file.
+        assert_eq!(seen(&ops), None);
+        ops.set_build(MiniproBuild::T76);
+        assert_eq!(seen(&ops), Some(PathBuf::from("/home/me/algorithm.xml")));
+        ops.set_algorithm_path(None);
+        assert_eq!(seen(&ops), None);
+    }
+
+    #[test]
+    fn the_algorithm_file_status_follows_the_setting() {
+        let dir = std::env::temp_dir().join(format!("burnwright-alg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // An empty stand-in: only its presence is looked at.
+        let file = dir.join("algorithm.xml");
+        std::fs::write(&file, b"").unwrap();
+
+        let ops = DeviceOps::default();
+        ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
+        ops.set_algorithm_path(Some(file.clone()));
+        let status = algorithm_status(&ops);
+        assert_eq!(status.configured, Some(file.clone()));
+        assert_eq!(status.found, Some(file.clone()));
+        assert!(!status.is_missing());
+
+        std::fs::remove_file(&file).unwrap();
+        let status = algorithm_status(&ops);
+        assert_eq!(status.configured, Some(file));
+        assert_eq!(status.found, None);
+        assert!(status.is_missing(), "a chosen file that's gone is missing");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_bundled_t76_minipro_has_a_known_default_path() {
+        let ops = bundled_ops();
+        if !runs_the_bundled_minipro(&ops) || cfg!(windows) {
+            eprintln!("skipped: not the bundled minipro on Linux or macOS");
+            return;
+        }
+        if std::env::var_os(engine::algorithms::MINIPRO_HOME_ENV).is_some() {
+            eprintln!("skipped: MINIPRO_HOME is set");
+            return;
+        }
+        assert_eq!(
+            algorithm_status(&ops).default_path,
+            Some(PathBuf::from("/usr/local/share/minipro/algorithm.xml"))
+        );
+        // A minipro of the user's own was built with a prefix of its own.
+        ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
+        assert_eq!(algorithm_status(&ops).default_path, None);
     }
 
     #[test]
