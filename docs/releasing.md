@@ -86,10 +86,17 @@ signed first:
 
 1. `scripts/macos/signing.sh setup` imports the certificate into a temporary keychain and writes the API key to a file, both under `$RUNNER_TEMP`.
 2. Tauri's bundler signs `Contents/MacOS/burnwright-minipro` (the sidecar), then the app binary, then `burnwright.app` — hardened runtime on, secure timestamp from Apple. It notarizes the `.app`, staples the ticket to it, builds the `.dmg` around it and signs that.
-3. `scripts/macos/notarize-dmg.sh` notarizes and staples the `.dmg`. Tauri stops at signing it, and an unstapled disk image can't prove itself on a Mac that's offline. Every `stapler` call, here and in step 5, goes through `scripts/macos/stapler.sh`: `stapler` asks Apple for the ticket, that lookup sometimes drops its connection on a build Apple just accepted, and the script tries up to six times before it gives up.
+3. `scripts/macos/notarize-dmg.sh` notarizes and staples the `.dmg`. Tauri stops at signing it, and an unstapled disk image can't prove itself on a Mac that's offline.
 4. `scripts/macos/signing.sh cleanup` deletes the keychain and the key file — before the verification steps, and even when an earlier step failed.
 5. `scripts/macos/verify-signing.sh` runs the checks under [Check a release](#check-a-release-is-signed-and-notarized) and fails the job if any of them do.
 6. Only then is the `.dmg` uploaded to the release. A build that fails notarization never reaches users.
+
+**Stapling is retried.** `stapler` asks Apple's ticket server for the ticket, and on a build Apple has just accepted that lookup sometimes drops its connection. On the Intel runner it did so in most of the first signed builds. So every `stapler` call goes through `scripts/macos/stapler.sh`, which tries up to six times:
+
+- Ours, in steps 3 and 5, call it directly.
+- Tauri's, in step 2, can't be changed, and Tauri ignores it when that call fails: the build carries on with an unstapled `.app` in the `.dmg`. The workflow puts `scripts/macos/shim/xcrun` first on `PATH` for a signed build. It hands `xcrun stapler` to `stapler.sh` and passes every other `xcrun` call straight through.
+
+If stapling still fails, step 5 fails the job and nothing is uploaded. Re-running the failed job from the Actions page is safe: it rebuilds, notarizes again and uploads only that platform's `.dmg`, then `SHA256SUMS`.
 
 **No entitlements file.** The hardened runtime gates things like JIT, unsigned
 executable memory and loading other people's libraries. burnwright needs none of

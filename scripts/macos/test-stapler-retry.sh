@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Test what the release does when Apple's ticket lookup fails: stapler.sh
-# tries again and gives up after six tries, notarize-dmg.sh goes through it
-# and never staples a dmg Apple rejected, and no script calls stapler without
-# it. Apple's tools are replaced with stand-ins, so this runs anywhere bash
-# does (CI runs it on Linux); needs no secrets and no macOS.
+# tries again and gives up after six tries, shim/xcrun sends Tauri's stapler
+# call through it, notarize-dmg.sh goes through it and never staples a dmg
+# Apple rejected, and no script calls stapler without it. Apple's tools are
+# replaced with stand-ins, so this runs anywhere bash does (CI runs it on
+# Linux); needs no secrets and no macOS.
 #
 #   scripts/macos/test-stapler-retry.sh
 set -euo pipefail
@@ -18,12 +19,13 @@ mkdir "$work/bin"
 
 # xcrun: `notarytool submit` answers with $NOTARY_STATUS, `stapler staple`
 # fails $STAPLE_FAILURES times before it works, `stapler validate` fails
-# $VALIDATE_FAILURES times, and every call is logged.
+# $VALIDATE_FAILURES times (or, with $NO_TICKET set, always says there's no
+# ticket), and every call is logged with all its arguments.
 cat > "$work/bin/xcrun" <<'EOF'
 #!/usr/bin/env bash
-echo "$1 $2" >> "$CALLS"
+echo "$*" >> "$CALLS"
 flaky() {
-  if [ "$(grep -c "^$1\$" "$CALLS")" -le "$2" ]; then
+  if [ "$(grep -c "^$1 " "$CALLS")" -le "$2" ]; then
     echo "The $3 action failed! Error 68." >&2
     exit 68
   fi
@@ -32,7 +34,12 @@ case "$1 $2" in
   "notarytool submit") echo "{\"status\":\"$NOTARY_STATUS\",\"id\":\"1234\"}" ;;
   "notarytool log") echo "the notary log" ;;
   "stapler staple") flaky "stapler staple" "$STAPLE_FAILURES" "staple and validate" ;;
-  "stapler validate") flaky "stapler validate" "$VALIDATE_FAILURES" validate ;;
+  "stapler validate")
+    if [ -n "${NO_TICKET:-}" ]; then
+      echo "test.dmg does not have a ticket stapled to it."
+      exit 73
+    fi
+    flaky "stapler validate" "$VALIDATE_FAILURES" validate ;;
   *) echo "unexpected xcrun $*" >&2; exit 2 ;;
 esac
 EOF
@@ -53,78 +60,116 @@ chmod +x "$work/bin/"*
 : > "$work/test.dmg"
 echo key > "$work/key.p8"
 
-# run <staple failures> <validate failures> <notary status> <script> <args...>:
-# sets $rc and $log; $work/calls and $work/sleeps are what the script asked
-# Apple's tools and sleep for.
+# run <staple failures> <validate failures> <notary status> <command...>: runs
+# the command in $work with the stand-ins on PATH ($path_first goes before
+# them). Sets $rc and $log; $work/calls and $work/sleeps are what was asked of
+# Apple's tools and of sleep.
+path_first=""
+no_ticket=""
 run() {
-  local staple_failures="$1" validate_failures="$2" notary_status="$3" script="$4"
-  shift 4
+  local staple_failures="$1" validate_failures="$2" notary_status="$3"
+  shift 3
   : > "$work/calls"; : > "$work/sleeps"
   rc=0
-  log="$(env -i PATH="$work/bin:$PATH" CALLS="$work/calls" SLEEPS="$work/sleeps" \
-    NOTARY_STATUS="$notary_status" STAPLE_FAILURES="$staple_failures" \
-    VALIDATE_FAILURES="$validate_failures" \
+  log="$(cd "$work" && env -i PATH="$path_first$work/bin:$PATH" CALLS="$work/calls" \
+    SLEEPS="$work/sleeps" NOTARY_STATUS="$notary_status" NO_TICKET="$no_ticket" \
+    STAPLE_FAILURES="$staple_failures" VALIDATE_FAILURES="$validate_failures" \
     APPLE_API_KEY=id APPLE_API_ISSUER=issuer APPLE_API_KEY_PATH="$work/key.p8" \
-    bash "$here/$script" "$@" 2>&1)" || rc=$?
+    "$@" 2>&1)" || rc=$?
 }
 
-count() { grep -c "^$1\$" "$work/calls" || true; }
+count() { grep -c "^$1 " "$work/calls" || true; }
 sleeps() { tr '\n' ' ' < "$work/sleeps"; }
 
 # stapler.sh on its own.
-run 0 0 - stapler.sh staple "$work/test.dmg"
+run 0 0 - "$here/stapler.sh" staple "$work/test.dmg"
 [ "$rc" -eq 0 ] || fail "first try: exited $rc: $log"
 [ "$(count 'stapler staple')" = 1 ] || fail "first try: stapled $(count 'stapler staple') times"
 [ ! -s "$work/sleeps" ] || fail "first try: waited anyway"
 echo "ok: staple works first time -> one try, no wait"
 
-run 2 0 - stapler.sh staple "$work/test.dmg"
+run 2 0 - "$here/stapler.sh" staple "$work/test.dmg"
 [ "$rc" -eq 0 ] || fail "two failures: exited $rc: $log"
 [ "$(count 'stapler staple')" = 3 ] || fail "two failures: stapled $(count 'stapler staple') times"
 [ "$(sleeps)" = "15 30 " ] || fail "two failures: waited '$(sleeps)'"
 echo "ok: staple fails twice -> third try works"
 
-run 0 1 - stapler.sh validate "$work/test.dmg"
+run 0 1 - "$here/stapler.sh" validate "$work/test.dmg"
 [ "$rc" -eq 0 ] || fail "validate failure: exited $rc: $log"
 [ "$(count 'stapler validate')" = 2 ] || fail "validate failure: validated $(count 'stapler validate') times"
 [ "$(count 'stapler staple')" = 0 ] || fail "validate failure: stapled"
 echo "ok: validate fails once -> second try works"
 
-run 99 0 - stapler.sh staple "$work/test.dmg"
+run 99 0 - "$here/stapler.sh" staple "$work/test.dmg"
 [ "$rc" -ne 0 ] || fail "always failing: should have failed"
 [ "$(count 'stapler staple')" = 6 ] || fail "always failing: stapled $(count 'stapler staple') times"
 [ "$(sleeps)" = "15 30 45 60 75 " ] || fail "always failing: waited '$(sleeps)'"
 grep -q "stapler staple failed 6 times on test.dmg" <<<"$log" || fail "always failing: unexpected error: $log"
 echo "ok: staple never works -> gives up after six tries"
 
-run 0 0 - stapler.sh frobnicate "$work/test.dmg"
+no_ticket=1
+run 0 0 - "$here/stapler.sh" validate "$work/test.dmg"
+no_ticket=""
+[ "$rc" -ne 0 ] || fail "no ticket: should have failed"
+[ "$(count 'stapler validate')" = 1 ] || fail "no ticket: validated $(count 'stapler validate') times"
+[ ! -s "$work/sleeps" ] || fail "no ticket: waited '$(sleeps)'"
+grep -q "test.dmg has no ticket stapled to it" <<<"$log" || fail "no ticket: unexpected error: $log"
+echo "ok: validate says there's no ticket -> fails at once, no retry"
+
+run 0 0 - "$here/stapler.sh" frobnicate "$work/test.dmg"
 [ "$rc" -ne 0 ] || fail "bad action: should have failed"
 [ ! -s "$work/calls" ] || fail "bad action: ran $(cat "$work/calls")"
 echo "ok: an action that isn't staple or validate -> refused"
 
 # notarize-dmg.sh goes through it.
-run 1 1 Accepted notarize-dmg.sh "$work/test.dmg"
+run 1 1 Accepted "$here/notarize-dmg.sh" "$work/test.dmg"
 [ "$rc" -eq 0 ] || fail "notarize: exited $rc: $log"
 [ "$(count 'notarytool submit')" = 1 ] || fail "notarize: submitted $(count 'notarytool submit') times"
 [ "$(count 'stapler staple')" = 2 ] || fail "notarize: stapled $(count 'stapler staple') times"
 [ "$(count 'stapler validate')" = 2 ] || fail "notarize: validated $(count 'stapler validate') times"
 echo "ok: notarize-dmg.sh, staple and validate each fail once -> notarized once, both retried"
 
-run 99 0 Accepted notarize-dmg.sh "$work/test.dmg"
+run 99 0 Accepted "$here/notarize-dmg.sh" "$work/test.dmg"
 [ "$rc" -ne 0 ] || fail "notarize, always failing: should have failed"
 [ "$(count 'stapler validate')" = 0 ] || fail "notarize, always failing: validated an unstapled dmg"
 echo "ok: notarize-dmg.sh, staple never works -> fails without validating"
 
-run 0 0 Invalid notarize-dmg.sh "$work/test.dmg"
+run 0 0 Invalid "$here/notarize-dmg.sh" "$work/test.dmg"
 [ "$rc" -ne 0 ] || fail "rejected: should have failed"
 [ "$(count 'stapler staple')" = 0 ] || fail "rejected: stapled a dmg Apple rejected"
 [ "$(count 'notarytool log')" = 1 ] || fail "rejected: didn't fetch the notary log"
 grep -q 'status "Invalid"' <<<"$log" || fail "rejected: unexpected error: $log"
 echo "ok: notarize-dmg.sh, Apple rejects the dmg -> no stapling, notary log fetched"
 
+# shim/xcrun first on PATH, the way the release workflow has it while Tauri
+# builds. Tauri runs `xcrun stapler staple -v burnwright.app` from the folder
+# the app is in.
+path_first="$here/shim:"
+run 2 0 - xcrun stapler staple -v test.dmg
+[ "$rc" -eq 0 ] || fail "shim: exited $rc: $log"
+[ "$(count 'stapler staple')" = 3 ] || fail "shim: stapled $(count 'stapler staple') times"
+[ "$(sleeps)" = "15 30 " ] || fail "shim: waited '$(sleeps)'"
+grep -qx "stapler staple -v test.dmg" "$work/calls" || fail "shim: changed the arguments: $(cat "$work/calls")"
+echo "ok: shim, Tauri's staple fails twice -> third try works, arguments kept"
+
+run 0 0 Accepted xcrun notarytool submit test.dmg --wait
+[ "$rc" -eq 0 ] || fail "shim passthrough: exited $rc: $log"
+grep -qx "notarytool submit test.dmg --wait" "$work/calls" || fail "shim passthrough: got $(cat "$work/calls")"
+grep -q '"status":"Accepted"' <<<"$log" || fail "shim passthrough: lost the output: $log"
+echo "ok: shim, anything else -> straight through to the real xcrun"
+
+# Our own scripts with the shim still on PATH: one layer of retries, not two.
+run 1 1 Accepted "$here/notarize-dmg.sh" "$work/test.dmg"
+[ "$rc" -eq 0 ] || fail "notarize behind the shim: exited $rc: $log"
+[ "$(count 'stapler staple')" = 2 ] || fail "notarize behind the shim: stapled $(count 'stapler staple') times"
+[ "$(count 'stapler validate')" = 2 ] || fail "notarize behind the shim: validated $(count 'stapler validate') times"
+[ "$(sleeps)" = "15 15 " ] || fail "notarize behind the shim: waited '$(sleeps)'"
+echo "ok: notarize-dmg.sh with the shim on PATH -> still one layer of retries"
+path_first=""
+
 # verify-signing.sh needs a Mac and a signed build, so it can't run here.
 # What can be checked: nothing calls stapler behind stapler.sh's back.
-direct="$(grep -n '^[^#]*xcrun stapler' "$here"/*.sh | grep -v "^$here/stapler.sh:" | grep -v "^$here/test-stapler-retry.sh:" || true)"
+direct="$(grep -n '^[^#]*xcrun stapler' "$here"/*.sh | grep -v "^$here/test-stapler-retry.sh:" || true)"
 [ -z "$direct" ] || fail "calls stapler without stapler.sh: $direct"
 echo "ok: every stapler call goes through stapler.sh"
 
