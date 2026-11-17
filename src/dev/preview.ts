@@ -9,11 +9,14 @@
 //
 // `?programmer=none` starts with nothing plugged in, `?programmer=t76` or
 // `tl866ii` with another model, and `?firmware=old` with out-of-date
-// firmware.
+// firmware. The pretend T76 has no algorithm file until one is chosen
+// ("Choose file…" picks a pretend one; `?algorithms=installed` starts with
+// one where minipro looks).
 import type { DeviceDeps } from "../lib/device/controller";
 import { recentStore } from "../lib/device/recent";
+import { settingsStore } from "../lib/device/settings";
 import type { AppInfo, DeviceInfo } from "../lib/engine";
-import { createFakeEngine } from "./fakeEngine";
+import { createFakeEngine, FAKE_ALGORITHM_DEFAULT } from "./fakeEngine";
 
 const SIZE = 4 * 1024 * 1024;
 
@@ -61,6 +64,8 @@ export function previewSetup(): {
     },
     stepMs: 120,
     steps: 20,
+    algorithmFile: params.get("algorithms") === "installed" ? FAKE_ALGORITHM_DEFAULT : null,
+    algorithmFiles: ["/preview/xgecu/algorithm.xml"],
   });
   let opens = 0;
   return {
@@ -71,8 +76,10 @@ export function previewSetup(): {
         // and a short one.
         open: async () => (opens++ % 2 === 0 ? "/preview/firmware.bin" : "/preview/short.bin"),
         save: async (suggested) => `/preview/${suggested.split("/").pop()}`,
+        openAlgorithms: async () => "/preview/xgecu/algorithm.xml",
       },
       recent: recentStore(window.localStorage),
+      settings: settingsStore(window.localStorage),
     },
     loadAppInfo: async () => ({
       version: "preview",

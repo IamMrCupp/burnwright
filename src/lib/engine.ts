@@ -18,6 +18,12 @@
 // to say whose list to use. The lists are cached in the Rust side, so
 // `searchChips` is safe to call on every keystroke.
 //
+// A T76 needs XGecu's `algorithm.xml` (FPGA bitstreams from the Xgpro
+// package) before it can work on a chip. burnwright never ships or downloads
+// it. `setAlgorithmPath` points minipro at the user's own copy,
+// `algorithmFile` says whether minipro will find one, and an operation that
+// fails for want of it rejects with `missing_algorithms`.
+//
 // Device and chip commands reject with an `EngineError` object. The image
 // commands (loadImage, saveImage) still reject with a plain string.
 import { Channel, invoke } from "@tauri-apps/api/core";
@@ -282,6 +288,17 @@ export type EngineErrorKind =
   | "unknown_chip"
   /** minipro couldn't read `infoic.xml` / `logicic.xml`; the message has the path. */
   | "missing_database"
+  /**
+   * A T76 (or T56) operation stopped because minipro couldn't open
+   * `algorithm.xml`. The message has the path it tried. Nothing on the chip
+   * changed.
+   */
+  | "missing_algorithms"
+  /**
+   * minipro opened the algorithm file and found no usable bitstream for the
+   * chip in it. The message has minipro's line. Nothing on the chip changed.
+   */
+  | "unusable_algorithms"
   /** This minipro doesn't know the `Programmer` asked for (the T76, when a minipro 0.7.4 is the one in use). */
   | "unsupported_programmer"
   | "busy"
@@ -300,6 +317,33 @@ export interface EngineError {
 export interface MiniproLocation {
   path: string;
   source: "configured" | "env" | "sidecar" | "path" | "explicit";
+}
+
+/**
+ * Where the T76's `algorithm.xml` stands (mirrors `engine::AlgorithmFile`).
+ * It's XGecu's file: burnwright reads the user's own copy where it lies.
+ */
+export interface AlgorithmFile {
+  /** The file chosen in the app, passed to minipro as `--algorithms`. */
+  configured: string | null;
+  /**
+   * The file minipro will open. `null` with `configured` set: that file is
+   * gone. `null` otherwise: none of minipro's own places has one.
+   */
+  found: string | null;
+  /**
+   * Where minipro looks when no file is chosen. `null` when burnwright can't
+   * know, which is the case for a minipro it didn't build.
+   */
+  default_path: string | null;
+}
+
+/**
+ * Whether a T76 chip operation is sure to fail for want of the file. `false`
+ * when there is one, and when burnwright can't tell where minipro looks.
+ */
+export function algorithmFileMissing(file: AlgorithmFile): boolean {
+  return file.found === null && (file.configured !== null || file.default_path !== null);
 }
 
 /** OS a diagnosis ran on (mirrors `engine::diagnose::HostOs`). */
@@ -523,6 +567,15 @@ export const engine = {
    */
   setMiniproPath: (path: string | null): Promise<MiniproLocation> =>
     invoke("set_minipro_path", { path }),
+  /** Whether minipro will find an `algorithm.xml` for a T76. Never rejects. */
+  algorithmFile: (): Promise<AlgorithmFile> => invoke("algorithm_file"),
+  /**
+   * Point T76 operations at the user's own `algorithm.xml` for this session
+   * (`null` goes back to minipro's own search). The file is read where it
+   * is; nothing is copied. Resolves to the new state.
+   */
+  setAlgorithmPath: (path: string | null): Promise<AlgorithmFile> =>
+    invoke("set_algorithm_path", { path }),
   /**
    * Ask the OS why no programmer was found: which known programmers are on
    * USB, and what's in the way of each. Call it after `detect` rejects with
