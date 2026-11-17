@@ -109,6 +109,10 @@ fn main() {
             a_wrong_chip_id_stops_the_operation_with_its_own_error,
         ),
         (
+            "text_minipro_would_decode_never_reaches_it",
+            text_minipro_would_decode_never_reaches_it,
+        ),
+        (
             "every_run_reports_its_command_line",
             every_run_reports_its_command_line,
         ),
@@ -683,6 +687,26 @@ fn overrides_pass_minus_y_and_minus_s() {
             args(&["-p", PART, "-y", "-E"]),
         ]
     );
+}
+
+fn text_minipro_would_decode_never_reaches_it() {
+    let fake = Fake::new("text-image").fixture("tl866ii_write_verify.stderr");
+    let engine = fake.engine();
+    let ctx = OpContext::new();
+    for image in [
+        &b":0100000041BE\n:00000001FF\n"[..],
+        &b"S1040000410FAB\nS9030000FC\n"[..],
+    ] {
+        let err = engine
+            .write(PART, MemoryKind::Code, image, &ctx)
+            .unwrap_err();
+        assert!(matches!(err, EngineError::InvalidInput(_)), "{err:?}");
+        let err = engine
+            .verify(PART, MemoryKind::Code, image, &ctx)
+            .unwrap_err();
+        assert!(matches!(err, EngineError::InvalidInput(_)), "{err:?}");
+    }
+    assert_eq!(fake.calls(), Vec::<Vec<String>>::new(), "minipro was run");
 }
 
 fn a_wrong_chip_id_stops_the_operation_with_its_own_error() {

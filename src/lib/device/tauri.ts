@@ -5,7 +5,10 @@ import { engine } from "../engine";
 import type { DeviceDeps, FileDialogs } from "./controller";
 import { recentStore } from "./recent";
 
-/** The extensions `engine.loadImage` reads as Intel HEX; anything else is raw. */
+/**
+ * The extensions offered first. `engine.loadImage` goes by what a file
+ * holds, not only its name: Intel HEX is decoded whatever it's called.
+ */
 const IMAGE_FILTERS = [
   { name: "Chip images", extensions: ["bin", "rom", "hex", "ihx", "ihex", "h86"] },
   { name: "All files", extensions: ["*"] },
