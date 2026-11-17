@@ -3,7 +3,7 @@ import ReactDOM from "react-dom/client";
 import { isTauri } from "@tauri-apps/api/core";
 import App, { type AppProps } from "./App";
 import { DeviceController } from "./lib/device/controller";
-import { tauriDeps } from "./lib/device/tauri";
+import { guardWindowClose, tauriDeps } from "./lib/device/tauri";
 import { engine } from "./lib/engine";
 
 async function setup(): Promise<AppProps> {
@@ -14,7 +14,9 @@ async function setup(): Promise<AppProps> {
     const { deps, loadAppInfo } = previewSetup();
     return { controller: new DeviceController(deps), loadAppInfo };
   }
-  return { controller: new DeviceController(tauriDeps()), loadAppInfo: engine.appInfo };
+  const controller = new DeviceController(tauriDeps());
+  guardWindowClose(controller);
+  return { controller, loadAppInfo: engine.appInfo };
 }
 
 void setup().then((props) => {
