@@ -103,7 +103,7 @@ come out of the Xgpro package — so burnwright doesn't ship the file, doesn't
 download it, and never will. You bring your own copy.
 
 Without it, burnwright still finds the T76 and searches its chip list. Every
-operation on a chip fails before it reaches the chip, and burnwright says why
+operation on a chip fails before anything is read or written, and burnwright says why
 instead of passing on minipro's "An error occurred while sending bitstream."
 The Programmer panel also warns as soon as a T76 is detected with no file in
 sight.

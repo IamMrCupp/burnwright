@@ -82,7 +82,10 @@ What burnwright does with that:
   `missing_algorithms` and the path minipro tried. When it opens the file and
   finds no usable bitstream for the chip ("No algorithm SPI25F11 was found.",
   a parse error, a bad CRC), it fails with `unusable_algorithms`. Both come
-  before anything is sent to the chip. minipro's own last line in either
+  before any read or write. That isn't the same as the socket being left
+  alone: for NAND and eMMC parts minipro powers the socket adapter and runs
+  pin detection before it looks for the algorithm (`t76_adapter_init()` and
+  `t76_emmc_adapter_init()` in `t76.c`). minipro's own last line in either
   case is "An error occurred while sending bitstream.", which it also prints
   for a real USB failure, so burnwright goes by the lines above it
   (`crates/engine/src/algorithms.rs`).
@@ -97,8 +100,9 @@ pairs Xgpro T76 V13.19 with firmware 00.1.17, and says a mismatch shows up as
 a bad or empty chip ID.
 
 The fixtures for this (`crates/engine/fixtures/minipro/t76_algorithm_*.stderr`)
-were captured from a real T76 with `capture-t76-algorithm.sh`. Each run fails
-before minipro touches the socket, and none of them involves an XGecu file:
+were captured from a real T76 with `capture-t76-algorithm.sh`. Each run is a
+chip ID read of an SPI flash part, which has no adapter step, so it fails
+before minipro touches the socket. None of them involves an XGecu file:
 the "unusable" one hands minipro its own `logicic.xml`.
 
 The T56 loads bitstreams from `algorithm.xml` too, under the stable build,
