@@ -13,12 +13,12 @@ import { recentStore } from "./recent";
 import {
   activeProgrammer,
   bufferSizeCheck,
-  hasUnsavedEdits,
   logText,
   lookupFor,
   operationAvailability,
   selectedInfo,
   selectedLookup,
+  unsavedBuffer,
 } from "./state";
 
 // Small chips, so the tests move bytes, not megabytes.
@@ -331,7 +331,7 @@ describe("buffer", () => {
       source: { kind: "file", path: "/tmp/image.bin" },
       path: "/tmp/image.bin",
     });
-    expect(hasUnsavedEdits(state().buffer)).toBe(false);
+    expect(unsavedBuffer(state().buffer)).toBeNull();
   });
 
   it("leaves the buffer alone when the open dialog is dismissed", async () => {
@@ -360,11 +360,11 @@ describe("buffer", () => {
     dialogs.open.mockResolvedValue("/a.bin");
     await controller.openFile();
     controller.editBuffer(bytes(9, 1, 2, 3), true);
-    expect(hasUnsavedEdits(state().buffer)).toBe(true);
+    expect(unsavedBuffer(state().buffer)).toBe("edits");
     await controller.save();
     expect(dialogs.save).not.toHaveBeenCalled();
     expect(fake.saved["/a.bin"]).toEqual(bytes(9, 1, 2, 3));
-    expect(hasUnsavedEdits(state().buffer)).toBe(false);
+    expect(unsavedBuffer(state().buffer)).toBeNull();
 
     await ready("EEPROM16");
     controller.run("read");
@@ -395,7 +395,7 @@ describe("buffer", () => {
     await controller.save();
     // Undo: the bytes are the originals again, which the file no longer holds.
     controller.editBuffer(ramp(4), false);
-    expect(hasUnsavedEdits(state().buffer)).toBe(true);
+    expect(unsavedBuffer(state().buffer)).toBe("edits");
   });
 
   it("asks before a file replaces unsaved edits", async () => {
@@ -1114,7 +1114,7 @@ describe("reading over edits", () => {
     controller.confirm();
     await idle();
     expect(state().buffer?.bytes).toEqual(ramp(16));
-    expect(hasUnsavedEdits(state().buffer)).toBe(false);
+    expect(unsavedBuffer(state().buffer)).toBe("read");
   });
 });
 
@@ -1230,7 +1230,7 @@ describe("files and operations keep out of each other's way", () => {
     await saving;
     expect(fake.saved["/b.bin"]).toEqual(edited);
     expect(state().fileBusy).toBeNull();
-    expect(hasUnsavedEdits(state().buffer)).toBe(false);
+    expect(unsavedBuffer(state().buffer)).toBeNull();
     expect(fake.calls.some((c) => c.command === "read")).toBe(false);
   });
 
@@ -1276,5 +1276,88 @@ describe("files and operations keep out of each other's way", () => {
     edited[1] = 0x55;
     controller.editBuffer(edited, true);
     expect(state().outcome).toBeNull();
+  });
+});
+
+describe("a chip read that isn't in a file", () => {
+  const context = { size: { status: "none" } as const, bufferLength: 16, availability: null };
+
+  it("asks before another read replaces it, edited or not", async () => {
+    const { controller, state, ready, idle, fake } = setup({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+    expect(unsavedBuffer(state().buffer)).toBe("read");
+
+    controller.run("read");
+    expect(state().running).toBeNull();
+    expect(state().confirm).toEqual({
+      kind: "replace_buffer",
+      by: "read",
+      unsaved: "read",
+      overrides: { ignoreChipId: false, ignoreSize: false },
+    });
+    expect(confirmCopy(state().confirm!, context).paragraphs).toEqual([
+      "The buffer holds a chip read that hasn't been saved to a file. Reading the chip replaces it.",
+    ]);
+    controller.dismissConfirm();
+    expect(fake.calls.filter((c) => c.command === "read")).toHaveLength(1);
+
+    // Edits on top of it don't make it any more saved.
+    const edited = ramp(16);
+    edited[3] = 0x11;
+    controller.editBuffer(edited, true);
+    expect(unsavedBuffer(state().buffer)).toBe("read");
+    controller.run("read");
+    controller.confirm();
+    await idle();
+    expect(fake.calls.filter((c) => c.command === "read")).toHaveLength(2);
+    expect(state().buffer?.bytes).toEqual(ramp(16));
+  });
+
+  it("asks before a file replaces it", async () => {
+    const { controller, state, ready, idle, dialogs } = setup({
+      files: { "/a.bin": ramp(4) },
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+    dialogs.open.mockResolvedValue("/a.bin");
+
+    await controller.openFile();
+    expect(dialogs.open).not.toHaveBeenCalled();
+    expect(state().confirm).toMatchObject({ kind: "replace_buffer", by: "file", unsaved: "read" });
+    expect(confirmCopy(state().confirm!, context).paragraphs).toEqual([
+      "The buffer holds a chip read that hasn't been saved to a file. Opening a file replaces it.",
+    ]);
+    controller.dismissConfirm();
+    expect(state().buffer?.bytes).toEqual(ramp(16));
+
+    await controller.openFile();
+    controller.confirm();
+    await soon(() => expect(state().buffer?.bytes).toEqual(ramp(4)));
+  });
+
+  it("stops asking once the read is saved", async () => {
+    const { controller, state, ready, idle, dialogs, fake } = setup({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+    dialogs.save.mockResolvedValue("/out/dump.bin");
+    await controller.save();
+    expect(unsavedBuffer(state().buffer)).toBeNull();
+
+    controller.run("read");
+    expect(state().confirm).toBeNull();
+    await idle();
+    expect(fake.calls.filter((c) => c.command === "read")).toHaveLength(2);
+    // The new read is a new buffer, and isn't in dump.bin.
+    expect(state().buffer?.path).toBeNull();
+    expect(unsavedBuffer(state().buffer)).toBe("read");
   });
 });

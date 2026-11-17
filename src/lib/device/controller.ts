@@ -11,6 +11,8 @@
 // - The buffer goes to minipro as it is. When it isn't the chip's size, the
 //   user is told first, and the size check is only turned off on their say.
 // - Cancelling a write or erase asks first: it leaves the chip half-done.
+// - A chip read that isn't in a file, or edits that aren't, are never
+//   replaced or closed away without asking.
 import {
   errorMessage,
   isEngineError,
@@ -38,7 +40,6 @@ import type { RecentStore } from "./recent";
 import {
   activeProgrammer,
   bufferSizeCheck,
-  hasUnsavedEdits,
   initialState,
   lookupKey,
   NO_OVERRIDES,
@@ -46,6 +47,7 @@ import {
   operationAvailability,
   reducer,
   selectedInfo,
+  unsavedBuffer,
   type Action,
   type ChipRef,
   type DeviceState,
@@ -273,13 +275,17 @@ export class DeviceController {
 
   // --- buffer ----------------------------------------------------------
 
-  /** Open an image file into the buffer. Asks first when that would lose edits. */
+  /**
+   * Open an image file into the buffer. Asks first when that would lose
+   * edits, or a chip read that was never saved.
+   */
   openFile = async (): Promise<void> => {
     if (this.state.running || this.state.fileBusy) return;
-    if (hasUnsavedEdits(this.state.buffer)) {
+    const unsaved = unsavedBuffer(this.state.buffer);
+    if (unsaved) {
       this.dispatch({
         type: "confirm_opened",
-        confirm: { kind: "replace_buffer", by: "file", overrides: NO_OVERRIDES },
+        confirm: { kind: "replace_buffer", by: "file", unsaved, overrides: NO_OVERRIDES },
       });
       return;
     }
@@ -401,15 +407,17 @@ export class DeviceController {
           return;
         }
         break;
-      case "read":
-        if (hasUnsavedEdits(this.state.buffer)) {
+      case "read": {
+        const unsaved = unsavedBuffer(this.state.buffer);
+        if (unsaved) {
           this.dispatch({
             type: "confirm_opened",
-            confirm: { kind: "replace_buffer", by: "read", overrides },
+            confirm: { kind: "replace_buffer", by: "read", unsaved, overrides },
           });
           return;
         }
         break;
+      }
       default:
         break;
     }
