@@ -526,7 +526,10 @@ export class DeviceController {
     this.dispatch({
       type: "logged",
       kind: outcome.tone === "ok" ? "note" : outcome.tone,
-      text: [outcome.title, ...outcome.details].join(" "),
+      text:
+        outcome.details.length > 0
+          ? `${outcome.title}: ${outcome.details.join(" ")}`
+          : outcome.title,
     });
     this.dispatch({ type: "op_finished", outcome });
     if (lostProgrammer) await this.reportNoProgrammer();
