@@ -141,6 +141,13 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: scripts/macos/signing.sh setup
+      # Tauri staples the .app with `xcrun stapler staple` and ignores a
+      # failure, so a dropped connection to Apple's ticket server puts an
+      # unstapled .app in the .dmg. This puts a stand-in xcrun first on PATH
+      # that tries that one call again and passes everything else through.
+      - name: Retry Tauri's stapling (macOS)
+        if: steps.signing.outputs.enabled == 'true'
+        run: echo "$GITHUB_WORKSPACE/scripts/macos/shim" >> "$GITHUB_PATH"
       # With signing set up, Tauri signs the sidecar, the app binary and the
       # .app (in that order, hardened runtime on), notarizes and staples the
       # .app, then signs the .dmg. It picks all that up from the environment
