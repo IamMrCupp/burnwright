@@ -40,6 +40,19 @@ function errorKind(err: unknown): EngineErrorKind | "other" {
   return isEngineError(err) ? err.kind : "other";
 }
 
+/**
+ * Whether a chip ID is all ones or all zeros (`0xFFFFFF`, `0x0000`): what
+ * the programmer reads off a socket with no chip in it, or a chip that
+ * isn't making contact. No real part has an ID like that.
+ */
+export function isBlankId(id: string): boolean {
+  return /^0x(f+|0+)$/i.test(id.trim());
+}
+
+/** What a blank ID most likely means, for the screen to say instead of "wrong chip". */
+const BLANK_ID_HINT =
+  "That's what the socket reads with no chip in it, or with one that isn't making contact. Check that a chip is in, the right way round, with the lever down.";
+
 /** A read that worked: `length` bytes are now the buffer. */
 export function readOutcome(chip: string, length: number, expected: number | null): Outcome {
   const details = [`${formatByteCount(length)} from the chip are in the buffer.`];
@@ -149,10 +162,17 @@ export function checkOutcome(chip: string, check: ChipCheck): Outcome {
   } else if (id?.status === "mismatch") {
     tone = "error";
     if (pins?.status !== "bad_contact") title = "Chip ID mismatch";
-    const guess = id.detected ? `, which minipro knows as ${id.detected}` : "";
-    details.push(
-      `${chip} should answer with ID ${id.expected}. The chip in the socket answers ${id.found}${guess}.`,
-    );
+    if (isBlankId(id.found)) {
+      if (pins?.status !== "bad_contact") title = "No chip answered";
+      details.push(
+        `${chip} should answer with ID ${id.expected}. The socket answers ${id.found}. ${BLANK_ID_HINT}`,
+      );
+    } else {
+      const guess = id.detected ? `, which minipro knows as ${id.detected}` : "";
+      details.push(
+        `${chip} should answer with ID ${id.expected}. The chip in the socket answers ${id.found}${guess}.`,
+      );
+    }
   } else if (id?.status === "no_chip_id") {
     details.push(`${chip} has no ID to read, so minipro can't tell whether it's the chip in the socket.`);
     if (tone === "ok") title = "Nothing to check";
@@ -265,13 +285,18 @@ export function failureOutcome(
   }
 
   if (kind === "chip_id_mismatch") {
+    const ids = sentence(plainMessage(err).replace(/^chip ID mismatch:\s*/i, ""));
+    const found = /\bfound (0x[0-9a-f]+)/i.exec(ids)?.[1];
+    const blank = found !== undefined && isBlankId(found);
     return {
       ...base,
       tone: "error",
-      title: "Chip ID mismatch",
+      title: blank ? "No chip answered" : "Chip ID mismatch",
       details: [
-        sentence(plainMessage(err).replace(/^chip ID mismatch:\s*/i, "")),
-        `The chip in the socket doesn't answer as ${chip}: it may be a different part, or badly seated. ${NOT_DONE[op]}`,
+        ids,
+        blank
+          ? `${BLANK_ID_HINT} ${NOT_DONE[op]}`
+          : `The chip in the socket doesn't answer as ${chip}: it may be a different part, or badly seated. ${NOT_DONE[op]}`,
         "minipro can carry on without the ID check. That's at your own risk: the wrong settings can damage a chip.",
       ],
       retry: {
