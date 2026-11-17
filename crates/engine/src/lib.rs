@@ -16,6 +16,7 @@ pub mod image;
 pub mod locate;
 pub mod process;
 pub mod progress;
+pub mod route;
 
 pub use chips::{
     ChipCatalog, ChipDetail, ChipEntry, ChipInfo, ChipKind, ChipList, ChipMemory, ChipSearch,
@@ -28,6 +29,7 @@ pub use process::{
     CancelHandle, DeviceState, MiniproCommand, MiniproProcess, ProcessError, ProcessOutput,
 };
 pub use progress::{Operation, ProgressEvent, ProgressParser, Stage};
+pub use route::{MiniproBuild, MiniproRoutes};
 
 use std::fmt;
 use std::sync::Arc;
@@ -153,7 +155,7 @@ pub enum FirmwareStatus {
 /// Information about the connected programmer and (optionally) the chip.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeviceInfo {
-    /// Programmer model, e.g. `"TL866II+"`, `"T48"`, `"T56"`.
+    /// Programmer model, e.g. `"TL866II+"`, `"T48"`, `"T56"`, `"T76"`.
     pub programmer: String,
     /// Firmware version string, if the programmer reports one.
     pub firmware: Option<String>,

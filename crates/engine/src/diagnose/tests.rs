@@ -71,21 +71,32 @@ fn winusb(guids: &[&str]) -> WindowsDriverFacts {
 #[test]
 fn knows_the_three_programmer_ids() {
     assert_eq!(tl866ii().models, "TL866II+ / T48 / T56");
-    assert!(!known_programmer(T76.0, T76.1).unwrap().supported);
+    assert!(known_programmer(T76.0, T76.1).unwrap().supported);
     assert!(known_programmer(TL866A.0, TL866A.1).unwrap().supported);
     assert_eq!(known_programmer(0x046d, 0xc52b), None);
 }
 
 #[test]
 fn supported_ids_match_upstream_udev_rules() {
-    // Upstream's rules list the IDs minipro itself supports. Skipped when the
+    // Upstream's rules list the IDs minipro itself supports: the T76 in the
+    // T76 build's, every other one in the stable build's. Skipped when a
     // submodule isn't checked out.
-    let path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/minipro/udev/60-minipro.rules");
-    let Ok(upstream) = std::fs::read_to_string(path) else {
+    let rules = |submodule: &str| {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../vendor")
+            .join(submodule)
+            .join("udev/60-minipro.rules");
+        std::fs::read_to_string(path).ok()
+    };
+    let (Some(stable), Some(t76)) = (rules("minipro"), rules("minipro-t76")) else {
         return;
     };
     for p in KNOWN_PROGRAMMERS.iter().filter(|p| p.supported) {
+        let upstream = if (p.vendor_id, p.product_id) == T76 {
+            &t76
+        } else {
+            &stable
+        };
         let line = format!(
             "ATTRS{{idVendor}}==\"{:04x}\", ATTRS{{idProduct}}==\"{:04x}\"",
             p.vendor_id, p.product_id
@@ -153,11 +164,30 @@ fn the_system_probe_runs() {
 
 #[test]
 fn an_unsupported_model_says_so_whatever_the_driver() {
+    // Every known model is supported today (the T76 through its own build),
+    // so make one up.
+    let unsupported = KnownProgrammer {
+        supported: false,
+        ..*known_programmer(T76.0, T76.1).unwrap()
+    };
     let facts = host(
         HostOs::Windows,
         vec![device(T76, AccessFacts::Windows(winusb(&[])))],
     );
-    assert_eq!(only_state(&facts), ProgrammerState::UnsupportedModel);
+    assert_eq!(
+        device_state(&unsupported, &facts.devices[0], &facts),
+        ProgrammerState::UnsupportedModel
+    );
+}
+
+#[test]
+fn the_t76_is_supported_through_its_own_build() {
+    assert!(t76_supported());
+    let facts = host(
+        HostOs::Windows,
+        vec![device(T76, AccessFacts::Windows(winusb(&[])))],
+    );
+    assert_ne!(only_state(&facts), ProgrammerState::UnsupportedModel);
 }
 
 #[test]

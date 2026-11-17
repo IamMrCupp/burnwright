@@ -1,8 +1,9 @@
-name: Build the minipro sidecar
+name: Build the minipro sidecars
 description: >-
-  Builds vendor/minipro (plus static libusb, and zlib on Windows) into
-  src-tauri/binaries/ for Tauri's externalBin and resources, using
-  scripts/minipro/build-sidecar.sh. Needs the repo checked out with submodules.
+  Builds vendor/minipro and the T76-only vendor/minipro-t76 (each with static
+  libusb, and zlib on Windows) into src-tauri/binaries/ for Tauri's
+  externalBin and resources, using scripts/minipro/build-sidecar.sh. Needs the
+  repo checked out with submodules.
 
 runs:
   using: composite
