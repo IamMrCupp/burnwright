@@ -81,10 +81,15 @@ pub enum Stage {
     FirmwareUpdate,
 }
 
-/// One typed event parsed from minipro's stderr.
+/// One typed event from a minipro run: almost all are parsed from its stderr.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ProgressEvent {
+    /// minipro is about to be started. `line` is the command line, quoted
+    /// for the host's shell, for a log. An image for `-w -` / `-m -` goes in
+    /// on stdin and isn't part of it. This one comes from the engine, not
+    /// from minipro's output.
+    Command { line: String },
     /// A stage began. `label` is minipro's own wording, e.g. `"Reading Code"`.
     StageStarted { stage: Stage, label: String },
     /// The current stage reached `percent` (0–100).
