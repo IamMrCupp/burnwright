@@ -56,6 +56,9 @@ jobs:
       # No Apple secrets must mean an unsigned build, not a broken one.
       - name: macOS signing gate
         run: scripts/macos/test-signing-gate.sh
+      # A dropped connection to Apple's ticket server must mean another try.
+      - name: macOS stapler retry
+        run: scripts/macos/test-stapler-retry.sh
 
   build:
     name: Build & bundle · ${{ matrix.os }}
