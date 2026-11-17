@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/IamMrCupp/burnwright/compare/v0.12.0...v0.12.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **ui:** say a T76 algorithm-file failure comes before any read or write, not before the chip is touched ([294914c](https://github.com/IamMrCupp/burnwright/commit/294914cb570fd612b5c25fcb625cdfd5b2bed3e9))
+
 ## [0.12.0](https://github.com/IamMrCupp/burnwright/compare/v0.11.0...v0.12.0) (2026-11-17)
 
 
