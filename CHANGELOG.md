@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.2](https://github.com/IamMrCupp/burnwright/compare/v0.10.1...v0.10.2) (2026-11-17)
+
+
+### Bug Fixes
+
+* **app:** don't close the window over a running write or an unsaved buffer without asking ([51ac398](https://github.com/IamMrCupp/burnwright/commit/51ac398b4ed6781fcdf276217a5b3d0c15be97a5))
+* **engine:** never hand minipro Intel HEX or S-record text, which it decodes instead of writing ([b1e8a8b](https://github.com/IamMrCupp/burnwright/commit/b1e8a8bec40ef09355e85c09a73058ec0cd9b006))
+* **ui:** ask before replacing a chip read that was never saved to a file ([f9c7f7c](https://github.com/IamMrCupp/burnwright/commit/f9c7f7c33216dd0f78fe1810b506d57fcc66c487))
+* **ui:** compare firmware versions by the part that is the firmware, so newer doesn't read as older ([b8fa0c1](https://github.com/IamMrCupp/burnwright/commit/b8fa0c1e60910d7877d5b868552745d91c70b4c1))
+* **ui:** say an all-ones or all-zeros chip ID usually means no chip in the socket ([1edb597](https://github.com/IamMrCupp/burnwright/commit/1edb597f807752ebe9a173b2cc484b5629bc1cbf))
+
 ## [0.10.1](https://github.com/IamMrCupp/burnwright/compare/v0.10.0...v0.10.1) (2026-11-17)
 
 
