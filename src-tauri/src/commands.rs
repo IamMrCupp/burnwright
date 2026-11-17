@@ -45,7 +45,9 @@ pub struct CommandError {
     /// Machine-readable kind: `minipro`, `no_programmer`, `minipro_not_found`,
     /// `verify_failed`, `chip_id_mismatch`, `size_mismatch`, `invalid_input`,
     /// `unknown_chip`, `missing_database`, `unsupported_programmer`, `busy`,
-    /// `cancelled` or `not_implemented`.
+    /// `cancelled` or `not_implemented`. The backup layer (`engine::Bench`)
+    /// adds `unsupported`, `backup_required`, `backup_failed`,
+    /// `inconsistent_reads` and `target_changed`.
     pub kind: &'static str,
     /// Human-readable message.
     pub message: String,
@@ -69,6 +71,11 @@ impl From<EngineError> for CommandError {
             EngineError::UnsupportedProgrammer(_) => ("unsupported_programmer", None),
             EngineError::Busy => ("busy", None),
             EngineError::Cancelled { device_state, .. } => ("cancelled", Some(*device_state)),
+            EngineError::Unsupported(_) => ("unsupported", None),
+            EngineError::BackupRequired(_) => ("backup_required", None),
+            EngineError::BackupFailed(_) => ("backup_failed", None),
+            EngineError::InconsistentReads { .. } => ("inconsistent_reads", None),
+            EngineError::TargetChanged { .. } => ("target_changed", None),
         };
         Self {
             kind,

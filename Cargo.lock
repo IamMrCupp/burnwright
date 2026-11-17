@@ -886,6 +886,8 @@ version = "0.10.2"
 dependencies = [
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
  "thiserror 2.0.21",
  "windows",
 ]
