@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1](https://github.com/IamMrCupp/burnwright/compare/v0.10.0...v0.10.1) (2026-11-17)
+
+
+### Bug Fixes
+
+* **release:** retry stapler when Apple's ticket lookup drops its connection ([c38d2ad](https://github.com/IamMrCupp/burnwright/commit/c38d2add95c67ba263842d6a3008fc2828837b5d))
+
 ## [0.10.0](https://github.com/IamMrCupp/burnwright/compare/v0.9.0...v0.10.0) (2026-11-17)
 
 
