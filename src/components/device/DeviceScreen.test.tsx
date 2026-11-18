@@ -131,6 +131,41 @@ describe("programmer bar", () => {
     expect(within(bar).getByRole("alert")).toHaveTextContent("No algorithm file for the T76");
   });
 
+  it("holds the file buttons while the algorithm file is being chosen", async () => {
+    const { dialogs } = setup({
+      programmer: {
+        programmer: "T76",
+        firmware: "00.1.17",
+        chip: null,
+        firmware_status: null,
+        firmware_expected: null,
+        support_warning: null,
+      },
+      algorithmFiles: ["/home/me/xgecu/algorithm.xml"],
+    });
+    click("Detect");
+    const bar = screen.getByRole("region", { name: "Programmer" });
+    await within(bar).findByText("none chosen");
+    let pick: (path: string | null) => void = () => {};
+    dialogs.openAlgorithms.mockReturnValue(
+      new Promise<string | null>((resolve) => {
+        pick = resolve;
+      }),
+    );
+
+    click("Choose file…");
+    await waitFor(() => expect(button("Choose file…")).toBeDisabled());
+    expect(button("Open…")).toBeDisabled();
+
+    await act(async () => {
+      pick("/home/me/xgecu/algorithm.xml");
+    });
+    await within(bar).findByText("/home/me/xgecu/algorithm.xml (chosen here)");
+    expect(button("Choose file…")).toBeEnabled();
+    expect(button("Clear")).toBeEnabled();
+    expect(button("Open…")).toBeEnabled();
+  });
+
   it("has no algorithm file control for a programmer that carries its own", async () => {
     setup();
     click("Detect");

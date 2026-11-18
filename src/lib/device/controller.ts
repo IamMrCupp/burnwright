@@ -244,31 +244,40 @@ export class DeviceController {
    * path and nothing else: minipro reads the file where it is.
    */
   chooseAlgorithmFile = async (): Promise<void> => {
-    if (this.state.running) return;
-    let path: string | null;
+    if (this.state.running || this.state.fileBusy) return;
+    // Like Open and Save: nothing starts, and no other panel opens, from
+    // the moment this one does until the engine has the new path. An
+    // operation started in between would run with the old file while the
+    // screen names the new one.
+    this.dispatch({ type: "file_started", what: "choosing_algorithms" });
     try {
-      path = await this.dialogs.openAlgorithms();
-    } catch (err) {
-      this.dispatch({
-        type: "logged",
-        kind: "error",
-        text: `Couldn't show the open dialog: ${errorMessage(err)}`,
-      });
-      return;
-    }
-    if (!path) return;
-    if (await this.setAlgorithmFile(path)) {
-      this.dispatch({
-        type: "logged",
-        kind: "note",
-        text: `Algorithm file set to ${path}. T76 operations pass it to minipro.`,
-      });
+      let path: string | null;
+      try {
+        path = await this.dialogs.openAlgorithms();
+      } catch (err) {
+        this.dispatch({
+          type: "logged",
+          kind: "error",
+          text: `Couldn't show the open dialog: ${errorMessage(err)}`,
+        });
+        return;
+      }
+      if (!path) return;
+      if (await this.setAlgorithmFile(path)) {
+        this.dispatch({
+          type: "logged",
+          kind: "note",
+          text: `Algorithm file set to ${path}. T76 operations pass it to minipro.`,
+        });
+      }
+    } finally {
+      this.dispatch({ type: "file_finished" });
     }
   };
 
   /** Go back to wherever minipro looks for the file on its own. */
   clearAlgorithmFile = async (): Promise<void> => {
-    if (this.state.running) return;
+    if (this.state.running || this.state.fileBusy) return;
     if (await this.setAlgorithmFile(null)) {
       this.dispatch({
         type: "logged",

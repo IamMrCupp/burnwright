@@ -332,6 +332,72 @@ describe("algorithm file", () => {
     );
   });
 
+  it("keeps operations and the other file panels out while the file is being chosen", async () => {
+    const { controller, state, fake, dialogs, ready, commands } = setup(t76());
+    await ready("FLASH32@SOIC8");
+    let pick: (path: string | null) => void = () => {};
+    dialogs.openAlgorithms.mockReturnValue(
+      new Promise<string | null>((resolve) => {
+        pick = resolve;
+      }),
+    );
+
+    const choosing = controller.chooseAlgorithmFile();
+    expect(state().fileBusy).toBe("choosing_algorithms");
+    expect(operationAvailability(state(), "check")).toEqual({
+      enabled: false,
+      reason: "The algorithm file is being chosen.",
+    });
+    // No operation starts under the panel...
+    controller.run("check");
+    expect(state().running).toBeNull();
+    // ...no second panel opens over it, of either kind...
+    await controller.openFile();
+    expect(dialogs.open).not.toHaveBeenCalled();
+    await controller.chooseAlgorithmFile();
+    expect(dialogs.openAlgorithms).toHaveBeenCalledTimes(1);
+    // ...and the choice can't be cleared from under it.
+    await controller.clearAlgorithmFile();
+    expect(commands()).not.toContain("setAlgorithmPath");
+
+    pick(MY_ALGORITHMS);
+    await choosing;
+    expect(state().fileBusy).toBeNull();
+    expect(fake.algorithmPath).toBe(MY_ALGORITHMS);
+    expect(operationAvailability(state(), "check").enabled).toBe(true);
+  });
+
+  it("lets go of the screen when the panel is dismissed or can't be shown", async () => {
+    const { controller, state, dialogs, ready } = setup(t76());
+    await ready("FLASH32@SOIC8");
+    await controller.chooseAlgorithmFile();
+    expect(state().fileBusy).toBeNull();
+
+    dialogs.openAlgorithms.mockRejectedValue(new Error("no dialog here"));
+    await controller.chooseAlgorithmFile();
+    expect(state().fileBusy).toBeNull();
+    expect(logText(state().log)).toContain("Couldn't show the open dialog: no dialog here");
+  });
+
+  it("won't choose a file while another file is being opened or saved", async () => {
+    const { controller, state, dialogs, ready } = setup(
+      t76({ files: { "/a.bin": ramp(32) } }),
+    );
+    await ready("FLASH32@SOIC8");
+    let pick: (path: string | null) => void = () => {};
+    dialogs.open.mockReturnValue(
+      new Promise<string | null>((resolve) => {
+        pick = resolve;
+      }),
+    );
+    const opening = controller.openFile();
+    expect(state().fileBusy).toBe("opening");
+    await controller.chooseAlgorithmFile();
+    expect(dialogs.openAlgorithms).not.toHaveBeenCalled();
+    pick(null);
+    await opening;
+  });
+
   it("clears the choice and forgets it", async () => {
     const storage = memoryStorage();
     settingsStore(storage).saveAlgorithmPath(MY_ALGORITHMS);
