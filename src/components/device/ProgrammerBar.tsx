@@ -20,6 +20,11 @@ export interface ProgrammerBarProps {
    * couldn't say.
    */
   algorithms?: AlgorithmFile | null;
+  /**
+   * Why the algorithm file remembered from the last run couldn't be handed
+   * to the engine, when it couldn't.
+   */
+  algorithmsRestoreError?: string | null;
   /** A file panel is up or a file is being loaded or saved: the algorithm file buttons wait. */
   fileBusy?: boolean;
   onChooseAlgorithms?: () => void;
@@ -71,6 +76,7 @@ export const ProgrammerBar = memo(function ProgrammerBar({
   onDetect,
   onChoose,
   algorithms,
+  algorithmsRestoreError = null,
   fileBusy = false,
   onChooseAlgorithms,
   onClearAlgorithms,
@@ -127,6 +133,11 @@ export const ProgrammerBar = memo(function ProgrammerBar({
             <span className="programmer-algorithms-label">Algorithm file</span>{" "}
             <span className="programmer-algorithms-file">{algorithmText(algorithms)}</span>
           </p>
+          {algorithmsRestoreError && (
+            <p className="notice notice-error" role="alert">
+              {algorithmsRestoreError}
+            </p>
+          )}
           <div className="programmer-algorithms-actions">
             <button type="button" onClick={onChooseAlgorithms} disabled={busy || fileBusy}>
               Choose file…

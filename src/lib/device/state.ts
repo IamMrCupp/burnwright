@@ -218,6 +218,12 @@ export interface DeviceState {
    * Only a T76 needs it; see `needsAlgorithmFile`.
    */
   algorithms: AlgorithmFile | null;
+  /**
+   * Why the algorithm file remembered from the last run couldn't be handed
+   * to the engine, when it couldn't. Until that works, operations run
+   * without it.
+   */
+  algorithmsRestoreError: string | null;
   chip: ChipState;
   buffer: BufferState | null;
   /** Why the last open or save failed. */
@@ -257,6 +263,7 @@ export function initialState(recent: RecentChip[] = []): DeviceState {
       manual: "t48",
     },
     algorithms: null,
+    algorithmsRestoreError: null,
     chip: {
       query: "",
       search: IDLE_SEARCH,
@@ -284,6 +291,7 @@ export type Action =
   | { type: "detect_failed"; message: string }
   | { type: "programmer_chosen"; programmer: Programmer }
   | { type: "algorithms_checked"; algorithms: AlgorithmFile | null }
+  | { type: "algorithms_restore"; error: string | null }
   | { type: "query_changed"; query: string }
   | { type: "search_done"; query: string; result: ChipSearch }
   | { type: "search_failed"; query: string; message: string }
@@ -363,6 +371,9 @@ export function reducer(state: DeviceState, action: Action): DeviceState {
 
     case "algorithms_checked":
       return { ...state, algorithms: action.algorithms };
+    case "algorithms_restore":
+      if (state.algorithmsRestoreError === action.error) return state;
+      return { ...state, algorithmsRestoreError: action.error };
 
     case "query_changed": {
       const query = action.query;

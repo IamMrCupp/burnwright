@@ -122,6 +122,8 @@ export class DeviceController {
   private readonly closeWindow: () => void;
   /** Settles once the remembered algorithm file has been handed to the engine. */
   private readonly restored: Promise<void>;
+  /** The remembered algorithm file the engine hasn't taken yet. */
+  private unrestored: string | null = null;
 
   /** Cancels the running operation. */
   private abort: AbortController | null = null;
@@ -173,8 +175,10 @@ export class DeviceController {
     this.dispatch({ type: "detect_started" });
     this.dispatch({ type: "logged", kind: "heading", text: "Detect programmer" });
     // No operation can start before a detect, so this is where the engine
-    // is sure to have the remembered algorithm file.
+    // is sure to have the remembered algorithm file, or to have been asked
+    // again if it didn't take it the first time.
     await this.restored;
+    if (this.unrestored !== null) await this.applyRemembered(this.unrestored);
     try {
       const device = await this.engine.detect({ onProgress: this.onProgress });
       this.dispatch({ type: "detect_found", device });
@@ -224,12 +228,28 @@ export class DeviceController {
   /** Hand the engine the algorithm file remembered from the last run. */
   private async restoreAlgorithmFile(): Promise<void> {
     const path = this.settings?.loadAlgorithmPath() ?? null;
-    if (path === null) return;
+    if (path !== null) await this.applyRemembered(path);
+  }
+
+  /**
+   * Hand the engine a remembered algorithm file. When that fails the engine
+   * has no file, and a T76 operation would run without the one the user
+   * chose: so it's said, in the log and in the Programmer panel, and tried
+   * again at the next detect.
+   */
+  private async applyRemembered(path: string): Promise<void> {
     try {
       const algorithms = await this.engine.setAlgorithmPath(path);
+      this.unrestored = null;
+      this.dispatch({ type: "algorithms_restore", error: null });
       this.dispatch({ type: "algorithms_checked", algorithms });
-    } catch {
-      // The setting stays remembered; the next operation says what's wrong.
+    } catch (err) {
+      const again = this.unrestored === path;
+      this.unrestored = path;
+      const error = `burnwright couldn't apply the algorithm file remembered from last time (${path}): ${plainMessage(err)}. Until it's chosen again, minipro looks for algorithm.xml in its own places.`;
+      this.dispatch({ type: "algorithms_restore", error });
+      // Once in the log is enough; the panel keeps saying it.
+      if (!again) this.dispatch({ type: "logged", kind: "error", text: error });
     }
   }
 
@@ -291,6 +311,9 @@ export class DeviceController {
     try {
       const algorithms = await this.engine.setAlgorithmPath(path);
       this.settings?.saveAlgorithmPath(path);
+      // A fresh choice replaces whatever couldn't be restored.
+      this.unrestored = null;
+      this.dispatch({ type: "algorithms_restore", error: null });
       this.dispatch({ type: "algorithms_checked", algorithms });
       return true;
     } catch (err) {

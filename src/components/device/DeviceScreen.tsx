@@ -95,6 +95,7 @@ export function DeviceScreen({ controller, footer }: DeviceScreenProps) {
             onDetect={controller.detect}
             onChoose={controller.chooseProgrammer}
             algorithms={needsAlgorithmFile(state) ? state.algorithms : undefined}
+            algorithmsRestoreError={state.algorithmsRestoreError}
             fileBusy={state.fileBusy !== null}
             onChooseAlgorithms={controller.chooseAlgorithmFile}
             onClearAlgorithms={controller.clearAlgorithmFile}

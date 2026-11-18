@@ -166,6 +166,45 @@ describe("programmer bar", () => {
     expect(button("Open…")).toBeEnabled();
   });
 
+  it("says in the panel when the remembered algorithm file couldn't be applied", async () => {
+    const fake = createFakeEngine({
+      chips: CHIPS,
+      programmer: {
+        programmer: "T76",
+        firmware: "00.1.17",
+        chip: null,
+        firmware_status: null,
+        firmware_expected: null,
+        support_warning: null,
+      },
+      algorithmFile: "/usr/local/share/minipro/algorithm.xml",
+    });
+    fake.setAlgorithmPath = () => Promise.reject(new Error("the engine isn't answering"));
+    const dialogs = {
+      open: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
+      save: vi.fn<(suggested: string) => Promise<string | null>>().mockResolvedValue(null),
+      openAlgorithms: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
+    };
+    const controller = new DeviceController({
+      engine: fake,
+      dialogs,
+      settings: {
+        loadAlgorithmPath: () => "/home/me/xgecu/algorithm.xml",
+        saveAlgorithmPath: () => {},
+      },
+    });
+    render(<DeviceScreen controller={controller} footer="burnwright test" />);
+    click("Detect");
+    const bar = screen.getByRole("region", { name: "Programmer" });
+    const alert = await within(bar).findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "burnwright couldn't apply the algorithm file remembered from last time (/home/me/xgecu/algorithm.xml): the engine isn't answering.",
+    );
+    expect(alert).toHaveTextContent("Until it's chosen again");
+    // The way out is right under it.
+    expect(within(bar).getByRole("button", { name: "Choose file…" })).toBeEnabled();
+  });
+
   it("has no algorithm file control for a programmer that carries its own", async () => {
     setup();
     click("Detect");
