@@ -398,6 +398,78 @@ describe("algorithm file", () => {
     await opening;
   });
 
+  it("says so when the remembered file can't be handed back, and tries again at the next detect", async () => {
+    const storage = memoryStorage();
+    settingsStore(storage).saveAlgorithmPath(MY_ALGORITHMS);
+    const fake = createFakeEngine({ chips: CHIPS, ...t76() });
+    const real = fake.setAlgorithmPath;
+    let failures = 2;
+    fake.setAlgorithmPath = (path) =>
+      failures-- > 0 ? Promise.reject(new Error("the engine isn't answering")) : real(path);
+    const dialogs = {
+      open: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
+      save: vi.fn<(suggested: string) => Promise<string | null>>().mockResolvedValue(null),
+      openAlgorithms: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
+    };
+    const controller = new DeviceController({
+      engine: fake,
+      dialogs,
+      settings: settingsStore(storage),
+    });
+    const state = () => controller.getState();
+    const said =
+      `burnwright couldn't apply the algorithm file remembered from last time (${MY_ALGORITHMS}): the engine isn't answering. Until it's chosen again, minipro looks for algorithm.xml in its own places.`;
+
+    // Startup: the engine didn't take it, and that's on screen and in the log.
+    await soon(() => expect(state().algorithmsRestoreError).toBe(said));
+    expect(fake.algorithmPath).toBeNull();
+    expect(logText(state().log)).toContain(said);
+    // The choice is still remembered.
+    expect(storage.stored.get("burnwright.algorithmPath")).toBe(MY_ALGORITHMS);
+
+    // A detect asks again. Still failing: the panel keeps saying it, the
+    // log doesn't repeat itself.
+    await controller.detect();
+    expect(state().algorithmsRestoreError).toBe(said);
+    expect(logText(state().log).split(said)).toHaveLength(2);
+
+    // The next detect gets through.
+    await controller.detect();
+    expect(state().algorithmsRestoreError).toBeNull();
+    expect(fake.algorithmPath).toBe(MY_ALGORITHMS);
+    expect(state().algorithms?.found).toBe(MY_ALGORITHMS);
+  });
+
+  it("drops a failed restore once a file is chosen by hand", async () => {
+    const storage = memoryStorage();
+    settingsStore(storage).saveAlgorithmPath("/old/algorithm.xml");
+    const fake = createFakeEngine({ chips: CHIPS, ...t76() });
+    const real = fake.setAlgorithmPath;
+    let failures = 1;
+    fake.setAlgorithmPath = (path) =>
+      failures-- > 0 ? Promise.reject(new Error("ipc down")) : real(path);
+    const dialogs = {
+      open: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
+      save: vi.fn<(suggested: string) => Promise<string | null>>().mockResolvedValue(null),
+      openAlgorithms: vi.fn<() => Promise<string | null>>().mockResolvedValue(MY_ALGORITHMS),
+    };
+    const controller = new DeviceController({
+      engine: fake,
+      dialogs,
+      settings: settingsStore(storage),
+    });
+    const state = () => controller.getState();
+    await soon(() => expect(state().algorithmsRestoreError).not.toBeNull());
+
+    await controller.chooseAlgorithmFile();
+    expect(state().algorithmsRestoreError).toBeNull();
+    expect(fake.algorithmPath).toBe(MY_ALGORITHMS);
+    // The old path isn't tried again behind the user's back.
+    await controller.detect();
+    expect(fake.algorithmPath).toBe(MY_ALGORITHMS);
+    expect(storage.stored.get("burnwright.algorithmPath")).toBe(MY_ALGORITHMS);
+  });
+
   it("clears the choice and forgets it", async () => {
     const storage = memoryStorage();
     settingsStore(storage).saveAlgorithmPath(MY_ALGORITHMS);
