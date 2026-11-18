@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.2](https://github.com/IamMrCupp/burnwright/compare/v0.12.1...v0.12.2) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ui:** hold operations and the other file panels while the T76 algorithm file is being chosen ([d762bde](https://github.com/IamMrCupp/burnwright/commit/d762bde0ef5d49b5cad8dee11429fdca7506fff6))
+* **ui:** say so when the remembered T76 algorithm file can't be applied, and try again at the next detect ([49d418e](https://github.com/IamMrCupp/burnwright/commit/49d418efebd7285e40de652ede8f2e841b5e0c86))
+
 ## [0.12.1](https://github.com/IamMrCupp/burnwright/compare/v0.12.0...v0.12.1) (2026-11-17)
 
 
