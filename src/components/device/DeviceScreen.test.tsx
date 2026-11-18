@@ -131,6 +131,80 @@ describe("programmer bar", () => {
     expect(within(bar).getByRole("alert")).toHaveTextContent("No algorithm file for the T76");
   });
 
+  it("holds the file buttons while the algorithm file is being chosen", async () => {
+    const { dialogs } = setup({
+      programmer: {
+        programmer: "T76",
+        firmware: "00.1.17",
+        chip: null,
+        firmware_status: null,
+        firmware_expected: null,
+        support_warning: null,
+      },
+      algorithmFiles: ["/home/me/xgecu/algorithm.xml"],
+    });
+    click("Detect");
+    const bar = screen.getByRole("region", { name: "Programmer" });
+    await within(bar).findByText("none chosen");
+    let pick: (path: string | null) => void = () => {};
+    dialogs.openAlgorithms.mockReturnValue(
+      new Promise<string | null>((resolve) => {
+        pick = resolve;
+      }),
+    );
+
+    click("Choose file…");
+    await waitFor(() => expect(button("Choose file…")).toBeDisabled());
+    expect(button("Open…")).toBeDisabled();
+
+    await act(async () => {
+      pick("/home/me/xgecu/algorithm.xml");
+    });
+    await within(bar).findByText("/home/me/xgecu/algorithm.xml (chosen here)");
+    expect(button("Choose file…")).toBeEnabled();
+    expect(button("Clear")).toBeEnabled();
+    expect(button("Open…")).toBeEnabled();
+  });
+
+  it("says in the panel when the remembered algorithm file couldn't be applied", async () => {
+    const fake = createFakeEngine({
+      chips: CHIPS,
+      programmer: {
+        programmer: "T76",
+        firmware: "00.1.17",
+        chip: null,
+        firmware_status: null,
+        firmware_expected: null,
+        support_warning: null,
+      },
+      algorithmFile: "/usr/local/share/minipro/algorithm.xml",
+    });
+    fake.setAlgorithmPath = () => Promise.reject(new Error("the engine isn't answering"));
+    const dialogs = {
+      open: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
+      save: vi.fn<(suggested: string) => Promise<string | null>>().mockResolvedValue(null),
+      openAlgorithms: vi.fn<() => Promise<string | null>>().mockResolvedValue(null),
+    };
+    const controller = new DeviceController({
+      engine: fake,
+      dialogs,
+      settings: {
+        loadAlgorithmPath: () => "/home/me/xgecu/algorithm.xml",
+        saveAlgorithmPath: () => {},
+      },
+    });
+    render(<DeviceScreen controller={controller} footer="burnwright test" />);
+    click("Detect");
+    const bar = screen.getByRole("region", { name: "Programmer" });
+    const alert = await within(bar).findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "burnwright couldn't apply the algorithm file remembered from last time (/home/me/xgecu/algorithm.xml): the engine isn't answering.",
+    );
+    expect(alert).toHaveTextContent("Until it's chosen again");
+    // The way out is right under it.
+    expect(within(bar).getByRole("button", { name: "Choose file…" })).toBeEnabled();
+  });
+
   it("has no algorithm file control for a programmer that carries its own", async () => {
     setup();
     click("Detect");
