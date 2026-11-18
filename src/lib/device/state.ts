@@ -205,6 +205,9 @@ export interface LogLine {
   text: string;
 }
 
+/** Which file panel is up, or which file work is under way. */
+export type FileBusy = "opening" | "saving" | "choosing_algorithms";
+
 /** How many log lines are kept; the oldest go first. */
 export const LOG_LIMIT = 2000;
 
@@ -220,11 +223,13 @@ export interface DeviceState {
   /** Why the last open or save failed. */
   fileError: string | null;
   /**
-   * A file is being picked and opened, or the buffer is being saved. Until
-   * it's done no operation starts: the buffer an operation works on, and
-   * the one its confirmation described, must be the one on screen.
+   * A file is being picked and opened, the buffer is being saved, or the
+   * T76's algorithm file is being picked. Until it's done no operation
+   * starts and no other file panel opens: the buffer an operation works on,
+   * and the one its confirmation described, must be the one on screen, and
+   * an operation must run with the algorithm file the screen names.
    */
-  fileBusy: "opening" | "saving" | null;
+  fileBusy: FileBusy | null;
   running: RunningOp | null;
   outcome: Outcome | null;
   confirm: Confirm | null;
@@ -289,7 +294,7 @@ export type Action =
   | { type: "buffer_edited"; bytes: Uint8Array; edited: boolean }
   | { type: "buffer_saved"; path: string; bytes: Uint8Array }
   | { type: "file_failed"; message: string }
-  | { type: "file_started"; what: "opening" | "saving" }
+  | { type: "file_started"; what: FileBusy }
   | { type: "file_finished" }
   | { type: "confirm_opened"; confirm: Confirm }
   | { type: "confirm_closed" }
@@ -691,6 +696,9 @@ export function operationAvailability(state: DeviceState, op: OpKind): Availabil
   if (state.running) return no("Another operation is running.");
   if (state.fileBusy === "opening") return no("A file is being opened.");
   if (state.fileBusy === "saving") return no("The buffer is being saved.");
+  if (state.fileBusy === "choosing_algorithms") {
+    return no("The algorithm file is being chosen.");
+  }
   if (state.programmer.status === "detecting") return no("Looking for a programmer.");
   if (state.programmer.status !== "found") return no("No programmer detected.");
   const { selected } = state.chip;

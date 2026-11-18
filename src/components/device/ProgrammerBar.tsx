@@ -20,6 +20,8 @@ export interface ProgrammerBarProps {
    * couldn't say.
    */
   algorithms?: AlgorithmFile | null;
+  /** A file panel is up or a file is being loaded or saved: the algorithm file buttons wait. */
+  fileBusy?: boolean;
   onChooseAlgorithms?: () => void;
   onClearAlgorithms?: () => void;
 }
@@ -69,6 +71,7 @@ export const ProgrammerBar = memo(function ProgrammerBar({
   onDetect,
   onChoose,
   algorithms,
+  fileBusy = false,
   onChooseAlgorithms,
   onClearAlgorithms,
 }: ProgrammerBarProps) {
@@ -125,11 +128,11 @@ export const ProgrammerBar = memo(function ProgrammerBar({
             <span className="programmer-algorithms-file">{algorithmText(algorithms)}</span>
           </p>
           <div className="programmer-algorithms-actions">
-            <button type="button" onClick={onChooseAlgorithms} disabled={busy}>
+            <button type="button" onClick={onChooseAlgorithms} disabled={busy || fileBusy}>
               Choose file…
             </button>
             {algorithms?.configured != null && (
-              <button type="button" onClick={onClearAlgorithms} disabled={busy}>
+              <button type="button" onClick={onClearAlgorithms} disabled={busy || fileBusy}>
                 Clear
               </button>
             )}
