@@ -77,7 +77,11 @@ What burnwright does with that:
   list and chip info queries don't get it, and neither does any other
   programmer. The Rust side holds the path for the session; the frontend
   keeps it in the webview's local storage and hands it back at startup.
-  Only the path is stored. The file stays where it is.
+  Only the path is stored. The file stays where it is. If handing the path
+  back fails at startup, burnwright says so in the Programmer panel and the
+  log, and asks again at the next detect: an operation never runs quietly
+  without the file you chose. While the file panel is up, no operation starts
+  and no other file panel opens, the same as for Open and Save.
 - **The error.** When minipro can't open the file, the operation fails with
   `missing_algorithms` and the path minipro tried. When it opens the file and
   finds no usable bitstream for the chip ("No algorithm SPI25F11 was found.",
