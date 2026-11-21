@@ -305,17 +305,31 @@ impl MiniproLocator {
     /// Look `name` up on the search path, trying the platform's executable
     /// suffix too (`minipro.exe`).
     fn search(&self, name: &OsStr) -> Option<PathBuf> {
-        let path = self.path.as_ref()?;
-        let with_suffix = {
-            let mut n = name.to_os_string();
-            n.push(std::env::consts::EXE_SUFFIX);
-            n
-        };
-        std::env::split_paths(path)
-            .filter(|dir| !dir.as_os_str().is_empty())
-            .flat_map(|dir| [dir.join(&with_suffix), dir.join(name)])
-            .find(|candidate| is_executable(candidate))
+        search_path(self.path.as_deref()?, name)
     }
+}
+
+/// The first executable called `name` in the directories of `path` (in the
+/// platform's `PATH` format), trying the platform's executable suffix too.
+pub(crate) fn search_path(path: &OsStr, name: &OsStr) -> Option<PathBuf> {
+    search_dirs(std::env::split_paths(path), name)
+}
+
+/// The first executable called `name` in `dirs`, trying the platform's
+/// executable suffix too.
+pub(crate) fn search_dirs(
+    dirs: impl IntoIterator<Item = PathBuf>,
+    name: &OsStr,
+) -> Option<PathBuf> {
+    let with_suffix = {
+        let mut n = name.to_os_string();
+        n.push(std::env::consts::EXE_SUFFIX);
+        n
+    };
+    dirs.into_iter()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        .flat_map(|dir| [dir.join(&with_suffix), dir.join(name)])
+        .find(|candidate| is_executable(candidate))
 }
 
 /// A bundled sidecar at `path`, pointed at the databases in `db`.
@@ -336,12 +350,12 @@ fn bundled(path: &Path, db: Option<&Path>) -> Result<MiniproBinary, LocateError>
     Ok(binary)
 }
 
-fn non_empty(path: Option<PathBuf>) -> Option<PathBuf> {
+pub(crate) fn non_empty(path: Option<PathBuf>) -> Option<PathBuf> {
     path.filter(|p| !p.as_os_str().is_empty())
 }
 
 /// A single path component with no directory: look it up on `PATH`.
-fn is_bare_name(path: &Path) -> bool {
+pub(crate) fn is_bare_name(path: &Path) -> bool {
     let mut components = path.components();
     matches!(
         (components.next(), components.next()),
@@ -350,14 +364,14 @@ fn is_bare_name(path: &Path) -> bool {
 }
 
 #[cfg(unix)]
-fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.metadata()
         .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 #[cfg(not(unix))]
-fn is_executable(path: &Path) -> bool {
+pub(crate) fn is_executable(path: &Path) -> bool {
     path.is_file()
 }
 

@@ -93,6 +93,9 @@ impl From<EngineError> for CommandError {
             EngineError::BackupFailed(_) => ("backup_failed", None),
             EngineError::InconsistentReads { .. } => ("inconsistent_reads", None),
             EngineError::TargetChanged { .. } => ("target_changed", None),
+            EngineError::Flashrom(_) => ("flashrom", None),
+            EngineError::FlashromNotFound(_) => ("flashrom_not_found", None),
+            EngineError::NoChip(_) => ("no_chip", None),
         };
         Self {
             kind,
@@ -717,6 +720,29 @@ mod tests {
         assert_eq!(
             err.message,
             "minipro can't use the algorithm file: No algorithm SPI25F11 was found."
+        );
+    }
+
+    #[test]
+    fn flashrom_errors_keep_their_kinds() {
+        let err = CommandError::from(EngineError::Flashrom("Read operation failed!".into()));
+        assert_eq!(
+            serde_json::to_value(&err).unwrap(),
+            serde_json::json!({
+                "kind": "flashrom",
+                "message": "flashrom error: Read operation failed!",
+                "device_state": null,
+            })
+        );
+        let err = CommandError::from(EngineError::FlashromNotFound(
+            "flashrom not found at /opt/flashrom".into(),
+        ));
+        assert_eq!(err.kind, "flashrom_not_found");
+        assert_eq!(err.message, "flashrom not found at /opt/flashrom");
+        let err = CommandError::from(EngineError::NoChip("nothing answered".into()));
+        assert_eq!(
+            (err.kind, err.message.as_str()),
+            ("no_chip", "nothing answered")
         );
     }
 

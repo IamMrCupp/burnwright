@@ -10,7 +10,8 @@
 //! `minipro-sys` crate, also behind [`Engine`].
 //!
 //! [`Backend`] generalises [`Engine`] for tools other than minipro (issue
-//! #36: flashrom, ITE bridges), with [`MiniproBackend`] as the first one.
+//! #36: flashrom, ITE bridges). [`MiniproBackend`] is the first one;
+//! [`FlashromBackend`] backs up an ENE KB9012 in-circuit through a CH341A.
 //! [`Bench`] sits above every backend and refuses a write or erase until the
 //! chip has been backed up.
 
@@ -20,6 +21,7 @@ pub mod bench;
 pub mod chips;
 pub mod cli;
 pub mod diagnose;
+pub mod flashrom;
 pub mod image;
 pub mod locate;
 pub mod minipro_backend;
@@ -38,6 +40,10 @@ pub use chips::{
     ChipSocket, MemoryUnit, Programmer,
 };
 pub use cli::{ChipCheck, ChipId, MiniproEngine, PinCheck};
+pub use flashrom::{
+    FLASHROM_ENV, FlashromBackend, FlashromBinary, FlashromLocateError, FlashromLocator,
+    FlashromSource, KB9012_PART,
+};
 pub use image::{DEFAULT_FILL, ImageError, ImageFormat};
 pub use locate::{LocateError, MINIPRO_ENV, MiniproBinary, MiniproLocator, MiniproSource};
 pub use minipro_backend::MiniproBackend;
@@ -154,6 +160,18 @@ pub enum EngineError {
     /// `expected` and `found` are the backend's chip IDs.
     #[error("the chip changed since the backup: expected {expected}, found {found}")]
     TargetChanged { expected: String, found: String },
+    /// A flashrom run failed. The message is the error flashrom printed.
+    #[error("flashrom error: {0}")]
+    Flashrom(String),
+    /// The flashrom binary couldn't be found or started. burnwright doesn't
+    /// ship one; the message says where it looked or how to install it.
+    #[error("{0}")]
+    FlashromNotFound(String),
+    /// The probe is there and no chip answered on it: nothing wired, no
+    /// power on the board, or a debug port the chip is holding shut. The
+    /// message says what was expected and what to check.
+    #[error("{0}")]
+    NoChip(String),
 }
 
 fn cancelled_message(operation: Operation, state: DeviceState) -> String {

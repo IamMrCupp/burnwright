@@ -1,0 +1,2 @@
+Error: Unknown chip 'KB9012 (EDI)' specified.
+Run flashrom -L to view the hardware supported in this flashrom version.
