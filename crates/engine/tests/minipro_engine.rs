@@ -21,9 +21,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use engine::{
-    ChipCatalog, ChipCheck, ChipId, ChipKind, ChipSocket, DeviceInfo, DeviceState, Engine,
-    EngineError, FirmwareStatus, MemoryKind, MiniproBinary, MiniproBuild, MiniproEngine,
-    MiniproRoutes, OpContext, Operation, Overrides, PinCheck, Programmer, ProgressEvent, Stage,
+    Bench, ChipCatalog, ChipCheck, ChipId, ChipKind, ChipSocket, DeviceInfo, DeviceState, Engine,
+    EngineError, FirmwareStatus, MemoryKind, MiniproBackend, MiniproBinary, MiniproBuild,
+    MiniproEngine, MiniproRoutes, OpContext, Operation, Overrides, PinCheck, Probe, Programmer,
+    ProgressEvent, Stage, WaiveReason,
 };
 
 const FAKE: &str = "BURNWRIGHT_FAKE_MINIPRO";
@@ -148,6 +149,22 @@ fn main() {
             blank_check_error_is_an_error,
         ),
         ("erase_runs_minus_e", erase_runs_minus_e),
+        (
+            "a_socket_write_through_the_bench_is_one_minipro_run",
+            a_socket_write_through_the_bench_is_one_minipro_run,
+        ),
+        (
+            "socket_operations_through_the_bench_run_minipro_once_each",
+            socket_operations_through_the_bench_run_minipro_once_each,
+        ),
+        (
+            "a_wrong_chip_still_stops_a_socket_operation",
+            a_wrong_chip_still_stops_a_socket_operation,
+        ),
+        (
+            "the_bench_sends_a_t76_the_algorithm_file",
+            the_bench_sends_a_t76_the_algorithm_file,
+        ),
         (
             "cancelling_a_write_flags_the_device",
             cancelling_a_write_flags_the_device,
@@ -972,6 +989,170 @@ fn blank_check_error_is_an_error() {
         .exit("1");
     let err = fake.engine().blank_check(PART, &ctx()).unwrap_err();
     assert_eq!(err, EngineError::Minipro("Overcurrent protection!".into()));
+}
+
+/// An XGecu probe naming `model`.
+fn xgecu(model: &str) -> Probe {
+    Probe::Xgecu {
+        model: Some(model.into()),
+    }
+}
+
+/// The app's write path: a socket session, the user's go-ahead in place of a
+/// backup, then the write. minipro runs once, with the arguments the engine
+/// sends when called directly: no `-D` first, no blank check, no backup.
+fn a_socket_write_through_the_bench_is_one_minipro_run() {
+    let image: Vec<u8> = (0..4096u32).map(|i| (i * 7) as u8).collect();
+    let fake = Fake::new("bench-write").fixture("tl866ii_write_verify.stderr");
+    let backend = MiniproBackend::new(MiniproRoutes::single(fake.binary.clone()));
+    let backups = fake.dir.join("backups");
+    let bench = Bench::new(&backups);
+
+    let session = backend.socket_session(&xgecu("TL866II+"), PART).unwrap();
+    let receipt = bench.waive_with_confirmation(&backend, &session).unwrap();
+    assert_eq!(receipt.waived(), Some(WaiveReason::UserConfirmed));
+    let (ctx, events) = recording();
+    bench
+        .write(&backend, &session, MemoryKind::Code, &image, &receipt, &ctx)
+        .unwrap();
+
+    assert_eq!(
+        fake.calls(),
+        vec![args(&["-p", PART, "-c", "code", "-w", "-"])]
+    );
+    assert_eq!(fake.stdin(), image);
+    assert!(!backups.exists(), "a waived backup saves nothing");
+    // The same stages reach the UI as before.
+    let stages: Vec<Stage> = events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match e {
+            ProgressEvent::StageStarted { stage, .. } => Some(*stage),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(stages, vec![Stage::Erase, Stage::Write, Stage::Verify]);
+}
+
+fn socket_operations_through_the_bench_run_minipro_once_each() {
+    let bench = Bench::new(std::env::temp_dir().join("burnwright-engine-it-unused-backups"));
+    let on = |fake: &Fake| MiniproBackend::new(MiniproRoutes::single(fake.binary.clone()));
+
+    let chip: Vec<u8> = (0..=255u8).collect();
+    let fake = Fake::new("bench-read")
+        .fixture("t48_read_code.stderr")
+        .stdout(&chip);
+    let backend = on(&fake);
+    let session = backend.socket_session(&xgecu("T48"), PART).unwrap();
+    assert_eq!(
+        bench
+            .read(&backend, &session, MemoryKind::Code, &ctx())
+            .unwrap(),
+        chip
+    );
+    assert_eq!(
+        fake.calls(),
+        vec![args(&["-p", PART, "-c", "code", "-r", "-"])]
+    );
+
+    let fake = Fake::new("bench-verify").fixture("t48_verify_ok.stderr");
+    let backend = on(&fake);
+    let session = backend.socket_session(&xgecu("T48"), PART).unwrap();
+    bench
+        .verify(&backend, &session, MemoryKind::Data, b"\x01\x02", &ctx())
+        .unwrap();
+    assert_eq!(
+        fake.calls(),
+        vec![args(&["-p", PART, "-c", "data", "-m", "-"])]
+    );
+
+    let fake = Fake::new("bench-blank").fixture("t48_blank_check.stderr");
+    let backend = on(&fake);
+    let session = backend.socket_session(&xgecu("T48"), PART).unwrap();
+    assert!(bench.blank_check(&backend, &session, &ctx()).unwrap());
+    assert_eq!(fake.calls(), vec![args(&["-p", PART, "-b"])]);
+
+    let fake = Fake::new("bench-erase").fixture("t48_erase.stderr");
+    let backend = on(&fake);
+    let session = backend.socket_session(&xgecu("T48"), PART).unwrap();
+    let receipt = bench.waive_with_confirmation(&backend, &session).unwrap();
+    bench.erase(&backend, &session, &receipt, &ctx()).unwrap();
+    assert_eq!(fake.calls(), vec![args(&["-p", PART, "-E"])]);
+}
+
+/// A socket session is opened without an ID check of its own, so the check
+/// minipro makes inside the operation is the one that has to catch a wrong
+/// chip, and the override still has to get past it.
+fn a_wrong_chip_still_stops_a_socket_operation() {
+    let bench = Bench::new(std::env::temp_dir().join("burnwright-engine-it-unused-backups"));
+    let fake = Fake::new("bench-mismatch")
+        .fixture("tl866ii_invalid_chip_id.stderr")
+        .exit("1");
+    let backend = MiniproBackend::new(MiniproRoutes::single(fake.binary.clone()));
+    let session = backend.socket_session(&xgecu("TL866II+"), PART).unwrap();
+    let err = bench
+        .read(&backend, &session, MemoryKind::Code, &ctx())
+        .unwrap_err();
+    assert_eq!(
+        err,
+        EngineError::ChipIdMismatch {
+            expected: "0xEF4016".into(),
+            found: "0xC22016".into(),
+            detected: Some("MX25L3206E".into()),
+        }
+    );
+    assert_eq!(fake.calls().len(), 1);
+
+    let fake = Fake::new("bench-mismatch-override")
+        .fixture("t48_read_code.stderr")
+        .stdout(b"x");
+    let backend = MiniproBackend::new(MiniproRoutes::single(fake.binary.clone()));
+    let session = backend.socket_session(&xgecu("TL866II+"), PART).unwrap();
+    let ignoring = OpContext::new().with_overrides(Overrides {
+        ignore_chip_id: true,
+        ignore_size: false,
+    });
+    bench
+        .read(&backend, &session, MemoryKind::Code, &ignoring)
+        .unwrap();
+    assert_eq!(
+        fake.calls(),
+        vec![args(&["-p", PART, "-y", "-c", "code", "-r", "-"])]
+    );
+}
+
+fn the_bench_sends_a_t76_the_algorithm_file() {
+    let bench = Bench::new(std::env::temp_dir().join("burnwright-engine-it-unused-backups"));
+    let stable = Fake::new("bench-alg-stable").fixture("t48_erase.stderr");
+    let t76 = Fake::new("bench-alg-t76").fixture("t48_erase.stderr");
+    let backend = MiniproBackend::new(MiniproRoutes::split(
+        stable.binary.clone(),
+        t76.binary.clone(),
+    ))
+    .with_algorithms(Some("/home/me/xgecu/algorithm.xml".into()));
+
+    let session = backend.socket_session(&xgecu("T76"), PART).unwrap();
+    let receipt = bench.waive_with_confirmation(&backend, &session).unwrap();
+    bench.erase(&backend, &session, &receipt, &ctx()).unwrap();
+    assert_eq!(
+        t76.calls(),
+        vec![args(&[
+            "--algorithms",
+            "/home/me/xgecu/algorithm.xml",
+            "-p",
+            PART,
+            "-E"
+        ])]
+    );
+    assert!(stable.calls().is_empty());
+
+    // A T48 runs on the stable build and never sees the file.
+    let session = backend.socket_session(&xgecu("T48"), PART).unwrap();
+    let receipt = bench.waive_with_confirmation(&backend, &session).unwrap();
+    bench.erase(&backend, &session, &receipt, &ctx()).unwrap();
+    assert_eq!(stable.calls(), vec![args(&["-p", PART, "-E"])]);
+    assert_eq!(t76.calls().len(), 1);
 }
 
 fn erase_runs_minus_e() {
