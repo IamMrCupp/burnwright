@@ -605,6 +605,35 @@ pub fn app_info() -> AppInfo {
     app_info_value()
 }
 
+/// Where theme files go: `themes` in burnwright's config directory.
+fn themes_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    app.path()
+        .app_config_dir()
+        .map(|dir| dir.join("themes"))
+        .map_err(|e| format!("there's no config directory to keep themes in ({e})"))
+}
+
+/// The theme files in the themes folder, as text, making the folder if it
+/// isn't there yet. What a theme may hold is the frontend's call
+/// (`src/lib/theme.ts`); nothing here is applied to anything.
+#[tauri::command]
+pub fn list_themes(app: tauri::AppHandle) -> Result<crate::themes::ThemeListing, String> {
+    let dir = themes_dir(&app)?;
+    crate::themes::list(&dir).map_err(|e| format!("{}: {e}", dir.display()))
+}
+
+/// Show the themes folder in the system's file manager.
+#[tauri::command]
+pub fn open_themes_folder(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = themes_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    app.opener()
+        .open_path(dir.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

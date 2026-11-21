@@ -1,5 +1,6 @@
 mod commands;
 mod ops;
+mod themes;
 
 use tauri::Manager;
 
@@ -103,6 +104,8 @@ pub fn run() {
             commands::load_image,
             commands::save_image,
             commands::app_info,
+            commands::list_themes,
+            commands::open_themes_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
