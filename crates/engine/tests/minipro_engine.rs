@@ -14,7 +14,6 @@
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
-use std::panic;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -26,6 +25,9 @@ use engine::{
     MiniproEngine, MiniproRoutes, OpContext, Operation, Overrides, PinCheck, Probe, Programmer,
     ProgressEvent, Stage, WaiveReason,
 };
+
+mod common;
+use common::run_tests;
 
 const FAKE: &str = "BURNWRIGHT_FAKE_MINIPRO";
 const FIXTURE: &str = "BURNWRIGHT_FAKE_FIXTURE";
@@ -1573,50 +1575,4 @@ fn the_catalog_does_not_keep_a_failed_load() {
     assert!(list.get(PART).is_some());
     catalog.list(&engine, Programmer::T48, &ctx()).unwrap();
     assert_eq!(fake.calls().len(), 2, "the failure, then one good load");
-}
-
-// ---------------------------------------------------------------------------
-// A minimal runner (this target has `harness = false`).
-
-type Test = (&'static str, fn());
-
-fn run_tests(tests: &[Test]) {
-    let cli: Vec<String> = std::env::args().skip(1).collect();
-    if cli.iter().any(|a| a == "--list") {
-        for (name, _) in tests {
-            println!("{name}: test");
-        }
-        return;
-    }
-    let filter = cli.iter().find(|a| !a.starts_with('-'));
-    let selected: Vec<&Test> = tests
-        .iter()
-        .filter(|(name, _)| filter.is_none_or(|f| name.contains(f.as_str())))
-        .collect();
-    println!("\nrunning {} tests", selected.len());
-    let mut failed = Vec::new();
-    for (name, test) in &selected {
-        let outcome = panic::catch_unwind(test);
-        println!(
-            "test {name} ... {}",
-            if outcome.is_ok() { "ok" } else { "FAILED" }
-        );
-        if outcome.is_err() {
-            failed.push(*name);
-        }
-    }
-    let passed = selected.len() - failed.len();
-    if failed.is_empty() {
-        println!("\ntest result: ok. {passed} passed; 0 failed\n");
-    } else {
-        println!("\nfailures:");
-        for name in &failed {
-            println!("    {name}");
-        }
-        println!(
-            "\ntest result: FAILED. {passed} passed; {} failed\n",
-            failed.len()
-        );
-        std::process::exit(101);
-    }
 }
