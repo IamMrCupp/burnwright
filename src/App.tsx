@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { AppearancePicker } from "./components/appearance";
 import { DeviceScreen } from "./components/device";
 import { EcScreen } from "./components/ec";
+import type { AppearanceController } from "./lib/appearance";
 import type { DeviceController } from "./lib/device/controller";
 import type { EcController } from "./lib/ec/controller";
 import type { AppInfo } from "./lib/engine";
@@ -10,6 +12,8 @@ export interface AppProps {
   controller: DeviceController;
   /** The laptop EC backup screen. */
   ec: EcController;
+  /** The light / dark choice, shown above the version line on both benches. */
+  appearance: AppearanceController;
   /** burnwright's and the bundled minipros' versions, for the footer. */
   loadAppInfo: () => Promise<AppInfo>;
 }
@@ -28,7 +32,7 @@ const MODES: readonly { id: Mode; label: string }[] = [
  * controller, so switching away and back loses nothing, and an operation
  * running on one carries on while the other is shown.
  */
-function App({ controller, ec, loadAppInfo }: AppProps) {
+function App({ controller, ec, appearance, loadAppInfo }: AppProps) {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [mode, setMode] = useState<Mode>("programmer");
 
@@ -40,9 +44,14 @@ function App({ controller, ec, loadAppInfo }: AppProps) {
     void controller.detect();
   }, [controller]);
 
-  const footer = info
-    ? `burnwright v${info.version} · minipro ${info.minipro} · T76 build ${info.minipro_t76}`
-    : "burnwright";
+  const footer = (
+    <>
+      <AppearancePicker controller={appearance} />
+      {info
+        ? `burnwright v${info.version} · minipro ${info.minipro} · T76 build ${info.minipro_t76}`
+        : "burnwright"}
+    </>
+  );
 
   return (
     <div className="app">

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 
 import App from "./App";
+import { AppearanceController, appearanceStore, type AppearanceDeps } from "./lib/appearance";
 import { createFakeBench } from "./dev/fakeBench";
 import { createFakeEngine } from "./dev/fakeEngine";
 import { DeviceController } from "./lib/device/controller";
@@ -18,10 +19,20 @@ function setup() {
   const controller = new DeviceController({ engine: createFakeEngine(), dialogs });
   const bench = createFakeBench();
   const ec = new EcController({ bench });
+  const appearance = new AppearanceController({
+    store: appearanceStore(window.localStorage),
+    root: document.documentElement,
+    systemDark: {
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    } as unknown as AppearanceDeps["systemDark"],
+  });
   render(
     <App
       controller={controller}
       ec={ec}
+      appearance={appearance}
       loadAppInfo={async () => ({ version: "1.2.3", minipro: "0.7.4", minipro_t76: "0.7.4+abc" })}
     />,
   );
@@ -57,5 +68,12 @@ describe("the bench switch", () => {
     fireEvent.click(mode("Laptop EC"));
     await screen.findByText("CH341A connected");
     expect(bench.calls).toEqual(["list_probes"]);
+  });
+
+  it("keeps the Appearance choice in reach on both benches", () => {
+    setup();
+    expect(screen.getByLabelText("Appearance")).toHaveValue("system");
+    fireEvent.click(mode("Laptop EC"));
+    expect(screen.getByLabelText("Appearance")).toHaveValue("system");
   });
 });

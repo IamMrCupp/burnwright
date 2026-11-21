@@ -1,30 +1,20 @@
-/* Hex editor. Theme through the --hv-edit-* custom properties; the classes
-   land on HexView's byte cells via decorateByte. */
+/* Hex editor. Its --hv-edit-* custom properties take their colours from the
+   --bw-hex-* ones in App.css; the classes land on HexView's byte cells via
+   decorateByte. */
 
 .hexedit {
-  --hv-edit-edited-fg: #b5500b;
-  --hv-edit-edited-bg: #fff1e0;
-  --hv-edit-selected-bg: #d5e3ff;
-  --hv-edit-cursor: #396cd8;
-  --hv-edit-cursor-fg: #ffffff;
-  --hv-edit-cursor-dim: #b9c9ef;
+  --hv-edit-edited-fg: var(--bw-hex-edited-fg);
+  --hv-edit-edited-bg: var(--bw-hex-edited-bg);
+  --hv-edit-selected-bg: var(--bw-hex-selected-bg);
+  --hv-edit-cursor: var(--bw-hex-cursor);
+  --hv-edit-cursor-fg: var(--bw-hex-cursor-fg);
+  --hv-edit-cursor-dim: var(--bw-hex-cursor-dim);
 
   display: flex;
   flex-direction: column;
   gap: 0.5em;
   min-height: 0;
   text-align: left;
-}
-
-@media (prefers-color-scheme: dark) {
-  .hexedit {
-    --hv-edit-edited-fg: #ffb877;
-    --hv-edit-edited-bg: #47300f;
-    --hv-edit-selected-bg: #263d6b;
-    --hv-edit-cursor: #7aa2ff;
-    --hv-edit-cursor-fg: #10131a;
-    --hv-edit-cursor-dim: #3b4c74;
-  }
 }
 
 .hexedit-toolbar {
