@@ -12,10 +12,18 @@
 // firmware. The pretend T76 has no algorithm file until one is chosen
 // ("Choose file…" picks a pretend one; `?algorithms=installed` starts with
 // one where minipro looks).
+//
+// The Laptop EC bench has a pretend flashrom, CH341A and KB9012.
+// `?flashrom=missing` starts without flashrom ("Choose flashrom…" picks a
+// pretend one), `?ch341a=none` with no programmer, and `?ec=silent`,
+// `?ec=other` or `?ec=flaky` with a chip that doesn't answer, a different
+// chip, or a loose wire whose two reads differ.
 import type { DeviceDeps } from "../lib/device/controller";
+import type { EcDeps } from "../lib/ec/controller";
 import { recentStore } from "../lib/device/recent";
 import { settingsStore } from "../lib/device/settings";
 import type { AppInfo, DeviceInfo } from "../lib/engine";
+import { createFakeBench, type FakeBenchOptions } from "./fakeBench";
 import { createFakeEngine, FAKE_ALGORITHM_DEFAULT } from "./fakeEngine";
 
 const SIZE = 4 * 1024 * 1024;
@@ -46,8 +54,26 @@ function programmer(params: URLSearchParams): DeviceInfo | null {
   };
 }
 
+function ecDeps(params: URLSearchParams): EcDeps {
+  const chips: FakeBenchOptions["chip"][] = ["silent", "other", "flaky"];
+  const chip = chips.find((c) => c === params.get("ec")) ?? "kb9012";
+  return {
+    bench: createFakeBench({
+      flashrom: params.get("flashrom") === "missing" ? null : undefined,
+      otherFlashroms: ["/preview/bin/flashrom"],
+      programmer: params.get("ch341a") !== "none",
+      chip,
+      stepMs: 150,
+      steps: 12,
+    }),
+    chooseFlashrom: async () => "/preview/bin/flashrom",
+    reveal: async () => {},
+  };
+}
+
 export function previewSetup(): {
   deps: DeviceDeps;
+  ecDeps: EcDeps;
   loadAppInfo: () => Promise<AppInfo>;
 } {
   const params = new URLSearchParams(window.location.search);
@@ -81,6 +107,7 @@ export function previewSetup(): {
       recent: recentStore(window.localStorage),
       settings: settingsStore(window.localStorage),
     },
+    ecDeps: ecDeps(params),
     loadAppInfo: async () => ({
       version: "preview",
       minipro: "fake",
