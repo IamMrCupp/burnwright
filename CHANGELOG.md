@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.13.0](https://github.com/IamMrCupp/burnwright/compare/v0.12.3...v0.13.0) (2026-11-21)
+
+
+### Features
+
+* **app:** add session commands that identify a KB9012 over a CH341A and back it up ([38147f0](https://github.com/IamMrCupp/burnwright/commit/38147f0b9c6f71cf54476eba86458cf9185510af))
+* **engine:** add a flashrom backend that reads an ENE KB9012 over EDI through a CH341A ([10309e7](https://github.com/IamMrCupp/burnwright/commit/10309e7bed37d6eaa16232ce5216b54dacaed821))
+* **ui:** add a Laptop EC bench that backs up a KB9012 through flashrom and a CH341A ([2fac79a](https://github.com/IamMrCupp/burnwright/commit/2fac79a61ea30807550bf41d01d4b7ba15e8738f))
+
 ## [0.12.3](https://github.com/IamMrCupp/burnwright/compare/v0.12.2...v0.12.3) (2026-11-21)
 
 
