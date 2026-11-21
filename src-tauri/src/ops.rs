@@ -1,7 +1,7 @@
 //! Device-operation bookkeeping for the command layer: one operation at a
-//! time, cancel by operation id, the configured minipro path, the bundled
-//! ones, which bundled build the last detected programmer needs, and the
-//! user's own algorithm file for a T76.
+//! time on each probe, cancel by operation id, the configured minipro path,
+//! the bundled ones, the programmer the last detect found, the user's own
+//! algorithm file for a T76, and where backups go.
 //!
 //! The frontend picks an id for every device operation and passes it along.
 //! `cancel_operation(id)` then reaches the running operation's
@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use engine::{CancelHandle, EngineError, MiniproBuild, MiniproLocator};
+use engine::{Bench, CancelHandle, EngineError, MiniproLocator, Probe, SpiMaster};
 
 /// How many early cancels to remember. Ids are random, so a stale one never
 /// matches a later operation; the cap only bounds memory.
@@ -27,12 +27,44 @@ pub struct DeviceOps {
 
 #[derive(Debug, Default)]
 struct Inner {
-    active: Option<(String, CancelHandle)>,
+    active: Vec<Active>,
     early_cancels: VecDeque<String>,
     minipro_path: Option<PathBuf>,
     algorithm_path: Option<PathBuf>,
     bundled: Bundled,
-    build: MiniproBuild,
+    programmer: Option<String>,
+    backup_dir: Option<PathBuf>,
+}
+
+/// A running operation and the device it holds.
+#[derive(Debug)]
+struct Active {
+    id: String,
+    claim: Claim,
+    cancel: CancelHandle,
+}
+
+/// The device a probe ties up while an operation runs on it. Two operations
+/// with the same claim can't run together; two with different claims can.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Claim {
+    /// Any XGecu programmer. minipro opens whichever one it finds, so two of
+    /// them can't be told apart, whatever model the probe names.
+    Xgecu,
+    /// One SPI master, at any clock.
+    Spi(SpiMaster),
+    /// One serial port.
+    Serial(String),
+}
+
+impl Claim {
+    fn of(probe: &Probe) -> Self {
+        match probe {
+            Probe::Xgecu { .. } => Claim::Xgecu,
+            Probe::SpiMaster { master, .. } => Claim::Spi(*master),
+            Probe::SerialBridge { port } => Claim::Serial(port.clone()),
+        }
+    }
 }
 
 /// Where the installer put minipro and its chip databases. Set once at
@@ -67,8 +99,8 @@ impl Bundled {
     }
 }
 
-/// Marks an operation as running. Dropping it frees the programmer for the
-/// next operation.
+/// Marks an operation as running. Dropping it frees its probe for the next
+/// operation.
 #[derive(Debug)]
 pub struct OpGuard<'a> {
     ops: &'a DeviceOps,
@@ -77,10 +109,7 @@ pub struct OpGuard<'a> {
 
 impl Drop for OpGuard<'_> {
     fn drop(&mut self) {
-        let mut inner = self.ops.lock();
-        if inner.active.as_ref().is_some_and(|(id, _)| *id == self.id) {
-            inner.active = None;
-        }
+        self.ops.lock().active.retain(|a| a.id != self.id);
     }
 }
 
@@ -91,11 +120,17 @@ impl DeviceOps {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Start operation `id`. Fails with [`EngineError::Busy`] while another
-    /// one runs.
-    pub fn begin(&self, id: String) -> Result<(OpGuard<'_>, CancelHandle), EngineError> {
+    /// Start operation `id` on `probe`. Fails with [`EngineError::Busy`]
+    /// while another one runs on the same probe. Operations on different
+    /// probes (an XGecu programmer and a SPI master, say) run side by side.
+    pub fn begin(
+        &self,
+        id: String,
+        probe: &Probe,
+    ) -> Result<(OpGuard<'_>, CancelHandle), EngineError> {
+        let claim = Claim::of(probe);
         let mut inner = self.lock();
-        if inner.active.is_some() {
+        if inner.active.iter().any(|a| a.claim == claim) {
             return Err(EngineError::Busy);
         }
         let cancel = CancelHandle::default();
@@ -103,7 +138,11 @@ impl DeviceOps {
             inner.early_cancels.remove(pos);
             cancel.cancel();
         }
-        inner.active = Some((id.clone(), cancel.clone()));
+        inner.active.push(Active {
+            id: id.clone(),
+            claim,
+            cancel: cancel.clone(),
+        });
         Ok((OpGuard { ops: self, id }, cancel))
     }
 
@@ -111,10 +150,8 @@ impl DeviceOps {
     /// the cancel is held for an operation that hasn't registered yet.
     pub fn cancel(&self, id: &str) -> bool {
         let mut inner = self.lock();
-        if let Some((active, handle)) = &inner.active
-            && active == id
-        {
-            handle.cancel();
+        if let Some(active) = inner.active.iter().find(|a| a.id == id) {
+            active.cancel.cancel();
             return true;
         }
         if inner.early_cancels.len() == EARLY_CANCELS {
@@ -163,15 +200,32 @@ impl DeviceOps {
             .t76_sidecar_database(bundled.t76_database)
     }
 
-    /// The bundled build the last detected programmer needs. Stable until a
-    /// detect finds a T76.
-    pub fn build(&self) -> MiniproBuild {
-        self.lock().build
+    /// The XGecu programmer the last detect found, as a probe. Before any
+    /// detect it names no model: whichever programmer is plugged in, on the
+    /// stable minipro build.
+    pub fn xgecu(&self) -> Probe {
+        Probe::Xgecu {
+            model: self.lock().programmer.clone(),
+        }
     }
 
-    /// Remember the build a detect picked.
-    pub fn set_build(&self, build: MiniproBuild) {
-        self.lock().build = build;
+    /// Remember the programmer a detect found, by the model minipro printed
+    /// (`"T48"`, `"T76"`). The model picks the minipro build for every later
+    /// operation.
+    pub fn set_programmer(&self, model: &str) {
+        self.lock().programmer = Some(model.to_string()).filter(|m| !m.trim().is_empty());
+    }
+
+    /// Record where backups go.
+    pub fn set_backup_dir(&self, dir: PathBuf) {
+        self.lock().backup_dir = Some(dir);
+    }
+
+    /// The bench every chip operation runs under. Its backups go in the
+    /// folder set at startup, or a temporary one when none was (unit tests).
+    pub fn bench(&self) -> Bench {
+        let dir = self.lock().backup_dir.clone();
+        Bench::new(dir.unwrap_or_else(|| std::env::temp_dir().join("burnwright-backups")))
     }
 }
 
@@ -217,27 +271,110 @@ mod tests {
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
-    #[test]
-    fn the_build_starts_stable_and_follows_detect() {
-        let ops = DeviceOps::default();
-        assert_eq!(ops.build(), MiniproBuild::Stable);
-        ops.set_build(MiniproBuild::T76);
-        assert_eq!(ops.build(), MiniproBuild::T76);
+    fn xgecu(model: Option<&str>) -> Probe {
+        Probe::Xgecu {
+            model: model.map(str::to_string),
+        }
+    }
+
+    fn ch341a() -> Probe {
+        Probe::SpiMaster {
+            master: SpiMaster::Ch341a,
+            clock_hz: None,
+        }
     }
 
     #[test]
-    fn one_operation_at_a_time() {
+    fn the_probe_names_no_model_until_a_detect_finds_one() {
         let ops = DeviceOps::default();
-        let (guard, _) = ops.begin("a".into()).unwrap();
-        assert_eq!(ops.begin("b".into()).unwrap_err(), EngineError::Busy);
+        assert_eq!(ops.xgecu(), xgecu(None));
+        ops.set_programmer("T76");
+        assert_eq!(ops.xgecu(), xgecu(Some("T76")));
+        ops.set_programmer("T48");
+        assert_eq!(ops.xgecu(), xgecu(Some("T48")));
+        // minipro printed nothing useful: back to "whichever is plugged in".
+        ops.set_programmer(" ");
+        assert_eq!(ops.xgecu(), xgecu(None));
+    }
+
+    #[test]
+    fn backups_go_where_startup_said() {
+        let ops = DeviceOps::default();
+        assert_eq!(
+            ops.bench().backup_dir(),
+            std::env::temp_dir().join("burnwright-backups")
+        );
+        ops.set_backup_dir("/home/me/backups".into());
+        assert_eq!(
+            ops.bench().backup_dir(),
+            std::path::Path::new("/home/me/backups")
+        );
+    }
+
+    #[test]
+    fn one_operation_at_a_time_on_a_probe() {
+        let ops = DeviceOps::default();
+        let (guard, _) = ops.begin("a".into(), &xgecu(None)).unwrap();
+        assert_eq!(
+            ops.begin("b".into(), &xgecu(None)).unwrap_err(),
+            EngineError::Busy
+        );
         drop(guard);
-        assert!(ops.begin("b".into()).is_ok());
+        assert!(ops.begin("b".into(), &xgecu(None)).is_ok());
+    }
+
+    #[test]
+    fn every_xgecu_model_is_the_same_programmer() {
+        let ops = DeviceOps::default();
+        let (_guard, _) = ops.begin("a".into(), &xgecu(Some("T48"))).unwrap();
+        for other in [xgecu(None), xgecu(Some("T76"))] {
+            assert_eq!(
+                ops.begin("b".into(), &other).unwrap_err(),
+                EngineError::Busy,
+                "{other:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn different_probes_run_side_by_side() {
+        let ops = DeviceOps::default();
+        let (programmer, _) = ops.begin("a".into(), &xgecu(Some("T48"))).unwrap();
+        let (spi, _) = ops.begin("b".into(), &ch341a()).unwrap();
+        let bridge = Probe::SerialBridge {
+            port: "/dev/ttyACM0".into(),
+        };
+        let (_serial, _) = ops.begin("c".into(), &bridge).unwrap();
+
+        // The same SPI master at another clock is still the same master.
+        let slower = Probe::SpiMaster {
+            master: SpiMaster::Ch341a,
+            clock_hz: Some(1_000_000),
+        };
+        assert_eq!(
+            ops.begin("d".into(), &slower).unwrap_err(),
+            EngineError::Busy
+        );
+        assert_eq!(
+            ops.begin("d".into(), &bridge).unwrap_err(),
+            EngineError::Busy
+        );
+
+        // Finishing one frees only its own probe.
+        drop(spi);
+        assert!(ops.begin("d".into(), &slower).is_ok());
+        assert_eq!(
+            ops.begin("e".into(), &xgecu(None)).unwrap_err(),
+            EngineError::Busy
+        );
+        drop(programmer);
+        assert!(ops.begin("e".into(), &xgecu(None)).is_ok());
     }
 
     #[test]
     fn cancel_reaches_the_running_operation() {
         let ops = DeviceOps::default();
-        let (_guard, handle) = ops.begin("a".into()).unwrap();
+        let (_guard, handle) = ops.begin("a".into(), &xgecu(None)).unwrap();
         assert!(!ops.cancel("other"));
         assert!(!handle.is_cancelled());
         assert!(ops.cancel("a"));
@@ -245,14 +382,24 @@ mod tests {
     }
 
     #[test]
+    fn cancel_picks_its_operation_among_several() {
+        let ops = DeviceOps::default();
+        let (_a, programmer) = ops.begin("a".into(), &xgecu(None)).unwrap();
+        let (_b, spi) = ops.begin("b".into(), &ch341a()).unwrap();
+        assert!(ops.cancel("b"));
+        assert!(spi.is_cancelled());
+        assert!(!programmer.is_cancelled());
+    }
+
+    #[test]
     fn an_early_cancel_starts_the_operation_cancelled() {
         let ops = DeviceOps::default();
         assert!(!ops.cancel("late"));
-        let (guard, handle) = ops.begin("late".into()).unwrap();
+        let (guard, handle) = ops.begin("late".into(), &xgecu(None)).unwrap();
         assert!(handle.is_cancelled());
         drop(guard);
         // Used up: the same id starts clean next time.
-        let (_guard, handle) = ops.begin("late".into()).unwrap();
+        let (_guard, handle) = ops.begin("late".into(), &xgecu(None)).unwrap();
         assert!(!handle.is_cancelled());
     }
 
@@ -263,7 +410,7 @@ mod tests {
             ops.cancel(&format!("id{i}"));
         }
         assert_eq!(ops.lock().early_cancels.len(), EARLY_CANCELS);
-        let (_g, handle) = ops.begin("id0".into()).unwrap();
+        let (_g, handle) = ops.begin("id0".into(), &xgecu(None)).unwrap();
         assert!(!handle.is_cancelled(), "oldest entry was dropped");
     }
 

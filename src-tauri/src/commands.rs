@@ -1,8 +1,13 @@
 //! Tauri command surface.
 //!
-//! Device commands run the minipro CLI through [`engine::MiniproEngine`]
-//! (issue #6). Each is async and does its work on a blocking thread, so a
-//! long write never stalls the UI. Every device command takes:
+//! Device commands run the minipro CLI (issue #6). The ones that work on
+//! chip memory (read, write, verify, blank check, erase) go through
+//! [`engine::Bench`] on an [`engine::MiniproBackend`], so they run under the
+//! same rules every later backend will (issue #36). The ones that are about
+//! the programmer or a minipro feature of its own ([`detect`],
+//! [`check_chip`]) call [`engine::MiniproEngine`]. Each is async and does its
+//! work on a blocking thread, so a long write never stalls the UI. Every
+//! device command takes:
 //!
 //! - `op_id`: an id the frontend picks, so [`cancel_operation`] can stop it.
 //! - `on_progress`: a [`Channel`] that receives every [`ProgressEvent`].
@@ -12,8 +17,9 @@
 //! turn off for that run, after seeing `chip_id_mismatch` or
 //! `size_mismatch`.
 //!
-//! Only one device operation runs at a time; a second one fails with
-//! `busy`. Errors reach the frontend as a [`CommandError`] object (the `Err`
+//! Only one device operation runs at a time on a probe; a second one fails
+//! with `busy`. Every command here works on the XGecu programmer, so today
+//! that's one at a time. Errors reach the frontend as a [`CommandError`] object (the `Err`
 //! arm of the JS `invoke` promise). A cancelled write or erase carries
 //! `device_state: "may_be_inconsistent"`. (The image commands still reject
 //! with a plain string.)
@@ -36,10 +42,10 @@ use std::path::PathBuf;
 
 use engine::diagnose::Diagnosis;
 use engine::{
-    AlgorithmFile, AlgorithmSearch, ChipCatalog, ChipCheck, ChipInfo, ChipList, ChipSearch,
+    AlgorithmFile, AlgorithmSearch, Bench, ChipCatalog, ChipCheck, ChipInfo, ChipList, ChipSearch,
     DeviceInfo, DeviceState, Engine, EngineError, EngineResult, ImageFormat, MemoryKind,
-    MiniproBuild, MiniproEngine, MiniproRoutes, MiniproSource, OpContext, Overrides, Programmer,
-    ProgressEvent,
+    MiniproBackend, MiniproBuild, MiniproEngine, MiniproRoutes, MiniproSource, OpContext,
+    Overrides, Probe, Programmer, ProgressEvent, Session,
 };
 use serde::Serialize;
 use tauri::State;
@@ -98,10 +104,50 @@ impl From<EngineError> for CommandError {
 
 type CommandResult<T> = Result<T, CommandError>;
 
-/// Run one device operation: find minipro (the build the last detected
-/// programmer needs, pointed at the user's algorithm file when that
-/// programmer is a T76), claim the programmer, then run `op` on a blocking
-/// thread with progress going to `sink` and the checks in `overrides` off.
+/// The minipro backend as the app is set up right now: the binaries the
+/// locator finds, and the user's algorithm file for a T76.
+fn minipro_backend(ops: &DeviceOps) -> CommandResult<MiniproBackend> {
+    Ok(MiniproBackend::new(locate_routes(ops)?).with_algorithms(ops.algorithm_path()))
+}
+
+/// Run one operation on the chip in the programmer's socket, through
+/// [`Bench`]: find minipro, claim the programmer, open a session for `part`,
+/// then run `op` on a blocking thread with progress going to `sink` and the
+/// checks in `overrides` off.
+///
+/// The session is opened without a chip ID check of its own, because minipro
+/// makes one at the start of every operation (see
+/// [`MiniproBackend::socket_session`]). So this starts minipro exactly as
+/// often as calling the engine directly did.
+async fn run_on_chip<T, S, F>(
+    ops: &DeviceOps,
+    part: String,
+    op_id: String,
+    overrides: Overrides,
+    sink: S,
+    op: F,
+) -> CommandResult<T>
+where
+    T: Send + 'static,
+    S: Fn(ProgressEvent) + Send + Sync + 'static,
+    F: FnOnce(&Bench, &MiniproBackend, &Session, &OpContext) -> EngineResult<T> + Send + 'static,
+{
+    let probe = ops.xgecu();
+    let backend = minipro_backend(ops)?;
+    let bench = ops.bench();
+    let claimed = probe.clone();
+    run_blocking(ops, op_id, &claimed, overrides, sink, move |ctx| {
+        let session = backend.socket_session(&probe, &part)?;
+        op(&bench, &backend, &session, ctx)
+    })
+    .await
+}
+
+/// Run one minipro operation that [`Bench`] has no word for (the chip check
+/// with its pin test): find minipro (the build the last detected programmer
+/// needs, pointed at the user's algorithm file when that programmer is a
+/// T76), claim the programmer, then run `op` on a blocking thread with
+/// progress going to `sink` and the checks in `overrides` off.
 async fn run_op<T, S, F>(
     ops: &DeviceOps,
     op_id: String,
@@ -114,16 +160,20 @@ where
     S: Fn(ProgressEvent) + Send + Sync + 'static,
     F: FnOnce(&MiniproEngine, &OpContext) -> EngineResult<T> + Send + 'static,
 {
-    let binary = locate_routes(ops)?.for_operation(ops.build(), ops.algorithm_path().as_deref());
-    let engine = MiniproEngine::new(binary);
-    run_blocking(ops, op_id, overrides, sink, move |ctx| op(&engine, ctx)).await
+    let probe = ops.xgecu();
+    let engine = minipro_backend(ops)?.engine(&probe)?;
+    run_blocking(ops, op_id, &probe, overrides, sink, move |ctx| {
+        op(&engine, ctx)
+    })
+    .await
 }
 
-/// Claim the programmer, then run `op` on a blocking thread with progress
-/// going to `sink`.
+/// Claim `probe`, then run `op` on a blocking thread with progress going to
+/// `sink`.
 async fn run_blocking<T, S, F>(
     ops: &DeviceOps,
     op_id: String,
+    probe: &Probe,
     overrides: Overrides,
     sink: S,
     op: F,
@@ -133,7 +183,7 @@ where
     S: Fn(ProgressEvent) + Send + Sync + 'static,
     F: FnOnce(&OpContext) -> EngineResult<T> + Send + 'static,
 {
-    let (guard, cancel) = ops.begin(op_id)?;
+    let (guard, cancel) = ops.begin(op_id, probe)?;
     let ctx = OpContext::new()
         .with_cancel(cancel)
         .with_progress(sink)
@@ -159,9 +209,9 @@ fn channel_sink(channel: Channel<ProgressEvent>) -> impl Fn(ProgressEvent) + Sen
 }
 
 /// Detect the connected programmer (minipro `-k`, then `-V`). When the
-/// stable minipro finds none, the T76 build gets a look too; whichever build
-/// the programmer needs drives every later operation (see
-/// `engine::route`).
+/// stable minipro finds none, the T76 build gets a look too. The model it
+/// finds is remembered, and picks the minipro build for every later
+/// operation (see `engine::route`).
 #[tauri::command]
 pub async fn detect(
     ops: State<'_, DeviceOps>,
@@ -169,15 +219,16 @@ pub async fn detect(
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<DeviceInfo> {
     let routes = locate_routes(&ops)?;
-    let (info, build) = run_blocking(
+    let (info, _build) = run_blocking(
         &ops,
         op_id,
+        &Probe::Xgecu { model: None },
         Overrides::default(),
         channel_sink(on_progress),
         move |ctx| engine::route::detect(&routes, ctx),
     )
     .await?;
-    ops.set_build(build);
+    ops.set_programmer(&info.programmer);
     Ok(info)
 }
 
@@ -211,17 +262,24 @@ pub async fn read(
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<Vec<u8>> {
-    run_op(
+    run_on_chip(
         &ops,
+        part,
         op_id,
         overrides.unwrap_or_default(),
         channel_sink(on_progress),
-        move |e, ctx| e.read(&part, kind, ctx),
+        move |bench, backend, session, ctx| bench.read(backend, session, kind, ctx),
     )
     .await
 }
 
 /// Write `data` to `kind` memory of `part` (`-w -`); minipro verifies after.
+///
+/// [`Bench`] wants a backup before any write. For a chip in the programmer's
+/// socket it takes the user's go-ahead instead, and calling this is that
+/// go-ahead: the UI never starts a write without a confirmation that names
+/// the chip. The bench refuses the same shortcut for an EC or a chip on a
+/// live board, so nothing reached another way gets written like this.
 #[tauri::command]
 pub async fn write(
     ops: State<'_, DeviceOps>,
@@ -232,12 +290,16 @@ pub async fn write(
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<()> {
-    run_op(
+    run_on_chip(
         &ops,
+        part,
         op_id,
         overrides.unwrap_or_default(),
         channel_sink(on_progress),
-        move |e, ctx| e.write(&part, kind, &data, ctx),
+        move |bench, backend, session, ctx| {
+            let receipt = bench.waive_with_confirmation(backend, session)?;
+            bench.write(backend, session, kind, &data, &receipt, ctx)
+        },
     )
     .await
 }
@@ -253,12 +315,13 @@ pub async fn verify(
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<()> {
-    run_op(
+    run_on_chip(
         &ops,
+        part,
         op_id,
         overrides.unwrap_or_default(),
         channel_sink(on_progress),
-        move |e, ctx| e.verify(&part, kind, &data, ctx),
+        move |bench, backend, session, ctx| bench.verify(backend, session, kind, &data, ctx),
     )
     .await
 }
@@ -272,17 +335,19 @@ pub async fn blank_check(
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<bool> {
-    run_op(
+    run_on_chip(
         &ops,
+        part,
         op_id,
         overrides.unwrap_or_default(),
         channel_sink(on_progress),
-        move |e, ctx| e.blank_check(&part, ctx),
+        move |bench, backend, session, ctx| bench.blank_check(backend, session, ctx),
     )
     .await
 }
 
-/// Erase `part` (`-E`).
+/// Erase `part` (`-E`). Like [`write`], this takes the user's go-ahead in
+/// place of a backup, which the bench allows for a socketed chip only.
 #[tauri::command]
 pub async fn erase(
     ops: State<'_, DeviceOps>,
@@ -291,12 +356,16 @@ pub async fn erase(
     op_id: String,
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<()> {
-    run_op(
+    run_on_chip(
         &ops,
+        part,
         op_id,
         overrides.unwrap_or_default(),
         channel_sink(on_progress),
-        move |e, ctx| e.erase(&part, ctx),
+        move |bench, backend, session, ctx| {
+            let receipt = bench.waive_with_confirmation(backend, session)?;
+            bench.erase(backend, session, &receipt, ctx)
+        },
     )
     .await
 }
@@ -668,7 +737,9 @@ mod tests {
         };
         // Nothing detected yet, or a T48: the stable build, and no file.
         assert_eq!(seen(&ops), None);
-        ops.set_build(MiniproBuild::T76);
+        ops.set_programmer("T48");
+        assert_eq!(seen(&ops), None);
+        ops.set_programmer("T76");
         assert_eq!(seen(&ops), Some(PathBuf::from("/home/me/algorithm.xml")));
         ops.set_algorithm_path(None);
         assert_eq!(seen(&ops), None);
@@ -723,7 +794,7 @@ mod tests {
         let ops = DeviceOps::default();
         ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
         // A write is running: the programmer is taken.
-        let (_held, _) = ops.begin("write".into()).unwrap();
+        let (_held, _) = ops.begin("write".into(), &ops.xgecu()).unwrap();
         let value = tauri::async_runtime::block_on(chip_query(&ops, Programmer::T48, |_, ctx| {
             assert!(!ctx.is_cancelled());
             Ok(7)
@@ -731,7 +802,10 @@ mod tests {
         .unwrap();
         assert_eq!(value, 7);
         // And the query didn't take it over or free it.
-        assert_eq!(ops.begin("next".into()).unwrap_err(), EngineError::Busy);
+        assert_eq!(
+            ops.begin("next".into(), &ops.xgecu()).unwrap_err(),
+            EngineError::Busy
+        );
     }
 
     #[test]
@@ -972,7 +1046,7 @@ mod tests {
             err.message
         );
         // The programmer is still free.
-        assert!(ops.begin("next".into()).is_ok());
+        assert!(ops.begin("next".into(), &ops.xgecu()).is_ok());
         assert_eq!(locate(&ops).unwrap_err().kind, "minipro_not_found");
     }
 
@@ -996,11 +1070,11 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(value, 42);
-        assert!(ops.begin("next".into()).is_ok());
+        assert!(ops.begin("next".into(), &ops.xgecu()).is_ok());
 
         let ops = DeviceOps::default();
         ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
-        let (_held, _) = ops.begin("held".into()).unwrap();
+        let (_held, _) = ops.begin("held".into(), &ops.xgecu()).unwrap();
         let err = tauri::async_runtime::block_on(run_op(
             &ops,
             "op".into(),
@@ -1010,6 +1084,101 @@ mod tests {
         ))
         .unwrap_err();
         assert_eq!(err.kind, "busy");
+    }
+
+    /// What a chip command's closure is handed, as plain values.
+    fn on_chip<T: Send + 'static>(
+        ops: &DeviceOps,
+        part: &str,
+        op: impl FnOnce(&Bench, &MiniproBackend, &Session, &OpContext) -> EngineResult<T>
+        + Send
+        + 'static,
+    ) -> CommandResult<T> {
+        tauri::async_runtime::block_on(run_on_chip(
+            ops,
+            part.into(),
+            "op".into(),
+            Overrides::default(),
+            |_| {},
+            op,
+        ))
+    }
+
+    #[test]
+    fn chip_commands_get_a_minipro_session_for_the_part() {
+        let ops = DeviceOps::default();
+        ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
+        let seen = |ops: &DeviceOps| {
+            on_chip(ops, "W25Q32BV@SOIC8", |_, _, session, _| {
+                assert_eq!(session.backend(), engine::BackendId::Minipro);
+                Ok((session.target().clone(), session.probe().clone()))
+            })
+            .unwrap()
+        };
+        // Nothing detected yet: whichever programmer is plugged in.
+        assert_eq!(
+            seen(&ops),
+            (
+                engine::TargetSpec::memory("W25Q32BV@SOIC8"),
+                Probe::Xgecu { model: None }
+            )
+        );
+        // After a detect, the model it found.
+        ops.set_programmer("T76");
+        assert_eq!(
+            seen(&ops).1,
+            Probe::Xgecu {
+                model: Some("T76".into())
+            }
+        );
+    }
+
+    #[test]
+    fn chip_commands_point_only_a_t76_at_the_algorithm_file() {
+        let ops = DeviceOps::default();
+        ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
+        ops.set_algorithm_path(Some("/home/me/algorithm.xml".into()));
+        let seen = |ops: &DeviceOps| {
+            on_chip(ops, "W25Q32BV@SOIC8", |_, backend, session, _| {
+                let engine = backend.engine(session.probe())?;
+                Ok(engine.binary().algorithms().map(PathBuf::from))
+            })
+            .unwrap()
+        };
+        assert_eq!(seen(&ops), None);
+        ops.set_programmer("T76");
+        assert_eq!(seen(&ops), Some(PathBuf::from("/home/me/algorithm.xml")));
+    }
+
+    #[test]
+    fn a_socketed_chip_takes_the_go_ahead_in_place_of_a_backup() {
+        let ops = DeviceOps::default();
+        ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
+        let waived = on_chip(&ops, "W25Q32BV@SOIC8", |bench, backend, session, _| {
+            Ok(bench.waive_with_confirmation(backend, session)?.waived())
+        })
+        .unwrap();
+        assert_eq!(waived, Some(engine::WaiveReason::UserConfirmed));
+    }
+
+    #[test]
+    fn chip_commands_hold_the_programmer_and_let_it_go() {
+        let ops = DeviceOps::default();
+        ops.set_minipro_path(Some(std::env::current_exe().unwrap()));
+        let (_held, _) = ops.begin("held".into(), &ops.xgecu()).unwrap();
+        let err = on_chip(&ops, "W25Q32BV@SOIC8", |_, _, _, _| Ok(())).unwrap_err();
+        assert_eq!(err.kind, "busy");
+        drop(_held);
+        on_chip(&ops, "W25Q32BV@SOIC8", |_, _, _, _| Ok(())).unwrap();
+        assert!(ops.begin("next".into(), &ops.xgecu()).is_ok());
+
+        // A missing minipro fails before the programmer is claimed.
+        ops.set_minipro_path(Some(
+            std::env::temp_dir().join("burnwright-no-such-dir/minipro"),
+        ));
+        let err = on_chip(&ops, "W25Q32BV@SOIC8", |_, _, _, _| Ok(())).unwrap_err();
+        assert_eq!(err.kind, "minipro_not_found");
+        assert!(ops.begin("next".into(), &ops.xgecu()).is_ok());
     }
 
     #[test]
