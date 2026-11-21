@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.14.0](https://github.com/IamMrCupp/burnwright/compare/v0.13.0...v0.14.0) (2026-11-21)
+
+
+### Features
+
+* **ui:** add an Appearance choice (System, Light, Dark) and put every colour on one set of properties ([bfa4b89](https://github.com/IamMrCupp/burnwright/commit/bfa4b8991d235f7221afd5458f3711ad70358866))
+* **ui:** load custom themes from a themes folder in the config directory ([6d9c28a](https://github.com/IamMrCupp/burnwright/commit/6d9c28a74bcfc72133df65c62b31ef79871e0ea4))
+
 ## [0.13.0](https://github.com/IamMrCupp/burnwright/compare/v0.12.3...v0.13.0) (2026-11-21)
 
 
