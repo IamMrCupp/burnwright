@@ -90,6 +90,8 @@ sha256() {
 jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
 exe=""
 host_args=()
+# Extra compiler flags for libusb and minipro; only macOS sets any.
+guard_cflags=""
 case "$triple" in
   *-apple-darwin)
     os=macos
@@ -99,6 +101,12 @@ case "$triple" in
       *) die "unsupported macOS target $triple" ;;
     esac
     cc="clang -arch $arch"
+    # The SDK can be newer than the deployment target, and then it declares
+    # functions the oldest macOS we run on doesn't have. clang only warns about
+    # a call to one, and weak-links it: the symbol is null on the older macOS
+    # and the call is a jump to 0x0 (#97, pipe2 from the macOS 27 SDK). Make
+    # that an error, so the build stops instead.
+    guard_cflags="-Werror=unguarded-availability-new"
     [ "$arch" = "$(uname -m)" ] || cross_host="--host=$triple"
     host_args=(${cross_host:+"$cross_host"})
     ;;
@@ -176,11 +184,20 @@ prefix="$work/libusb-prefix"
 libusb_args=(--prefix="$prefix" --disable-shared --enable-static)
 case "$os" in
   linux) libusb_args+=(--disable-udev) ;;
-  macos) libusb_args+=(${host_args[@]+"${host_args[@]}"}) ;;
+  macos)
+    libusb_args+=(${host_args[@]+"${host_args[@]}"})
+    # configure finds pipe2 in the macOS 27 SDK and libusb then calls it, which
+    # crashes on every macOS before 27 (#97). The probe is a link test with its
+    # own prototype, so it never sees the SDK's availability attribute and
+    # $guard_cflags can't make it say no; answer it here. libusb falls back to
+    # pipe() + fcntl(). Add any later function of this kind the same way: the
+    # compile fails on it, and the check after linking is the backstop.
+    libusb_args+=(ac_cv_func_pipe2=no)
+    ;;
 esac
 (
   cd "$work/libusb-$LIBUSB_VERSION"
-  CC="$cc" CFLAGS="-O2" ./configure "${libusb_args[@]}" >"$work/libusb-configure.log" 2>&1 \
+  CC="$cc" CFLAGS="-O2${guard_cflags:+ $guard_cflags}" ./configure "${libusb_args[@]}" >"$work/libusb-configure.log" 2>&1 \
     || { tail -40 "$work/libusb-configure.log"; exit 1; }
   make -j"$jobs" >"$work/libusb-make.log" 2>&1 || { tail -40 "$work/libusb-make.log"; exit 1; }
   make install >/dev/null
@@ -216,7 +233,7 @@ case "$os" in
     # The Makefile adds `pkg-config --libs libusb-1.0` (-L<prefix> -lusb-1.0,
     # which resolves to the static archive: the prefix has no shared lib).
     # EXTRA_LIBS lands after it and adds libusb's private deps.
-    make_args+=(CFLAGS="-O2 -Wall" EXTRA_LIBS="$libusb_static_libs")
+    make_args+=(CFLAGS="-O2 -Wall${guard_cflags:+ $guard_cflags}" EXTRA_LIBS="$libusb_static_libs")
     ;;
   windows)
     # Same glue as .github/workflows/minipro-windows.yml (#38): force-include
@@ -249,6 +266,14 @@ case "$os" in
     otool -L "$built"
     if otool -L "$built" | tail -n +2 | awk '{print $1}' | grep -vE '^(/usr/lib/|/System/Library/)'; then
       die "sidecar links libraries outside /usr/lib and /System"
+    fi
+    # No weak imports (#97). An undefined weak symbol is one the SDK has and
+    # the deployment target doesn't: it links, runs on the build machine if
+    # that's new enough, and is a null pointer everywhere older.
+    weak="$(nm -m "$built" | grep -F '(undefined) weak external' || true)"
+    if [ -n "$weak" ]; then
+      echo "$weak" >&2
+      die "sidecar weak-imports the symbols above; they're missing on macOS $MACOSX_DEPLOYMENT_TARGET and calling one crashes"
     fi
     ;;
   linux)
