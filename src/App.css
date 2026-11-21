@@ -1,17 +1,30 @@
 /* App-wide base: colours, type and the form controls every component uses.
-   Theme through the --bw-* custom properties; dark mode swaps them. */
+
+   Every colour in the app is one of the --bw-* custom properties below, and
+   a look is a full set of values for them. :root holds the light look and
+   [data-theme="dark"] the dark one; src/lib/appearance.ts sets data-theme
+   from the Appearance choice, following the system when that's the choice.
+   Component stylesheets use these and define no colours of their own
+   (src/theme.test.ts holds them to it). */
 
 :root {
+  /* Page, panels and text. */
   --bw-bg: #f1f1f4;
   --bw-panel: #ffffff;
   --bw-border: #d2d2d8;
   --bw-fg: #1d1d1f;
   --bw-muted: #5c5c63;
+
+  /* Buttons, inputs and selects. */
   --bw-control-bg: #ffffff;
   --bw-control-border: #b9b9c2;
   --bw-control-hover: #f0f2f8;
+
+  /* Links, focus rings, the picked chip. */
   --bw-accent: #2f5fcf;
   --bw-accent-soft: #e3ebff;
+
+  /* Outcomes and notices: text or edge, then the fill behind it. */
   --bw-danger: #b3261e;
   --bw-danger-soft: #fdecea;
   --bw-warning: #8a4b06;
@@ -20,7 +33,31 @@
   --bw-ok: #1b6b3a;
   --bw-ok-soft: #e8f5ec;
 
-  color-scheme: light dark;
+  /* Behind a dialog, and the dialog's shadow. */
+  --bw-backdrop: rgba(0, 0, 0, 0.45);
+  --bw-shadow: rgba(0, 0, 0, 0.35);
+
+  /* The hex grid. Its text is --bw-fg and its addresses --bw-muted. */
+  --bw-hex-bg: #ffffff;
+  --bw-hex-header-bg: #f0f0f2;
+  --bw-hex-muted: #8a8a8e;
+  --bw-hex-edited-fg: #b5500b;
+  --bw-hex-edited-bg: #fff1e0;
+  --bw-hex-selected-bg: #d5e3ff;
+  --bw-hex-cursor: #396cd8;
+  --bw-hex-cursor-fg: #ffffff;
+  --bw-hex-cursor-dim: #b9c9ef;
+
+  /* Verify's differences: bytes that differ, bytes only the buffer has,
+     bytes only the chip has. */
+  --bw-diff-changed-bg: #ffd7d5;
+  --bw-diff-changed-fg: #a1150d;
+  --bw-diff-extra-bg: #fff0c2;
+  --bw-diff-extra-fg: #7a5600;
+  --bw-diff-missing-bg: #e4e4e8;
+  --bw-diff-missing-fg: #6e6e74;
+
+  color-scheme: light;
   font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
   font-size: 14px;
   line-height: 1.45;
@@ -35,26 +72,56 @@
   -webkit-text-size-adjust: 100%;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bw-bg: #151517;
-    --bw-panel: #1f1f22;
-    --bw-border: #3a3a40;
-    --bw-fg: #ececef;
-    --bw-muted: #a3a3ab;
-    --bw-control-bg: #2a2a2e;
-    --bw-control-border: #55555d;
-    --bw-control-hover: #34343a;
-    --bw-accent: #8fb0ff;
-    --bw-accent-soft: #24345c;
-    --bw-danger: #ff9a92;
-    --bw-danger-soft: #4a1f1c;
-    --bw-warning: #ffc66b;
-    --bw-warning-soft: #3d2e10;
-    --bw-warning-border: #f59e0b;
-    --bw-ok: #7fd6a0;
-    --bw-ok-soft: #173624;
-  }
+:root[data-theme="dark"] {
+  --bw-bg: #151517;
+  --bw-panel: #1f1f22;
+  --bw-border: #3a3a40;
+  --bw-fg: #ececef;
+  --bw-muted: #a3a3ab;
+
+  --bw-control-bg: #2a2a2e;
+  --bw-control-border: #55555d;
+  --bw-control-hover: #34343a;
+
+  --bw-accent: #8fb0ff;
+  --bw-accent-soft: #24345c;
+
+  --bw-danger: #ff9a92;
+  --bw-danger-soft: #4a1f1c;
+  --bw-warning: #ffc66b;
+  --bw-warning-soft: #3d2e10;
+  --bw-warning-border: #f59e0b;
+  --bw-ok: #7fd6a0;
+  --bw-ok-soft: #173624;
+
+  --bw-backdrop: rgba(0, 0, 0, 0.45);
+  --bw-shadow: rgba(0, 0, 0, 0.35);
+
+  --bw-hex-bg: #1c1c1e;
+  --bw-hex-header-bg: #26262a;
+  --bw-hex-muted: #7c7c82;
+  --bw-hex-edited-fg: #ffb877;
+  --bw-hex-edited-bg: #47300f;
+  --bw-hex-selected-bg: #263d6b;
+  --bw-hex-cursor: #7aa2ff;
+  --bw-hex-cursor-fg: #10131a;
+  --bw-hex-cursor-dim: #3b4c74;
+
+  --bw-diff-changed-bg: #5c1f1c;
+  --bw-diff-changed-fg: #ffb4ae;
+  --bw-diff-extra-bg: #4d3d0f;
+  --bw-diff-extra-fg: #ffd97a;
+  --bw-diff-missing-bg: #34343a;
+  --bw-diff-missing-fg: #9a9aa0;
+
+  color-scheme: dark;
+}
+
+/* The first frame, before the script has set data-theme: the system's own
+   canvas, so a dark desktop doesn't open on a white window. */
+:root:not([data-theme]) {
+  color-scheme: light dark;
+  background-color: Canvas;
 }
 
 html,

@@ -9,5 +9,8 @@ export default defineConfig({
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["./src/test/setup.ts"],
+    // Stylesheets come through as written, not as empty files:
+    // src/theme.test.ts reads them.
+    css: true,
   },
 });

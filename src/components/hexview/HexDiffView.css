@@ -1,31 +1,20 @@
-/* Diff highlighting for HexDiffView. Theme through the --hv-diff-* custom
-   properties; the classes land on HexView's byte cells via decorateByte. */
+/* Diff highlighting for HexDiffView. Its --hv-diff-* custom properties take
+   their colours from the --bw-diff-* ones in App.css; the classes land on
+   HexView's byte cells via decorateByte. */
 
 .hexdiff {
-  --hv-diff-changed-bg: #ffd7d5;
-  --hv-diff-changed-fg: #a1150d;
-  --hv-diff-extra-bg: #fff0c2;
-  --hv-diff-extra-fg: #7a5600;
-  --hv-diff-missing-bg: #e4e4e8;
-  --hv-diff-missing-fg: #6e6e74;
-  --hv-diff-current: #396cd8;
+  --hv-diff-changed-bg: var(--bw-diff-changed-bg);
+  --hv-diff-changed-fg: var(--bw-diff-changed-fg);
+  --hv-diff-extra-bg: var(--bw-diff-extra-bg);
+  --hv-diff-extra-fg: var(--bw-diff-extra-fg);
+  --hv-diff-missing-bg: var(--bw-diff-missing-bg);
+  --hv-diff-missing-fg: var(--bw-diff-missing-fg);
+  --hv-diff-current: var(--bw-hex-cursor);
 
   display: flex;
   flex-direction: column;
   gap: 0.5em;
   min-height: 0;
-}
-
-@media (prefers-color-scheme: dark) {
-  .hexdiff {
-    --hv-diff-changed-bg: #5c1f1c;
-    --hv-diff-changed-fg: #ffb4ae;
-    --hv-diff-extra-bg: #4d3d0f;
-    --hv-diff-extra-fg: #ffd97a;
-    --hv-diff-missing-bg: #34343a;
-    --hv-diff-missing-fg: #9a9aa0;
-    --hv-diff-current: #7aa2ff;
-  }
 }
 
 .hexdiff-toolbar {
