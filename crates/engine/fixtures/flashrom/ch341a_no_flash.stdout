@@ -1,0 +1,5 @@
+flashrom v1.8.0 on Darwin 25.6.0 (arm64)
+flashrom is free software, get the source code at https://flashrom.org
+
+No EEPROM/flash device found.
+Note: flashrom can never write if the flash chip isn't found automatically.

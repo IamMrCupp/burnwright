@@ -313,7 +313,13 @@ export type EngineErrorKind =
   /** Two reads of an in-circuit chip differed, so neither was kept as a backup. */
   | "inconsistent_reads"
   /** The chip answering now isn't the one that was backed up. */
-  | "target_changed";
+  | "target_changed"
+  /** A flashrom run failed; the message is the error it printed. */
+  | "flashrom"
+  /** flashrom isn't installed, or isn't where a setting says it is. */
+  | "flashrom_not_found"
+  /** The probe is there and no chip answered on it. */
+  | "no_chip";
 
 /** How a device or chip command rejects (mirrors `commands::CommandError`). */
 export interface EngineError {

@@ -1,0 +1,6 @@
+flashrom v1.8.0 on Darwin 25.6.0 (arm64)
+flashrom is free software, get the source code at https://flashrom.org
+
+Found ENE flash chip "KB9012 (EDI)" (128 kB, SPI) on ch341a_spi.
+Reading flash... 
+[READ: 12%]...                                                [READ: 25%]...                                                

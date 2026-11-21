@@ -1,0 +1,11 @@
+flashrom v1.8.0 on Darwin 25.6.0 (arm64)
+flashrom is free software, get the source code at https://flashrom.org
+
+flashrom was built with LLVM Clang 21.0.0 (clang-2100.1.1.101), little endian
+Command line (5 args): flashrom -p ch341a_spi -c KB9012 (EDI) -V
+Initializing ch341a_spi programmer
+The following protocols are supported: SPI.
+Probing for ENE KB9012 (EDI), 128 kB: edi_chip_probe: reading hwversion failed
+No EEPROM/flash device found.
+Note: flashrom can never write if the flash chip isn't found automatically.
+Runtime from programmer init to shutdown: 0min 0sec
