@@ -36,6 +36,9 @@
 //! with `missing_algorithms`, or `unusable_algorithms` when the file has
 //! nothing for the chip.
 //!
+//! Chips that aren't in the programmer's socket (a laptop EC on its board)
+//! are worked on through a session: see [`crate::session_commands`].
+//!
 //! The TS mirror of this surface lives in `src/lib/engine.ts`.
 
 use std::path::PathBuf;
@@ -62,7 +65,8 @@ pub struct CommandError {
     /// `unusable_algorithms`, `unsupported_programmer`, `busy`, `cancelled`
     /// or `not_implemented`. The backup layer (`engine::Bench`) adds
     /// `unsupported`, `backup_required`, `backup_failed`,
-    /// `inconsistent_reads` and `target_changed`.
+    /// `inconsistent_reads` and `target_changed`, and the flashrom backend
+    /// `flashrom`, `flashrom_not_found` and `no_chip`.
     pub kind: &'static str,
     /// Human-readable message.
     pub message: String,
@@ -105,11 +109,11 @@ impl From<EngineError> for CommandError {
     }
 }
 
-type CommandResult<T> = Result<T, CommandError>;
+pub(crate) type CommandResult<T> = Result<T, CommandError>;
 
 /// The minipro backend as the app is set up right now: the binaries the
 /// locator finds, and the user's algorithm file for a T76.
-fn minipro_backend(ops: &DeviceOps) -> CommandResult<MiniproBackend> {
+pub(crate) fn minipro_backend(ops: &DeviceOps) -> CommandResult<MiniproBackend> {
     Ok(MiniproBackend::new(locate_routes(ops)?).with_algorithms(ops.algorithm_path()))
 }
 
@@ -173,7 +177,7 @@ where
 
 /// Claim `probe`, then run `op` on a blocking thread with progress going to
 /// `sink`.
-async fn run_blocking<T, S, F>(
+pub(crate) async fn run_blocking<T, S, F>(
     ops: &DeviceOps,
     op_id: String,
     probe: &Probe,
@@ -205,7 +209,9 @@ fn locate_routes(ops: &DeviceOps) -> CommandResult<MiniproRoutes> {
 
 /// Forward progress to the frontend. A closed channel (the window went away)
 /// isn't the operation's problem.
-fn channel_sink(channel: Channel<ProgressEvent>) -> impl Fn(ProgressEvent) + Send + Sync + 'static {
+pub(crate) fn channel_sink(
+    channel: Channel<ProgressEvent>,
+) -> impl Fn(ProgressEvent) + Send + Sync + 'static {
     move |event| {
         let _ = channel.send(event);
     }

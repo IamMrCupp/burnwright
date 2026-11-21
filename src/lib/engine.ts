@@ -335,6 +335,126 @@ export interface MiniproLocation {
   source: "configured" | "env" | "sidecar" | "path" | "explicit";
 }
 
+/** Which tool does the device work (mirrors `engine::BackendId`). */
+export type BackendId = "minipro" | "flashrom" | "ite_parallel";
+
+/** A SPI master a backend can drive (mirrors `engine::SpiMaster`). */
+export type SpiMaster =
+  | { model: "ch341a" }
+  /** `port` is the channel, "A" or "B". */
+  | { model: "ft2232h"; port: string }
+  | { model: "ch347" };
+
+/** How a backend reaches the chip (mirrors `engine::Probe`). */
+export type Probe =
+  /** An XGecu programmer. `model` is the name minipro prints; `null` is "whichever is plugged in". */
+  | { kind: "xgecu"; model: string | null }
+  /** A SPI master on a debug port. `clock_hz` overrides the master's own speed. */
+  | { kind: "spi_master"; master: SpiMaster; clock_hz: number | null }
+  /** A USB-serial bridge. `port` is the serial device. */
+  | { kind: "serial_bridge"; port: string };
+
+/** The kind of chip (mirrors `engine::ChipFamily`). Everything but `memory` is a laptop EC. */
+export type ChipFamily =
+  | "memory"
+  | "ene_kb"
+  | "ite_ec"
+  | "nuvoton_npce"
+  | "microchip_mec";
+
+/** The chip the user means; `part` is the backend's own name for it (mirrors `engine::TargetSpec`). */
+export interface TargetSpec {
+  family: ChipFamily;
+  part: string;
+}
+
+/** A CH341A at its own clock: the one probe flashrom is set up for so far. */
+export const CH341A: Probe = {
+  kind: "spi_master",
+  master: { model: "ch341a" },
+  clock_hz: null,
+};
+
+/** An ENE KB9012 over its EDI debug port, by flashrom's name for it. */
+export const KB9012: TargetSpec = { family: "ene_kb", part: "KB9012 (EDI)" };
+
+/** Something a backend can reach right now (mirrors `engine::ProbeInfo`). */
+export interface ProbeInfo {
+  backend: BackendId;
+  probe: Probe;
+  /** What the probe is, as people name it: "CH341A". */
+  model: string;
+  firmware: string | null;
+}
+
+/** Operations a backend can run for a target (mirrors `engine::OpSet`). */
+export interface OpSet {
+  read: boolean;
+  write: boolean;
+  verify: boolean;
+  erase: boolean;
+  blank_check: boolean;
+}
+
+/** What a backend can do for a target, and how it behaves (mirrors `engine::Capabilities`). */
+export interface Capabilities {
+  ops: OpSet;
+  regions: MemoryKind[];
+  auto_identify: boolean;
+  write_verifies: boolean;
+  /** What an erased byte reads as: 255 for most flash, 0 for a KB9012. */
+  erased: number;
+  /** The chip is on a live board, so a backup reads it twice. */
+  in_circuit: boolean;
+  /** `until_mutating`: a write can't be cancelled once it has started. */
+  cancel: "anytime" | "until_mutating";
+  typical_write_secs: number | null;
+}
+
+/** What a backend found when it talked to the chip (mirrors `engine::Identified`). */
+export interface Identified {
+  target: TargetSpec;
+  /** Main memory size in bytes. */
+  size: number | null;
+  /** The chip's own ID as the backend reports it; "" when it has none. */
+  fingerprint: string;
+  detail: string | null;
+}
+
+/** An open session (mirrors `session_commands::SessionInfo`). */
+export interface SessionInfo {
+  /** What `bench.backup` and `bench.closeSession` name the session by. */
+  id: number;
+  backend: BackendId;
+  probe: Probe;
+  chip: Identified;
+  capabilities: Capabilities;
+  /** Writing to this chip takes a backup, with no way round it. */
+  backup_required: boolean;
+}
+
+/** A backup on disk (mirrors `engine::SavedBackup`). */
+export interface SavedBackup {
+  path: string;
+  /** Lower-case hex SHA-256 of the image. */
+  sha256: string;
+  /** Image size in bytes. */
+  len: number;
+  region: MemoryKind;
+}
+
+/** Whether a backend's tool is there to run (mirrors `engine::Availability`). */
+export type Availability =
+  | { status: "ready"; version: string | null }
+  | { status: "missing"; reason: string };
+
+/** Whether flashrom can be run, and which one (mirrors `session_commands::FlashromStatus`). */
+export interface FlashromStatus {
+  availability: Availability;
+  path: string | null;
+  source: "configured" | "env" | "path" | "system" | "explicit" | null;
+}
+
 /**
  * Where the T76's `algorithm.xml` stands (mirrors `engine::AlgorithmFile`).
  * It's XGecu's file: burnwright reads the user's own copy where it lies.
@@ -682,3 +802,58 @@ export const engine = {
 
 /** The command surface, for code that takes an engine instead of importing this one. */
 export type EngineApi = typeof engine;
+
+/** Options for a session command: progress and cancel. */
+export type SessionOptions = Pick<OperationOptions, "onProgress" | "signal">;
+
+/**
+ * Commands for a chip reached through a session: today, a laptop EC backed
+ * up in-circuit with flashrom and a CH341A (mirrors `session_commands`).
+ * The order is `flashromStatus`, `listProbes`, `openSession`, `backup`.
+ * Nothing here writes to a chip.
+ */
+export const bench = {
+  /**
+   * Whether there's a flashrom to run, where, and its version. burnwright
+   * doesn't ship one. Never rejects; touches no programmer.
+   */
+  flashromStatus: (): Promise<FlashromStatus> => invoke("flashrom_status"),
+  /**
+   * Override the flashrom binary for this session (`null` clears it).
+   * Resolves to the new state.
+   */
+  setFlashromPath: (path: string | null): Promise<FlashromStatus> =>
+    invoke("set_flashrom_path", { path }),
+  /**
+   * The programmers a session can be opened on right now: a CH341A when one
+   * is plugged in, else nothing. Doesn't stop an EC that's wired to it.
+   * Rejects with `flashrom_not_found` when there's no flashrom.
+   */
+  listProbes: (options?: SessionOptions): Promise<ProbeInfo[]> =>
+    deviceOp("list_probes", {}, options),
+  /**
+   * Identify `target` on `probe` and keep the session open. Rejects with
+   * `no_programmer`, `no_chip` or `chip_id_mismatch`. For an EC this stops
+   * the EC while it runs, so the board should be off, on standby power.
+   * Opening a session on a probe closes the one that was open on it.
+   */
+  openSession: (
+    probe: Probe,
+    target: TargetSpec,
+    options?: SessionOptions,
+  ): Promise<SessionInfo> =>
+    deviceOp("open_session", { probe, target }, options),
+  /**
+   * Read the session's chip and save it in burnwright's backup folder, with
+   * its SHA-256. A chip on a live board is read twice; `inconsistent_reads`
+   * means the reads differed and nothing was saved.
+   */
+  backup: (sessionId: number, options?: SessionOptions): Promise<SavedBackup> =>
+    deviceOp("backup_session", { sessionId, kind: null }, options),
+  /** Close a session. Resolves to whether it was open. */
+  closeSession: (sessionId: number): Promise<boolean> =>
+    invoke("close_session", { sessionId }),
+};
+
+/** The session commands, for code that takes them instead of importing these. */
+export type BenchApi = typeof bench;
