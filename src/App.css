@@ -5,7 +5,10 @@
    [data-theme="dark"] the dark one; src/lib/appearance.ts sets data-theme
    from the Appearance choice, following the system when that's the choice.
    Component stylesheets use these and define no colours of their own
-   (src/theme.test.ts holds them to it). */
+   (src/theme.test.ts holds them to it).
+
+   A theme file sets some of these over a look: the list in src/lib/theme.ts
+   and the table in docs/themes.md have to name every one. */
 
 :root {
   /* Page, panels and text. */
@@ -48,8 +51,8 @@
   --bw-hex-cursor-fg: #ffffff;
   --bw-hex-cursor-dim: #b9c9ef;
 
-  /* Verify's differences: bytes that differ, bytes only the buffer has,
-     bytes only the chip has. */
+  /* Verify's differences: bytes that differ, bytes past the other side's
+     end, bytes only the other side has. */
   --bw-diff-changed-bg: #ffd7d5;
   --bw-diff-changed-fg: #a1150d;
   --bw-diff-extra-bg: #fff0c2;

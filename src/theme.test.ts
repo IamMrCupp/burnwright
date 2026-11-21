@@ -1,8 +1,15 @@
 // Holds the stylesheets to the rule App.css states: every colour is a
 // --bw-* property defined there, once per look.
 import { describe, expect, it } from "vitest";
+import { THEME_PROPERTIES } from "./lib/theme";
 
 const sheets = import.meta.glob<string>("./**/*.css", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+
+const docs = import.meta.glob<string>("../docs/themes.md", {
   query: "?raw",
   import: "default",
   eager: true,
@@ -54,5 +61,18 @@ describe("the stylesheets", () => {
 
   it("leave following the system to the script", () => {
     expect(app).not.toMatch(/prefers-color-scheme/);
+  });
+
+  it("define exactly the properties a theme file can set", () => {
+    expect(THEME_PROPERTIES.map((property) => `--bw-${property}`).sort()).toEqual(
+      tokens(app, "\n:root"),
+    );
+  });
+
+  it("have every one of them in the table in docs/themes.md", () => {
+    const page = docs["../docs/themes.md"];
+    expect(page).toBeTruthy();
+    const listed = [...page.matchAll(/^\| `([a-z-]+)` \|/gm)].map((match) => match[1]);
+    expect(listed).toEqual([...THEME_PROPERTIES]);
   });
 });
