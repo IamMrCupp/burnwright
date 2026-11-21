@@ -520,7 +520,7 @@
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--bw-backdrop);
 }
 
 .dialog {
@@ -531,7 +531,7 @@
   border: 1px solid var(--bw-border);
   border-radius: 10px;
   background: var(--bw-panel);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 12px 40px var(--bw-shadow);
   text-align: left;
 }
 

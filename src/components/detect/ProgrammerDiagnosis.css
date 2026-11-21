@@ -1,3 +1,5 @@
+/* Colours come from the --bw-* properties in App.css. */
+
 .diagnosis {
   max-width: 44rem;
   margin: 1rem auto;
@@ -5,11 +7,11 @@
 }
 
 .diagnosis-card {
-  border: 1px solid #d0d0d0;
+  border: 1px solid var(--bw-border);
   border-radius: 8px;
   padding: 0.75rem 1rem;
   margin-bottom: 0.75rem;
-  background: #ffffff;
+  background: var(--bw-panel);
 }
 
 .diagnosis-card h3 {
@@ -20,7 +22,7 @@
 .diagnosis-programmer {
   margin: 0;
   font-size: 0.85rem;
-  color: #555555;
+  color: var(--bw-muted);
 }
 
 .diagnosis-link {
@@ -32,23 +34,13 @@
   overflow-x: auto;
   padding: 0.5rem 0.75rem;
   border-radius: 6px;
-  background: #1e1e1e;
-  color: #f0f0f0;
+  border: 1px solid var(--bw-border);
+  background: var(--bw-bg);
+  color: var(--bw-fg);
   font-size: 0.8rem;
   line-height: 1.4;
 }
 
 .diagnosis-command button {
   margin-right: 0.75rem;
-}
-
-@media (prefers-color-scheme: dark) {
-  .diagnosis-card {
-    border-color: #3a3a3a;
-    background: #1f1f1f;
-  }
-
-  .diagnosis-programmer {
-    color: #aaaaaa;
-  }
 }

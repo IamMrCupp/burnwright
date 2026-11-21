@@ -1,17 +1,21 @@
 import { useEffect, useState } from "react";
+import { AppearancePicker } from "./components/appearance";
 import { DeviceScreen } from "./components/device";
+import type { AppearanceController } from "./lib/appearance";
 import type { DeviceController } from "./lib/device/controller";
 import type { AppInfo } from "./lib/engine";
 import "./App.css";
 
 export interface AppProps {
   controller: DeviceController;
+  /** The light / dark choice, shown above the version line. */
+  appearance: AppearanceController;
   /** burnwright's and the bundled minipros' versions, for the footer. */
   loadAppInfo: () => Promise<AppInfo>;
 }
 
 /** The app: the device screen, with a look for a programmer as it opens. */
-function App({ controller, loadAppInfo }: AppProps) {
+function App({ controller, appearance, loadAppInfo }: AppProps) {
   const [info, setInfo] = useState<AppInfo | null>(null);
 
   useEffect(() => {
@@ -26,9 +30,12 @@ function App({ controller, loadAppInfo }: AppProps) {
     <DeviceScreen
       controller={controller}
       footer={
-        info
-          ? `burnwright v${info.version} · minipro ${info.minipro} · T76 build ${info.minipro_t76}`
-          : "burnwright"
+        <>
+          <AppearancePicker controller={appearance} />
+          {info
+            ? `burnwright v${info.version} · minipro ${info.minipro} · T76 build ${info.minipro_t76}`
+            : "burnwright"}
+        </>
       }
     />
   );

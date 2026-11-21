@@ -1,0 +1,9 @@
+/* The Appearance choice, in the device screen's footer. Colours come from
+   the --bw-* properties in App.css. */
+
+.appearance {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}

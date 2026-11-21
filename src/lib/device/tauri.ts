@@ -1,6 +1,6 @@
 // The device screen's dependencies in the real app: the Tauri engine, the
 // system's file panels, the webview's localStorage and the app's window.
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, type Theme } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { engine } from "../engine";
 import type { DeviceController, DeviceDeps, FileDialogs } from "./controller";
@@ -70,4 +70,15 @@ export function guardWindowClose(controller: Pick<DeviceController, "requestClos
   void getCurrentWindow().onCloseRequested((event) => {
     if (!controller.requestClose()) event.preventDefault();
   });
+}
+
+/**
+ * Give the window's title bar and native menus the chosen look; `null`
+ * hands them back to the system. The page has its look either way, so a
+ * platform that can't do this just keeps its own title bar.
+ */
+export function setWindowTheme(theme: Theme | null): void {
+  void getCurrentWindow()
+    .setTheme(theme)
+    .catch(() => {});
 }
