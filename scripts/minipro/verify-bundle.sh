@@ -117,17 +117,29 @@ check_libs() {
   if grep -q libusb <<<"$libs"; then die "$1 links a shared libusb"; fi
 }
 
-UDEV_RULES=60-burnwright-minipro.rules
-UDEV_RULES_PATH="/usr/lib/udev/rules.d/$UDEV_RULES"
+# The rules files the .deb ships: one for the XGecu programmers minipro
+# drives, one for the CH341A flashrom drives.
+MINIPRO_RULES=60-burnwright-minipro.rules
+FLASHROM_RULES=60-burnwright-flashrom.rules
+UDEV_RULES_FILES=("$MINIPRO_RULES" "$FLASHROM_RULES")
+UDEV_RULES_DIR=/usr/lib/udev/rules.d
+# USB vendors the maintainer scripts re-trigger: XGecu, Microchip (TL866A/CS)
+# and WCH (CH341A).
+UDEV_VENDORS=(a466 04d8 1a86)
+# What a rule has to grant: the seat's user (uaccess) and the plugdev group.
+UDEV_GRANT='TAG\+="uaccess", MODE="0660", GROUP="plugdev"'
 
 # check_deb_scripts <deb>: the .deb carries the udev rules and a postinst and
 # postrm that reload udev.
 check_deb_scripts() {
-  local deb="$1" listing="$2" ctl="$scratch/control"
+  local deb="$1" listing="$2" ctl="$scratch/control" f path
   section "udev rules and maintainer scripts in $(basename "$deb")"
-  grep -E "(\./)?${UDEV_RULES_PATH#/}\$" <<<"$listing" || die "deb lacks $UDEV_RULES_PATH"
-  grep -E "^-rw-r--r-- (root/root|0/0) .*(\./)?${UDEV_RULES_PATH#/}\$" <<<"$listing" >/dev/null \
-    || die "$UDEV_RULES_PATH isn't a 0644 root-owned file in the deb"
+  for f in "${UDEV_RULES_FILES[@]}"; do
+    path="$UDEV_RULES_DIR/$f"
+    grep -E "(\./)?${path#/}\$" <<<"$listing" || die "deb lacks $path"
+    grep -E "^-rw-r--r-- (root/root|0/0) .*(\./)?${path#/}\$" <<<"$listing" >/dev/null \
+      || die "$path isn't a 0644 root-owned file in the deb"
+  done
   dpkg-deb -e "$deb" "$ctl"
   for s in postinst postrm; do
     [ -x "$ctl/$s" ] || die "deb has no executable $s"
@@ -136,21 +148,40 @@ check_deb_scripts() {
   done
 }
 
-# check_udev_rules <rules file>: the rules parse, and flag every programmer.
+# check_udev_rules <rules file>: the installed file is the one in the repo, it
+# parses, and it grants access to every programmer it's there for.
 check_udev_rules() {
-  local rules="$1" out
+  local rules="$1" name out id
+  name="$(basename "$rules")"
   section "udev rules: $rules"
   [ -f "$rules" ] || die "no udev rules at $rules"
   cat "$rules"
-  cmp -s "$rules" "$here/../../packaging/linux/udev/$UDEV_RULES" \
-    || die "installed $UDEV_RULES differs from packaging/linux/udev/$UDEV_RULES"
-  local id
-  for id in 04d8:e11c a466:0a53 a466:1a86; do
-    grep -qE "ATTR\\{idVendor\\}==\"${id%:*}\", ATTR\\{idProduct\\}==\"${id#*:}\", ENV\\{ID_MINIPRO\\}=\"1\"" "$rules" \
-      || die "udev rules don't flag $id"
-  done
-  grep -qE '^ENV\{ID_MINIPRO\}=="1", TAG\+="uaccess", MODE="0660", GROUP="plugdev"$' "$rules" \
-    || die "udev rules don't grant uaccess/plugdev"
+  cmp -s "$rules" "$here/../../packaging/linux/udev/$name" \
+    || die "installed $name differs from packaging/linux/udev/$name"
+  case "$name" in
+    "$MINIPRO_RULES")
+      for id in 04d8:e11c a466:0a53 a466:1a86; do
+        grep -qE "ATTR\\{idVendor\\}==\"${id%:*}\", ATTR\\{idProduct\\}==\"${id#*:}\", ENV\\{ID_MINIPRO\\}=\"1\"" "$rules" \
+          || die "$name doesn't flag $id"
+      done
+      grep -qE "^ENV\\{ID_MINIPRO\\}==\"1\", $UDEV_GRANT\$" "$rules" \
+        || die "$name doesn't grant uaccess/plugdev"
+      ;;
+    "$FLASHROM_RULES")
+      # The CH341A in SPI/I2C mode, and nothing else: its serial mode has
+      # another product ID that flashrom can't use.
+      id=1a86:5512
+      grep -qE "^ATTR\\{idVendor\\}==\"${id%:*}\", ATTR\\{idProduct\\}==\"${id#*:}\", $UDEV_GRANT\$" "$rules" \
+        || die "$name doesn't grant uaccess/plugdev to $id"
+      [ "$(grep -vE '^[[:space:]]*(#|$)' "$rules" | grep -c 'idProduct')" -eq 1 ] \
+        || die "$name lists a device other than $id"
+      # A CH341A isn't a minipro device: a distro minipro's rules key on this.
+      if grep -vE '^[[:space:]]*(#|$)' "$rules" | grep -q ID_MINIPRO; then
+        die "$name tags a flashrom programmer as a minipro device"
+      fi
+      ;;
+    *) die "no checks for $name" ;;
+  esac
   # Every rule line is key/value pairs udev knows; anything else is a typo.
   if grep -vE '^[[:space:]]*(#|$)' "$rules" \
       | grep -vE '^(ACTION|SUBSYSTEM|ENV\{[A-Z_]+\}|ATTR\{[a-zA-Z]+\}|TAG|MODE|GROUP|LABEL)[!=+]'; then
@@ -159,17 +190,17 @@ check_udev_rules() {
 
   if udevadm verify --help >/dev/null 2>&1; then
     # systemd 253+ (Ubuntu 24.04 and later).
-    out="$(udevadm verify "$rules" 2>&1)" || { echo "$out"; die "udevadm verify rejected $UDEV_RULES"; }
+    out="$(udevadm verify "$rules" 2>&1)" || { echo "$out"; die "udevadm verify rejected $name"; }
     echo "udevadm verify: $out"
   else
     # Older udev (Ubuntu 22.04) has no verify, but `udevadm test` parses every
     # rules file, logging any line it can't use with the file's name.
     out="$(sudo udevadm test --action=change /sys/class/mem/null 2>&1)" || true
-    grep -F "$UDEV_RULES" <<<"$out" || true
-    if grep -F "$UDEV_RULES" <<<"$out" | grep -iE "invalid|ignor|unknown|fail|error|warn|deprecat"; then
-      die "udevadm test logged problems with $UDEV_RULES"
+    grep -F "$name" <<<"$out" || true
+    if grep -F "$name" <<<"$out" | grep -iE "invalid|ignor|unknown|fail|error|warn|deprecat"; then
+      die "udevadm test logged problems with $name"
     fi
-    grep -qF "$UDEV_RULES" <<<"$out" || echo "note: udevadm test didn't mention $UDEV_RULES (only syntax-grepped)"
+    grep -qF "$name" <<<"$out" || echo "note: udevadm test didn't mention $name (only syntax-grepped)"
   fi
 }
 
@@ -192,7 +223,7 @@ check_maintainer_script() {
   cat "$stub/calls"
   grep -qx "control --reload-rules" "$stub/calls" || die "$name $arg didn't reload the rules"
   local v
-  for v in a466 04d8; do
+  for v in "${UDEV_VENDORS[@]}"; do
     grep -qx -- "trigger --action=change --subsystem-match=usb --attr-match=idVendor=$v" "$stub/calls" \
       || die "$name $arg didn't trigger idVendor=$v"
   done
@@ -235,7 +266,10 @@ verify_linux() {
   check_sidecar ".deb (installed)" "/usr/bin/$SIDECAR_NAME" /usr/lib/burnwright/minipro
   check_libs "/usr/bin/$T76_SIDECAR_NAME"
   check_sidecar ".deb (installed, t76)" "/usr/bin/$T76_SIDECAR_NAME" /usr/lib/burnwright/minipro-t76 t76
-  check_udev_rules "$UDEV_RULES_PATH"
+  local rules
+  for rules in "${UDEV_RULES_FILES[@]}"; do
+    check_udev_rules "$UDEV_RULES_DIR/$rules"
+  done
   check_maintainer_script "$pkg" postinst configure
   check_maintainer_script "$pkg" postrm remove
 
@@ -245,7 +279,9 @@ verify_linux() {
   status="$(dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null || true)"
   echo "$pkg: ${status:-unknown to dpkg}"
   case "$status" in *" installed"|*" config-files") die "$pkg is still on the system: $status" ;; esac
-  [ ! -e "$UDEV_RULES_PATH" ] || die "apt remove left $UDEV_RULES_PATH behind"
+  for rules in "${UDEV_RULES_FILES[@]}"; do
+    [ ! -e "$UDEV_RULES_DIR/$rules" ] || die "apt remove left $UDEV_RULES_DIR/$rules behind"
+  done
   [ ! -e "/usr/bin/$SIDECAR_NAME" ] || die "apt remove left /usr/bin/$SIDECAR_NAME behind"
   [ ! -e "/usr/bin/$T76_SIDECAR_NAME" ] || die "apt remove left /usr/bin/$T76_SIDECAR_NAME behind"
   echo ".deb removed cleanly"

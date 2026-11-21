@@ -242,12 +242,14 @@ After bundling, `scripts/minipro/verify-bundle.sh` (macOS and Linux) and
 - **Linux:** `dpkg-deb -I` / `-c`, then `apt install` the `.deb` and run
   `/usr/bin/burnwright-minipro`. Extract the AppImage and run the copy inside it.
   `ldd` must show no libusb and nothing unresolved. The `.deb` is also checked
-  for its udev rules: the file is installed, matches
-  `packaging/linux/udev/`, flags all three USB IDs and parses (`udevadm verify`
-  where it exists, otherwise `udevadm test`'s log); the package ends up fully
-  configured; the postinst and postrm exit 0 with no `udevadm` and with a failing
-  one, and run the reload and both triggers with a working one; and
-  `apt remove` / `purge` take the rules and the sidecar with them.
+  for its udev rules: both files are installed, match
+  `packaging/linux/udev/` and parse (`udevadm verify` where it exists, otherwise
+  `udevadm test`'s log); the minipro one flags all three XGecu USB IDs, and the
+  flashrom one grants the CH341A's `1a86:5512`, lists nothing else and doesn't
+  tag it as a minipro device; the package ends up fully configured; the postinst
+  and postrm exit 0 with no `udevadm` and with a failing one, and run the reload
+  and all three vendor triggers with a working one; and `apt remove` / `purge`
+  take the rules and the sidecar with them.
 - **Windows:** silently install the NSIS installer per-user, then run the sidecar
   from the install folder with `PATH` cut down to System32.
 
@@ -267,4 +269,5 @@ database.
 
 CI has no programmer attached, so none of this proves a read or write, or that
 the udev rules grant access to a real device. That
-still needs a real T48 or TL866II+ on each OS, and a T76 for the T76 build.
+still needs a real T48 or TL866II+ on each OS, a T76 for the T76 build, and a
+CH341A on Linux for the flashrom rule.
