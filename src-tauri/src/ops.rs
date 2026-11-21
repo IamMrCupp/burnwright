@@ -1,7 +1,8 @@
 //! Device-operation bookkeeping for the command layer: one operation at a
-//! time on each probe, cancel by operation id, the configured minipro path,
-//! the bundled ones, the programmer the last detect found, the user's own
-//! algorithm file for a T76, and where backups go.
+//! time on each probe, cancel by operation id, the configured minipro and
+//! flashrom paths, the bundled minipros, the programmer the last detect
+//! found, the user's own algorithm file for a T76, where backups go, and the
+//! chip sessions the frontend has open.
 //!
 //! The frontend picks an id for every device operation and passes it along.
 //! `cancel_operation(id)` then reaches the running operation's
@@ -13,7 +14,9 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use engine::{Bench, CancelHandle, EngineError, MiniproLocator, Probe, SpiMaster};
+use engine::{
+    Bench, CancelHandle, EngineError, FlashromLocator, MiniproLocator, Probe, Session, SpiMaster,
+};
 
 /// How many early cancels to remember. Ids are random, so a stale one never
 /// matches a later operation; the cap only bounds memory.
@@ -34,6 +37,8 @@ struct Inner {
     bundled: Bundled,
     programmer: Option<String>,
     backup_dir: Option<PathBuf>,
+    flashrom_path: Option<PathBuf>,
+    sessions: Vec<Session>,
 }
 
 /// A running operation and the device it holds.
@@ -226,6 +231,46 @@ impl DeviceOps {
     pub fn bench(&self) -> Bench {
         let dir = self.lock().backup_dir.clone();
         Bench::new(dir.unwrap_or_else(|| std::env::temp_dir().join("burnwright-backups")))
+    }
+
+    /// The flashrom path set in the app, if any.
+    pub fn flashrom_path(&self) -> Option<PathBuf> {
+        self.lock().flashrom_path.clone()
+    }
+
+    /// Set (or, with `None`, clear) the flashrom path override.
+    pub fn set_flashrom_path(&self, path: Option<PathBuf>) {
+        self.lock().flashrom_path = path.filter(|p| !p.as_os_str().is_empty());
+    }
+
+    /// A locator over the configured path, `BURNWRIGHT_FLASHROM`, `PATH` and
+    /// the usual install directories, in that order. burnwright ships no
+    /// flashrom of its own.
+    pub fn flashrom_locator(&self) -> FlashromLocator {
+        FlashromLocator::from_env().configured(self.flashrom_path())
+    }
+
+    /// Keep `session` open for later commands, which name it by its id. A
+    /// device has one chip on it, so this closes any session that was open
+    /// on the same one: whatever it identified may not be there any more.
+    pub fn keep_session(&self, session: Session) {
+        let claim = Claim::of(session.probe());
+        let mut inner = self.lock();
+        inner.sessions.retain(|s| Claim::of(s.probe()) != claim);
+        inner.sessions.push(session);
+    }
+
+    /// The open session with this id.
+    pub fn session(&self, id: u64) -> Option<Session> {
+        self.lock().sessions.iter().find(|s| s.id() == id).cloned()
+    }
+
+    /// Close session `id`. Returns whether it was open.
+    pub fn close_session(&self, id: u64) -> bool {
+        let mut inner = self.lock();
+        let before = inner.sessions.len();
+        inner.sessions.retain(|s| s.id() != id);
+        inner.sessions.len() != before
     }
 }
 
@@ -438,5 +483,65 @@ mod tests {
         assert_eq!(ops.minipro_path(), Some(PathBuf::from("/opt/minipro")));
         ops.set_minipro_path(Some(PathBuf::new()));
         assert_eq!(ops.minipro_path(), None);
+    }
+
+    #[test]
+    fn flashrom_path_setting() {
+        let ops = DeviceOps::default();
+        assert_eq!(ops.flashrom_path(), None);
+        ops.set_flashrom_path(Some("/opt/flashrom".into()));
+        assert_eq!(ops.flashrom_path(), Some(PathBuf::from("/opt/flashrom")));
+        // The setting comes first, and a missing file there is an error
+        // rather than a quiet fall back to another flashrom.
+        let err = ops.flashrom_locator().locate().unwrap_err();
+        assert!(
+            matches!(err, engine::FlashromLocateError::MissingOverride { .. }),
+            "{err}"
+        );
+        ops.set_flashrom_path(Some(PathBuf::new()));
+        assert_eq!(ops.flashrom_path(), None);
+    }
+
+    fn session_on(probe: Probe) -> Session {
+        let chip = engine::Identified {
+            target: engine::TargetSpec::memory("X"),
+            size: None,
+            fingerprint: String::new(),
+            detail: None,
+        };
+        Session::new(engine::BackendId::Flashrom, probe, chip)
+    }
+
+    #[test]
+    fn sessions_are_found_by_id_until_closed() {
+        let ops = DeviceOps::default();
+        let session = session_on(ch341a());
+        let id = session.id();
+        assert_eq!(ops.session(id), None);
+        ops.keep_session(session.clone());
+        assert_eq!(ops.session(id), Some(session));
+        assert!(ops.close_session(id));
+        assert_eq!(ops.session(id), None);
+        assert!(!ops.close_session(id));
+    }
+
+    #[test]
+    fn a_device_has_one_open_session() {
+        let ops = DeviceOps::default();
+        let first = session_on(ch341a());
+        let socket = session_on(xgecu(Some("T48")));
+        // The same CH341A, named with its clock spelled out.
+        let second = session_on(Probe::SpiMaster {
+            master: SpiMaster::Ch341a,
+            clock_hz: Some(2_000_000),
+        });
+        let (first_id, socket_id, second_id) = (first.id(), socket.id(), second.id());
+        ops.keep_session(first);
+        ops.keep_session(socket);
+        ops.keep_session(second);
+        assert_eq!(ops.session(first_id), None);
+        assert!(ops.session(second_id).is_some());
+        // A session on another device is left alone.
+        assert!(ops.session(socket_id).is_some());
     }
 }
