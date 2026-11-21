@@ -59,16 +59,22 @@ against a pretend programmer and chip (`src/dev/`), which never ships in a build
 ## Linux: USB access
 
 Linux won't let an ordinary user open a programmer without a udev rule. The
-`.deb` installs one (`/usr/lib/udev/rules.d/60-burnwright-minipro.rules`) and
-reloads udev, so a plugged-in programmer just works. The AppImage can't install
-system files, so copy the rules in once yourself:
+`.deb` installs two rules files into `/usr/lib/udev/rules.d/`
+(`60-burnwright-minipro.rules` for the XGecu programmers,
+`60-burnwright-flashrom.rules` for the CH341A) and reloads udev, so a plugged-in
+programmer just works. The AppImage can't install system files, so copy the
+rules in once yourself:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/IamMrCupp/burnwright/main/packaging/linux/udev/60-burnwright-minipro.rules
 ```
 
 ```bash
-sudo install -m 0644 60-burnwright-minipro.rules /etc/udev/rules.d/
+curl -fsSLO https://raw.githubusercontent.com/IamMrCupp/burnwright/main/packaging/linux/udev/60-burnwright-flashrom.rules
+```
+
+```bash
+sudo install -m 0644 60-burnwright-minipro.rules 60-burnwright-flashrom.rules /etc/udev/rules.d/
 ```
 
 ```bash
