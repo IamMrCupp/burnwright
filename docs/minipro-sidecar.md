@@ -175,6 +175,7 @@ before 27.
   function. The fix is then another `ac_cv_func_<name>=no` next to the first.
 - **After linking, `nm -m` on the sidecar must list no `(undefined) weak
   external` symbol.** That's the backstop for whatever gets past the compiler.
+  `verify-bundle.sh` runs the same check on the sidecars inside the `.dmg`.
 
 All three apply to both sidecars. Linux and Windows have no equivalent: neither
 toolchain turns a missing function into a null pointer at runtime.
@@ -235,8 +236,9 @@ the table above and, on macOS, no weak imports.
 After bundling, `scripts/minipro/verify-bundle.sh` (macOS and Linux) and
 `verify-bundle.ps1` (Windows) check it from an installed layout:
 
-- **macOS:** copy the `.app` out of the `.dmg`, `otool -L` the sidecar and fail on
-  anything outside `/usr/lib` and `/System`.
+- **macOS:** copy the `.app` out of the `.dmg`, `otool -L` each sidecar and fail on
+  anything outside `/usr/lib` and `/System`. `nm -m` each one and fail on a weak
+  import: the build script already checked, but this is the copy that ships.
 - **Linux:** `dpkg-deb -I` / `-c`, then `apt install` the `.deb` and run
   `/usr/bin/burnwright-minipro`. Extract the AppImage and run the copy inside it.
   `ldd` must show no libusb and nothing unresolved. The `.deb` is also checked
