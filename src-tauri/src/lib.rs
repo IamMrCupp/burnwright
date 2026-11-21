@@ -1,6 +1,7 @@
 mod commands;
 mod ops;
 mod session_commands;
+mod stream;
 mod themes;
 
 use tauri::Manager;
@@ -70,6 +71,8 @@ pub fn run() {
         .manage(ops::DeviceOps::default())
         // Chip lists, loaded once per programmer and kept until the app quits.
         .manage(engine::ChipCatalog::new())
+        // The page OBS loads as a Browser source. Off until the user turns it on.
+        .manage(stream::StreamServer::new())
         .setup(|app| {
             // Without a path to our own binary there's no sidecar to find;
             // the locator then falls back to PATH.
@@ -113,6 +116,8 @@ pub fn run() {
             session_commands::close_session,
             commands::list_themes,
             commands::open_themes_folder,
+            stream::stream_configure,
+            stream::stream_publish,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

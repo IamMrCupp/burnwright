@@ -9,6 +9,8 @@ import { EcController } from "./lib/ec/controller";
 import { tauriEcDeps } from "./lib/ec/tauri";
 import { engine } from "./lib/engine";
 import type { ThemeSource } from "./lib/theme";
+import { StreamController } from "./lib/stream/controller";
+import { tauriStreamDeps } from "./lib/stream/tauri";
 
 /** The themes folder: the real one in the app, a pretend one under `pnpm dev`. */
 function themeSource(): ThemeSource | undefined {
@@ -35,19 +37,32 @@ appearance.start();
 
 async function setup(): Promise<Omit<AppProps, "appearance">> {
   // `pnpm dev` opened in a plain browser has no Tauri backend: use the fake
-  // engine there. A release build never takes this branch or ships it.
-  if (import.meta.env.DEV && !isTauri()) {
+  // engine there. `VITE_FAKE_ENGINE=1 pnpm tauri dev` uses it in the app's
+  // own window too, where the stream page's server is the real one. A
+  // release build never takes this branch or ships it.
+  if (import.meta.env.DEV && (!isTauri() || import.meta.env.VITE_FAKE_ENGINE)) {
     const { previewSetup } = await import("./dev/preview");
-    const { deps, ecDeps, loadAppInfo } = previewSetup();
+    const { deps, ecDeps, streamBackend, loadAppInfo } = previewSetup();
+    const controller = new DeviceController(deps);
     return {
-      controller: new DeviceController(deps),
+      controller,
       ec: new EcController(ecDeps),
+      stream: new StreamController(
+        isTauri()
+          ? tauriStreamDeps(controller)
+          : { backend: streamBackend, device: controller },
+      ),
       loadAppInfo,
     };
   }
   const controller = new DeviceController(tauriDeps());
   guardWindowClose(controller);
-  return { controller, ec: new EcController(tauriEcDeps()), loadAppInfo: engine.appInfo };
+  return {
+    controller,
+    ec: new EcController(tauriEcDeps()),
+    stream: new StreamController(tauriStreamDeps(controller)),
+    loadAppInfo: engine.appInfo,
+  };
 }
 
 void setup().then((props) => {

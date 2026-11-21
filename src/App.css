@@ -183,11 +183,18 @@ select:disabled {
   height: 100%;
 }
 
-.app-modes {
+.app-bar {
   flex: none;
   display: flex;
-  gap: 0.25rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding: 0.5rem 0.75rem 0;
+}
+
+.app-modes {
+  display: flex;
+  gap: 0.25rem;
 }
 
 .app-modes button {
