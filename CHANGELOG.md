@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.3](https://github.com/IamMrCupp/burnwright/compare/v0.12.2...v0.12.3) (2026-11-21)
+
+
+### Bug Fixes
+
+* **minipro:** keep the macOS sidecar from calling functions newer than its deployment target ([07b410e](https://github.com/IamMrCupp/burnwright/commit/07b410e89d3e7ff5278a83c22b5780e33f2034bc))
+
 ## [0.12.2](https://github.com/IamMrCupp/burnwright/compare/v0.12.1...v0.12.2) (2026-11-18)
 
 
