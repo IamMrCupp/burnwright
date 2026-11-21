@@ -15,7 +15,7 @@
 //! write or an erase reports [`DeviceState::MayBeInconsistent`], because the
 //! chip may be partly programmed or partly erased.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
 use std::process::{Child, ChildStderr, ChildStdout, Command, ExitStatus, Stdio};
 use std::sync::Arc;
@@ -204,11 +204,7 @@ impl MiniproCommand {
     /// the program, then every argument, quoted where the shell needs it.
     /// The environment and anything piped to stdin aren't part of it.
     pub fn command_line(&self) -> String {
-        std::iter::once(&self.program)
-            .chain(&self.args)
-            .map(|arg| quote_arg(&arg.to_string_lossy(), cfg!(windows)))
-            .collect::<Vec<_>>()
-            .join(" ")
+        command_line(&self.program, &self.args)
     }
 
     /// Start minipro. `on_event` runs on a background thread for every
@@ -274,6 +270,15 @@ impl MiniproCommand {
     {
         self.spawn(on_event)?.wait()
     }
+}
+
+/// `program` and `args` as one line for a log, quoted for this host's shell.
+pub(crate) fn command_line(program: &OsStr, args: &[OsString]) -> String {
+    std::iter::once(program)
+        .chain(args.iter().map(OsString::as_os_str))
+        .map(|arg| quote_arg(&arg.to_string_lossy(), cfg!(windows)))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// One word of a command line for a log. Plain words pass through. Anything
@@ -373,16 +378,7 @@ impl MiniproProcess {
     /// Wait for minipro to exit (or for a cancel), then collect its output.
     pub fn wait(mut self) -> Result<ProcessOutput, ProcessError> {
         let mut child = self.child.take().expect("child present until wait");
-        let status = loop {
-            if let Some(status) = child.try_wait()? {
-                break Some(status);
-            }
-            if self.cancel.is_cancelled() {
-                kill_and_reap(&mut child);
-                break None;
-            }
-            thread::sleep(POLL_INTERVAL);
-        };
+        let status = wait_or_kill(&mut child, &self.cancel)?;
 
         // The pipes close once the child is gone, so the readers finish.
         if let Some(t) = self.stdin_thread.take() {
@@ -424,6 +420,24 @@ impl Drop for MiniproProcess {
         if let Some(mut child) = self.child.take() {
             kill_and_reap(&mut child);
         }
+    }
+}
+
+/// Wait for `child` to exit, checking `cancel` every [`POLL_INTERVAL`]. A
+/// cancel kills the child and reaps it, and the answer is `None`.
+pub(crate) fn wait_or_kill(
+    child: &mut Child,
+    cancel: &CancelHandle,
+) -> io::Result<Option<ExitStatus>> {
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(Some(status));
+        }
+        if cancel.is_cancelled() {
+            kill_and_reap(child);
+            return Ok(None);
+        }
+        thread::sleep(POLL_INTERVAL);
     }
 }
 

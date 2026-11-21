@@ -35,7 +35,7 @@ pub enum BackendId {
     /// The minipro CLI: XGecu programmers, socketed or ICSP.
     Minipro,
     /// The flashrom CLI: SPI masters, starting with ENE KB9012 over EDI
-    /// (#36, phase EC-1). Not implemented yet.
+    /// (#36, phase EC-1). Read-only so far.
     Flashrom,
     /// ITE's parallel debug port through a USB-serial bridge (#36, phase
     /// EC-3). Not implemented yet.

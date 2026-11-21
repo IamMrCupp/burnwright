@@ -10,6 +10,8 @@ description = "burnwright device engine — drives upstream minipro (CLI in Phas
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
+# A private directory for the image flashrom reads into: it can't read to stdout.
+tempfile = "3"
 thiserror = "2"
 
 # The Windows driver probe (src/diagnose/win.rs). Same version Tauri pulls in.
@@ -31,4 +33,9 @@ tempfile = "3"
 # this target brings its own small runner.
 [[test]]
 name = "minipro_engine"
+harness = false
+
+# The same, for FlashromBackend and a fake flashrom.
+[[test]]
+name = "flashrom_backend"
 harness = false

@@ -2,3 +2,6 @@
 crates/engine/fixtures/minipro/*.stderr -text
 # Build scripts run under bash on Windows too (MSYS2); keep them LF.
 *.sh text eol=lf
+# flashrom fixtures carry raw backspaces from its progress redraws.
+crates/engine/fixtures/flashrom/*.stdout -text
+crates/engine/fixtures/flashrom/*.stderr -text
