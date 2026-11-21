@@ -75,6 +75,12 @@ pub fn run() {
                 let bundled = ops::Bundled::beside(&exe, app.path().resource_dir().ok());
                 app.state::<ops::DeviceOps>().set_bundled(bundled);
             }
+            // Where `engine::Bench` saves a chip's contents before a write
+            // that needs a backup. Nothing asks for one yet (issue #36).
+            if let Ok(data) = app.path().app_data_dir() {
+                app.state::<ops::DeviceOps>()
+                    .set_backup_dir(data.join("backups"));
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
