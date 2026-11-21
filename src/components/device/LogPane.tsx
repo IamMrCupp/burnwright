@@ -4,15 +4,18 @@ import { logText, type LogLine } from "../../lib/device/state";
 export interface LogPaneProps {
   log: readonly LogLine[];
   onClear: () => void;
+  /** The tool whose commands these are. minipro unless said otherwise. */
+  tool?: string;
 }
 
 type CopyState = "idle" | "copied" | "failed";
 
 /**
- * Every minipro command burnwright ran and what it printed, newest at the
- * bottom. The text can be selected, or copied whole for a bug report.
+ * Every command burnwright ran (minipro's, or `tool`'s) and what it
+ * printed, newest at the bottom. The text can be selected, or copied whole
+ * for a bug report.
  */
-export const LogPane = memo(function LogPane({ log, onClear }: LogPaneProps) {
+export const LogPane = memo(function LogPane({ log, onClear, tool = "minipro" }: LogPaneProps) {
   const linesRef = useRef<HTMLDivElement>(null);
   const [copy, setCopy] = useState<CopyState>("idle");
 
@@ -59,12 +62,12 @@ export const LogPane = memo(function LogPane({ log, onClear }: LogPaneProps) {
         ref={linesRef}
         className="log-lines"
         role="log"
-        aria-label="minipro commands and output"
+        aria-label={`${tool} commands and output`}
         tabIndex={0}
       >
         {log.length === 0 ? (
           <p className="hint">
-            Nothing yet. Each operation's minipro command line and output show up here.
+            Nothing yet. Each operation's {tool} command line and output show up here.
           </p>
         ) : (
           log.map((line) => (

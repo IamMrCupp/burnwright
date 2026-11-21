@@ -171,3 +171,35 @@ select:disabled {
   outline: 2px solid var(--bw-accent);
   outline-offset: 1px;
 }
+
+/* --- the two benches -------------------------------------------------- */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-modes {
+  flex: none;
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0;
+}
+
+.app-modes button {
+  border-color: transparent;
+  background: transparent;
+  color: var(--bw-muted);
+}
+
+.app-modes button[aria-pressed="true"] {
+  border-color: var(--bw-border);
+  background: var(--bw-panel);
+  color: var(--bw-fg);
+}
+
+.app-bench {
+  flex: 1 1 auto;
+  min-height: 0;
+}
