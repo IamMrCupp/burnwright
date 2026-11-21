@@ -155,6 +155,30 @@ x86_64) rather than whatever the Homebrew bottle was built for.
 | Linux | glibc and `libz.so.1` (the `.deb` declares `zlib1g`). libusb is built without udev, so there's no `libudev` either. |
 | Windows | Windows system DLLs only. A fully static `.exe` with the libusb backend; zlib is built from a pinned release as well. |
 
+### macOS: an SDK newer than the deployment target
+
+Setting the deployment target isn't enough by itself. When the SDK is newer than
+the target, it declares functions the oldest supported macOS doesn't have. clang
+only warns about a call to one and weak-links it: the build passes, the binary
+runs on a new enough Mac, and on anything older the symbol is null and the call
+is a jump to address 0. That's #97: the macOS 27 SDK added `pipe2`, libusb's
+configure found it, and the sidecar segfaulted at `libusb_init` on every macOS
+before 27.
+
+`build-sidecar.sh` guards against it three ways:
+
+- **libusb's configure is told `ac_cv_func_pipe2=no`.** The probe is a link test
+  with its own prototype, so it never sees the SDK's availability attribute and
+  no compiler flag changes its answer. libusb falls back to `pipe()` + `fcntl()`.
+- **libusb and minipro compile with `-Werror=unguarded-availability-new`.** A
+  call to anything newer than the deployment target stops the build, naming the
+  function. The fix is then another `ac_cv_func_<name>=no` next to the first.
+- **After linking, `nm -m` on the sidecar must list no `(undefined) weak
+  external` symbol.** That's the backstop for whatever gets past the compiler.
+
+All three apply to both sidecars. Linux and Windows have no equivalent: neither
+toolchain turns a missing function into a null pointer at runtime.
+
 The Windows build reuses the #12 spike's glue: MSYS2 UCRT64, `USB=src/usb_nix.o`
 (libusb rather than upstream's WinUSB backend, which has open read-corruption
 bugs), and `.github/minipro-windows/compat.h` for `stpcpy`.
@@ -206,6 +230,8 @@ from the same place as the installers.
 
 `ci.yml` builds the sidecar in the checks job (so clippy and tests compile) and
 in each bundle job; `release-please.yml` does the same before `tauri-action`.
+The build script checks its own output every time: the runtime dependencies in
+the table above and, on macOS, no weak imports.
 After bundling, `scripts/minipro/verify-bundle.sh` (macOS and Linux) and
 `verify-bundle.ps1` (Windows) check it from an installed layout:
 
