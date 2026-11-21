@@ -1,5 +1,6 @@
 mod commands;
 mod ops;
+mod session_commands;
 
 use tauri::Manager;
 
@@ -75,8 +76,8 @@ pub fn run() {
                 let bundled = ops::Bundled::beside(&exe, app.path().resource_dir().ok());
                 app.state::<ops::DeviceOps>().set_bundled(bundled);
             }
-            // Where `engine::Bench` saves a chip's contents before a write
-            // that needs a backup. Nothing asks for one yet (issue #36).
+            // Where `engine::Bench` saves a chip's contents: the backups
+            // `session_commands::backup_session` takes (issue #36).
             if let Ok(data) = app.path().app_data_dir() {
                 app.state::<ops::DeviceOps>()
                     .set_backup_dir(data.join("backups"));
@@ -103,6 +104,12 @@ pub fn run() {
             commands::load_image,
             commands::save_image,
             commands::app_info,
+            session_commands::flashrom_status,
+            session_commands::set_flashrom_path,
+            session_commands::list_probes,
+            session_commands::open_session,
+            session_commands::backup_session,
+            session_commands::close_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

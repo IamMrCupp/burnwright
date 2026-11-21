@@ -6,7 +6,8 @@
 #   scripts/minipro/verify-bundle.sh linux <burnwright.deb> <burnwright.AppImage>
 #
 # macOS: copies the .app out of the .dmg (as a drag-install would), lists the
-#   sidecar's libraries with `otool -L` and rejects anything outside the OS.
+#   sidecar's libraries with `otool -L` and rejects anything outside the OS,
+#   and rejects a sidecar with weak imports (`nm -m`).
 # Linux: shows the .deb's control fields and contents (`dpkg-deb -I`/`-c`),
 #   installs it with apt (needs sudo) and runs /usr/bin/burnwright-minipro;
 #   checks the udev rules and maintainer scripts the .deb ships, then removes
@@ -80,7 +81,7 @@ verify_macos() {
   local app="$apps/burnwright.app"
   find "$app" -type f | sed "s|^$apps/||"
 
-  local name res variant bin
+  local name res variant bin weak
   for name in "$SIDECAR_NAME" "$T76_SIDECAR_NAME"; do
     res=minipro variant=stable
     [ "$name" = "$T76_SIDECAR_NAME" ] && res=minipro-t76 variant=t76
@@ -90,6 +91,18 @@ verify_macos() {
     if otool -L "$bin" | tail -n +2 | awk '{print $1}' | grep -vE '^(/usr/lib/|/System/Library/)'; then
       die "$name links a library that macOS doesn't ship (Homebrew, @rpath, ...)"
     fi
+    # No weak imports (#97): an undefined weak symbol is a function the build
+    # SDK has and the deployment target doesn't. It's a null pointer on any
+    # macOS older than the SDK, so the runs below can pass here and the same
+    # sidecar still crash for a user. build-sidecar.sh checks this too; this
+    # is the copy that ships.
+    section "nm -m $name (weak imports)"
+    weak="$(nm -m "$bin" | grep -F '(undefined) weak external' || true)"
+    if [ -n "$weak" ]; then
+      echo "$weak"
+      die "$name weak-imports the symbols above; they're missing on older macOS and calling one crashes"
+    fi
+    echo "none"
     lipo -info "$bin"
     check_sidecar "macOS .app ($variant)" "$bin" "$app/Contents/Resources/$res" "$variant"
   done
