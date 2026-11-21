@@ -3,8 +3,10 @@ import { AppearancePicker } from "./components/appearance";
 import { DeviceScreen } from "./components/device";
 import { EcScreen } from "./components/ec";
 import type { AppearanceController } from "./lib/appearance";
+import { StreamControl } from "./components/stream";
 import type { DeviceController } from "./lib/device/controller";
 import type { EcController } from "./lib/ec/controller";
+import type { StreamController } from "./lib/stream/controller";
 import type { AppInfo } from "./lib/engine";
 import "./App.css";
 
@@ -14,6 +16,8 @@ export interface AppProps {
   ec: EcController;
   /** The light / dark choice, shown above the version line on both benches. */
   appearance: AppearanceController;
+  /** The page OBS loads to put the programmer bench on a live stream. */
+  stream: StreamController;
   /** burnwright's and the bundled minipros' versions, for the footer. */
   loadAppInfo: () => Promise<AppInfo>;
 }
@@ -32,7 +36,7 @@ const MODES: readonly { id: Mode; label: string }[] = [
  * controller, so switching away and back loses nothing, and an operation
  * running on one carries on while the other is shown.
  */
-function App({ controller, ec, appearance, loadAppInfo }: AppProps) {
+function App({ controller, ec, appearance, stream, loadAppInfo }: AppProps) {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [mode, setMode] = useState<Mode>("programmer");
 
@@ -55,18 +59,21 @@ function App({ controller, ec, appearance, loadAppInfo }: AppProps) {
 
   return (
     <div className="app">
-      <nav className="app-modes" aria-label="Bench">
-        {MODES.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            aria-pressed={mode === id}
-            onClick={() => setMode(id)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+      <header className="app-bar">
+        <nav className="app-modes" aria-label="Bench">
+          {MODES.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={mode === id}
+              onClick={() => setMode(id)}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+        <StreamControl controller={stream} />
+      </header>
       <div className="app-bench">
         {mode === "programmer" ? (
           <DeviceScreen controller={controller} footer={footer} />

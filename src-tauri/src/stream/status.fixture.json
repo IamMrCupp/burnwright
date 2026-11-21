@@ -1,0 +1,6 @@
+{
+  "programmer": "T48",
+  "chip": "W25Q32BV@SOIC8",
+  "running": { "operation": "write", "percent": 40 },
+  "outcome": { "operation": "verify", "tone": "error" }
+}

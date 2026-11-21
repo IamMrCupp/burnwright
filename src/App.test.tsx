@@ -9,6 +9,7 @@ import { createFakeBench } from "./dev/fakeBench";
 import { createFakeEngine } from "./dev/fakeEngine";
 import { DeviceController } from "./lib/device/controller";
 import { EcController } from "./lib/ec/controller";
+import { StreamController } from "./lib/stream/controller";
 
 function setup() {
   const dialogs = {
@@ -28,15 +29,21 @@ function setup() {
       removeEventListener: () => {},
     } as unknown as AppearanceDeps["systemDark"],
   });
+  const configure = vi.fn(async () => ({ running: false, url: null, error: null }));
+  const stream = new StreamController({
+    backend: { configure, publish: async () => {} },
+    device: controller,
+  });
   render(
     <App
       controller={controller}
       ec={ec}
       appearance={appearance}
+      stream={stream}
       loadAppInfo={async () => ({ version: "1.2.3", minipro: "0.7.4", minipro_t76: "0.7.4+abc" })}
     />,
   );
-  return { bench };
+  return { bench, configure };
 }
 
 const mode = (name: string) => screen.getByRole("button", { name });
@@ -75,5 +82,14 @@ describe("the bench switch", () => {
     expect(screen.getByLabelText("Appearance")).toHaveValue("system");
     fireEvent.click(mode("Laptop EC"));
     expect(screen.getByLabelText("Appearance")).toHaveValue("system");
+  });
+
+  it("has the stream page's switch on both benches, off until it's turned on", () => {
+    const { configure } = setup();
+    expect(screen.getByRole("button", { name: "Stream page: off" })).toBeInTheDocument();
+    fireEvent.click(mode("Laptop EC"));
+    expect(screen.getByRole("button", { name: "Stream page: off" })).toBeInTheDocument();
+    // Nothing is started for a page nobody asked for.
+    expect(configure).not.toHaveBeenCalled();
   });
 });
