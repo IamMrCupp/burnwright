@@ -156,5 +156,16 @@ databases and drives every programmer. If a path you set, or the bundled
 minipro, isn't there, burnwright stops with an error instead of quietly
 running some other minipro.
 
+## Laptop ECs
+
+There's a second bench, **Laptop EC**, for backing up a laptop's embedded
+controller with the chip still on the board. One chip so far — the ENE KB9012,
+over its debug port — with a CH341A and [flashrom](https://flashrom.org), which
+you install yourself. It reads and saves; it doesn't write. Nobody's run it on
+a real board yet.
+
+What you need, the wiring, and where the backup lands are in
+[docs/ec-backup.md](docs/ec-backup.md).
+
 ## License
 GPL-3.0-or-later (inherited from libminipro).
