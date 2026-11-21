@@ -11,12 +11,15 @@ vi.mock("@tauri-apps/api/core", () => {
 
 import {
   algorithmFileMissing,
+  bench,
+  CH341A,
   chipAvailableOn,
   deviceMayBeInconsistent,
   engine,
   errorMessage,
   isEngineError,
   isNoProgrammer,
+  KB9012,
   mutatesDevice,
   programmerFromModel,
   PROGRAMMERS,
@@ -285,6 +288,79 @@ describe("chip commands", () => {
       memory: null,
     };
     expect(chipAvailableOn(logic, "t48")).toBeNull();
+  });
+});
+
+describe("session commands", () => {
+  it("asks about flashrom and sets its path by the commands' names", async () => {
+    const status = {
+      availability: { status: "ready", version: "v1.8.0" },
+      path: "/opt/homebrew/sbin/flashrom",
+      source: "system",
+    };
+    invoke.mockResolvedValue(status);
+    await expect(bench.flashromStatus()).resolves.toEqual(status);
+    expect(invoke).toHaveBeenLastCalledWith("flashrom_status");
+    await bench.setFlashromPath("/opt/flashrom");
+    expect(invoke).toHaveBeenLastCalledWith("set_flashrom_path", {
+      path: "/opt/flashrom",
+    });
+    await bench.setFlashromPath(null);
+    expect(invoke).toHaveBeenLastCalledWith("set_flashrom_path", { path: null });
+  });
+
+  it("names the CH341A and the KB9012 the way the backend does", () => {
+    expect(CH341A).toEqual({
+      kind: "spi_master",
+      master: { model: "ch341a" },
+      clock_hz: null,
+    });
+    expect(KB9012).toEqual({ family: "ene_kb", part: "KB9012 (EDI)" });
+  });
+
+  it("lists probes as a device operation", async () => {
+    invoke.mockResolvedValueOnce([]);
+    await expect(bench.listProbes()).resolves.toEqual([]);
+    const args = lastArgs("list_probes");
+    expect(args.opId).toEqual(expect.any(String));
+    expect(args.onProgress).toBeDefined();
+  });
+
+  it("opens a session on a probe and a target", async () => {
+    invoke.mockResolvedValueOnce({ id: 7 });
+    await expect(bench.openSession(CH341A, KB9012)).resolves.toEqual({ id: 7 });
+    expect(lastArgs("open_session")).toMatchObject({
+      probe: CH341A,
+      target: KB9012,
+      opId: expect.any(String),
+    });
+  });
+
+  it("backs up a session by id, with progress and cancel", async () => {
+    const seen: ProgressEvent[] = [];
+    const controller = new AbortController();
+    invoke.mockImplementation(async (cmd: string, args: DeviceArgs) => {
+      if (cmd !== "backup_session") return true;
+      args.onProgress.onmessage({ type: "progress", stage: "read", percent: 12 });
+      controller.abort();
+      return { path: "/b/x.bin", sha256: "ab", len: 131072, region: "code" };
+    });
+    const saved = await bench.backup(7, {
+      onProgress: (e) => seen.push(e),
+      signal: controller.signal,
+    });
+    expect(saved.len).toBe(131072);
+    const args = lastArgs("backup_session");
+    expect(args).toMatchObject({ sessionId: 7, kind: null });
+    expect(seen).toEqual([{ type: "progress", stage: "read", percent: 12 }]);
+    // The abort reached the backend as a cancel of this operation.
+    expect(invoke).toHaveBeenCalledWith("cancel_operation", { opId: args.opId });
+  });
+
+  it("closes a session by id", async () => {
+    invoke.mockResolvedValueOnce(true);
+    await expect(bench.closeSession(7)).resolves.toBe(true);
+    expect(invoke).toHaveBeenLastCalledWith("close_session", { sessionId: 7 });
   });
 });
 
