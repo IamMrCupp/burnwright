@@ -1,3 +1,5 @@
+/* Colours come from the --bw-* properties in App.css. */
+
 .device-notices {
   max-width: 44rem;
   margin: 1rem auto;
@@ -5,12 +7,12 @@
 }
 
 .device-notice {
-  border: 1px solid #d0d0d0;
+  border: 1px solid var(--bw-border);
   border-left-width: 4px;
   border-radius: 8px;
   padding: 0.75rem 1rem;
   margin-bottom: 0.75rem;
-  background: #ffffff;
+  background: var(--bw-panel);
 }
 
 .device-notice h3 {
@@ -27,42 +29,18 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #555555;
+  color: var(--bw-muted);
 }
 
 .device-notice-warning {
-  border-left-color: #b45309;
-  background: #fff8eb;
+  border-left-color: var(--bw-warning-border);
+  background: var(--bw-warning-soft);
 }
 
 .device-notice-warning .device-notice-tag {
-  color: #92400e;
+  color: var(--bw-warning);
 }
 
 .device-notice-info {
-  border-left-color: #6b7280;
-}
-
-@media (prefers-color-scheme: dark) {
-  .device-notice {
-    border-color: #3a3a3a;
-    background: #1f1f1f;
-  }
-
-  .device-notice-tag {
-    color: #aaaaaa;
-  }
-
-  .device-notice-warning {
-    border-left-color: #f59e0b;
-    background: #2a2113;
-  }
-
-  .device-notice-warning .device-notice-tag {
-    color: #fbbf24;
-  }
-
-  .device-notice-info {
-    border-left-color: #9ca3af;
-  }
+  border-left-color: var(--bw-muted);
 }

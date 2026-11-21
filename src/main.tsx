@@ -2,13 +2,23 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { isTauri } from "@tauri-apps/api/core";
 import App, { type AppProps } from "./App";
+import { AppearanceController, appearanceStore } from "./lib/appearance";
 import { DeviceController } from "./lib/device/controller";
-import { guardWindowClose, tauriDeps } from "./lib/device/tauri";
+import { guardWindowClose, setWindowTheme, tauriDeps } from "./lib/device/tauri";
 import { EcController } from "./lib/ec/controller";
 import { tauriEcDeps } from "./lib/ec/tauri";
 import { engine } from "./lib/engine";
 
-async function setup(): Promise<AppProps> {
+// The look goes on the page before anything is drawn on it.
+const appearance = new AppearanceController({
+  store: appearanceStore(window.localStorage),
+  root: document.documentElement,
+  systemDark: window.matchMedia("(prefers-color-scheme: dark)"),
+  setWindowTheme: isTauri() ? setWindowTheme : undefined,
+});
+appearance.start();
+
+async function setup(): Promise<Omit<AppProps, "appearance">> {
   // `pnpm dev` opened in a plain browser has no Tauri backend: use the fake
   // engine there. A release build never takes this branch or ships it.
   if (import.meta.env.DEV && !isTauri()) {
@@ -28,7 +38,7 @@ async function setup(): Promise<AppProps> {
 void setup().then((props) => {
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
-      <App {...props} />
+      <App {...props} appearance={appearance} />
     </React.StrictMode>,
   );
 });
