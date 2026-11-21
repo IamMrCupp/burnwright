@@ -173,5 +173,16 @@ a real board yet.
 What you need, the wiring, and where the backup lands are in
 [docs/ec-backup.md](docs/ec-backup.md).
 
+## Streaming a session
+
+burnwright can serve a small page for OBS to load as a Browser source, so a
+programming session goes on a live stream without the app's window being
+captured. The page shows the programmer, the chip, the operation and its
+progress. File paths, the log and the buffer stay in the app.
+
+It's off by default: **Stream page** in the top-right corner turns it on. It
+listens on this computer only. More in
+[docs/stream-page.md](docs/stream-page.md).
+
 ## License
 GPL-3.0-or-later (inherited from libminipro).

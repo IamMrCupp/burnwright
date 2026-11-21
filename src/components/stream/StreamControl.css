@@ -1,0 +1,80 @@
+/* The stream page's switch in the app's top bar, and the panel under it. */
+
+.stream-control {
+  position: relative;
+}
+
+.stream-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45em;
+  border-color: transparent;
+  background: transparent;
+  color: var(--bw-muted);
+}
+
+.stream-toggle[aria-expanded="true"] {
+  border-color: var(--bw-border);
+  background: var(--bw-panel);
+  color: var(--bw-fg);
+}
+
+.stream-dot {
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  background: var(--bw-control-border);
+}
+
+.stream-dot-on {
+  background: var(--bw-ok);
+}
+
+.stream-dot-problem {
+  background: var(--bw-danger);
+}
+
+.stream-panel {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 10;
+  width: 24rem;
+  max-width: calc(100vw - 1.5rem);
+  box-shadow: 0 6px 18px var(--bw-shadow);
+}
+
+.stream-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.stream-row + .stream-row {
+  margin-top: 0.5rem;
+}
+
+.stream-row input[type="number"] {
+  width: 6.5em;
+}
+
+.stream-row input[aria-invalid="true"] {
+  border-color: var(--bw-danger);
+}
+
+.stream-problem {
+  color: var(--bw-danger);
+}
+
+.stream-url {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.stream-url code {
+  font-size: 0.9em;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
