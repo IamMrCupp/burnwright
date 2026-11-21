@@ -1,6 +1,7 @@
 mod commands;
 mod ops;
 mod session_commands;
+mod themes;
 
 use tauri::Manager;
 
@@ -110,6 +111,8 @@ pub fn run() {
             session_commands::open_session,
             session_commands::backup_session,
             session_commands::close_session,
+            commands::list_themes,
+            commands::open_themes_folder,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

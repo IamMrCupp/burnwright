@@ -1,8 +1,10 @@
 // The device screen's dependencies in the real app: the Tauri engine, the
 // system's file panels, the webview's localStorage and the app's window.
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, type Theme } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { engine } from "../engine";
+import type { ThemeListing, ThemeSource } from "../theme";
 import type { DeviceController, DeviceDeps, FileDialogs } from "./controller";
 import { recentStore } from "./recent";
 import { settingsStore } from "./settings";
@@ -81,4 +83,12 @@ export function setWindowTheme(theme: Theme | null): void {
   void getCurrentWindow()
     .setTheme(theme)
     .catch(() => {});
+}
+
+/** The themes folder in burnwright's config directory (src-tauri/src/themes.rs). */
+export function tauriThemes(): ThemeSource {
+  return {
+    list: () => invoke<ThemeListing>("list_themes"),
+    openFolder: () => invoke<void>("open_themes_folder"),
+  };
 }

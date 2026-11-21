@@ -4,10 +4,24 @@ import { isTauri } from "@tauri-apps/api/core";
 import App, { type AppProps } from "./App";
 import { AppearanceController, appearanceStore } from "./lib/appearance";
 import { DeviceController } from "./lib/device/controller";
-import { guardWindowClose, setWindowTheme, tauriDeps } from "./lib/device/tauri";
+import { guardWindowClose, setWindowTheme, tauriDeps, tauriThemes } from "./lib/device/tauri";
 import { EcController } from "./lib/ec/controller";
 import { tauriEcDeps } from "./lib/ec/tauri";
 import { engine } from "./lib/engine";
+import type { ThemeSource } from "./lib/theme";
+
+/** The themes folder: the real one in the app, a pretend one under `pnpm dev`. */
+function themeSource(): ThemeSource | undefined {
+  if (isTauri()) return tauriThemes();
+  if (import.meta.env.DEV) {
+    const preview = import("./dev/previewThemes");
+    return {
+      list: async () => (await preview).previewThemes.list(),
+      openFolder: async () => (await preview).previewThemes.openFolder(),
+    };
+  }
+  return undefined;
+}
 
 // The look goes on the page before anything is drawn on it.
 const appearance = new AppearanceController({
@@ -15,6 +29,7 @@ const appearance = new AppearanceController({
   root: document.documentElement,
   systemDark: window.matchMedia("(prefers-color-scheme: dark)"),
   setWindowTheme: isTauri() ? setWindowTheme : undefined,
+  themes: themeSource(),
 });
 appearance.start();
 

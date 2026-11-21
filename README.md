@@ -125,6 +125,16 @@ Xgpro T76 V13.19 with firmware 00.1.17. A file that doesn't match gets you
 "minipro can't use the algorithm file" or a chip ID that reads wrong. More in
 [docs/minipro-sidecar.md](docs/minipro-sidecar.md#the-t76s-algorithm-file).
 
+## Appearance and themes
+
+burnwright has a light and a dark look. **Appearance**, at the bottom of the
+side column, follows the system or holds one of them.
+
+You can also write your own: a theme is a small JSON file of colours in a
+`themes` folder in burnwright's config directory, and it shows up in the same
+list. Colours only — a theme can't touch the layout. The format, every colour
+you can set and a starter file are in [docs/themes.md](docs/themes.md).
+
 ## Finding minipro
 
 burnwright drives the `minipro` CLI rather than talking USB itself. It looks
