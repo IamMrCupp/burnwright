@@ -1,0 +1,98 @@
+/* The EC backup screen. It borrows the device screen's layout, panels,
+   progress row and outcome box (DeviceScreen.css); this is only what's its
+   own. Colours come from the --bw-* properties in App.css. */
+
+.ec-headline {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.ec-headline-none {
+  color: var(--bw-danger);
+}
+
+.ec-path,
+.ec-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.ec-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+/* --- wiring checks ---------------------------------------------------- */
+
+.ec-checks {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ec-checks li + li {
+  margin-top: 0.5rem;
+}
+
+.ec-checks label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  cursor: pointer;
+}
+
+.ec-checks input {
+  flex: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  accent-color: var(--bw-accent);
+}
+
+.ec-check-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ec-check-label {
+  font-weight: 500;
+}
+
+/* --- the saved backup ------------------------------------------------- */
+
+.ec-backup {
+  margin-top: 0.6rem;
+}
+
+.ec-backup h3 {
+  margin-bottom: 0.25rem;
+  font-size: 0.9rem;
+  color: var(--bw-muted);
+}
+
+.ec-facts {
+  margin: 0;
+}
+
+.ec-facts > div {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+}
+
+.ec-facts dt {
+  color: var(--bw-muted);
+}
+
+.ec-facts dd {
+  margin: 0;
+  min-width: 0;
+}
