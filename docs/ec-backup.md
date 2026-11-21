@@ -82,8 +82,9 @@ Copy them somewhere that isn't this laptop.
 
 - **"No CH341A found."** flashrom couldn't open USB device `1a86:5512`. It
   says the same thing for a programmer that isn't plugged in and one you're
-  not allowed to open. On Linux the second needs a udev rule; burnwright's
-  rules file doesn't cover the CH341A yet.
+  not allowed to open. On Linux the second needs a udev rule. The `.deb`
+  installs one; with the AppImage you copy it in yourself
+  ([linux.md](linux.md)). After installing it, replug the CH341A.
 - **"Nothing answered."** Try Identify again first — people report a KB9012
   that only answers every second time. Then check the wiring and that the
   board has standby power. Some EC firmware turns the debug port off;

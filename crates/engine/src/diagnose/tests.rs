@@ -715,6 +715,9 @@ fn finds_minipro_rules_and_skips_missing_dirs() {
     let root = scratch("rules");
     write(&root.join("etc/60-burnwright-minipro.rules"), "");
     write(&root.join("etc/70-other.rules"), "");
+    // The CH341A's rules say nothing about an XGecu programmer: with only
+    // them installed, the diagnosis still has to report the rules missing.
+    write(&root.join("etc/60-burnwright-flashrom.rules"), "");
     write(&root.join("lib/61-MINIPRO-uaccess.rules"), "");
     write(&root.join("lib/minipro.rules.bak"), "");
     let found = find_rules(&[root.join("etc"), root.join("lib"), root.join("nope")]);
