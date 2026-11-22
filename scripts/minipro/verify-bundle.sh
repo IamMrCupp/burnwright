@@ -10,9 +10,12 @@
 #   and rejects a sidecar with weak imports (`nm -m`).
 # Linux: shows the .deb's control fields and contents (`dpkg-deb -I`/`-c`),
 #   installs it with apt (needs sudo) and runs /usr/bin/burnwright-minipro;
-#   checks the udev rules and maintainer scripts the .deb ships, then removes
-#   it again and checks the rules went with it; then extracts the AppImage and
-#   runs the sidecar from inside it.
+#   checks the app's own binary finds its libraries and its menu entry runs
+#   it; checks the udev rules and maintainer scripts the .deb ships, then
+#   removes it again and checks the rules went with it; then extracts the
+#   AppImage and runs the sidecar from inside it.
+#   The bundles don't have to be built on the machine that checks them: CI
+#   builds on Ubuntu 22.04 and runs this there and again on 24.04.
 #
 # Each sidecar must report its version and database counts, list more than a
 # thousand chips, and say "No programmer found" (CI has no hardware). The
@@ -115,6 +118,30 @@ check_libs() {
   echo "$libs"
   if grep -q "not found" <<<"$libs"; then die "$1 has unresolved libraries"; fi
   if grep -q libusb <<<"$libs"; then die "$1 links a shared libusb"; fi
+}
+
+# check_app <package>: the app the .deb installed can start here, as far as
+# that shows without a display. Its binary is there, every shared library it
+# needs resolves on this system (they come from the distro, so this is where
+# a .deb built on an older release shows it doesn't fit a newer one), and
+# the menu entry runs that binary.
+check_app() {
+  local pkg="$1" bin=/usr/bin/burnwright libs files desktop cmd
+  section "the installed app: $bin"
+  [ -x "$bin" ] || die "the deb didn't install $bin"
+  libs="$(ldd "$bin")"
+  echo "$libs"
+  if grep -q "not found" <<<"$libs"; then die "$bin has unresolved libraries on this system"; fi
+
+  files="$(dpkg -L "$pkg")"
+  desktop="$(grep -m1 -E '^/usr/share/applications/.*\.desktop$' <<<"$files" || true)"
+  [ -n "$desktop" ] || die "the deb installed no menu entry"
+  cat "$desktop"
+  cmd="$(grep -m1 -E '^Exec=' "$desktop" || true)"
+  cmd="${cmd#Exec=}"
+  cmd="${cmd%% *}"
+  [ -n "$cmd" ] || die "$desktop has no Exec line"
+  [ "$(command -v "$cmd" || true)" = "$bin" ] || die "$desktop runs '$cmd', which isn't $bin"
 }
 
 # The rules files the .deb ships: one for the XGecu programmers minipro
@@ -262,6 +289,7 @@ verify_linux() {
   status="$(dpkg-query -W -f='${Status}' "$pkg")"
   echo "$pkg: $status"
   [ "$status" = "install ok installed" ] || die "$pkg isn't fully installed: $status"
+  check_app "$pkg"
   check_libs "/usr/bin/$SIDECAR_NAME"
   check_sidecar ".deb (installed)" "/usr/bin/$SIDECAR_NAME" /usr/lib/burnwright/minipro
   check_libs "/usr/bin/$T76_SIDECAR_NAME"

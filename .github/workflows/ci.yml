@@ -124,3 +124,41 @@ jobs:
             target/release/bundle/**
             src-tauri/target/release/bundle/**
           if-no-files-found: warn
+
+  # The Linux bundles are built on Ubuntu 22.04, the oldest release they're
+  # meant for. This installs those same files on a newer one, where the
+  # system libraries, apt and udev have all moved on, and runs the same
+  # checks the build leg ran.
+  #
+  # It waits for the build legs and then runs whatever they did: a macOS or
+  # Windows leg that failed says nothing about the Linux bundles. If the
+  # Ubuntu leg is the one that failed, there's no artifact and the download
+  # step says so.
+  verify-linux:
+    name: Verify Linux bundles · ${{ matrix.os }}
+    needs: build
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the bundles built on Ubuntu 22.04
+        uses: actions/download-artifact@v8
+        with:
+          name: burnwright-ubuntu-22.04
+          path: bundles
+      - name: Refresh the package lists
+        run: sudo apt-get update
+      - name: Verify the .deb and the AppImage
+        run: |
+          deb="$(find bundles -type f -name '*.deb' -print -quit)"
+          appimage="$(find bundles -type f -name '*.AppImage' -print -quit)"
+          if [ -z "$deb" ] || [ -z "$appimage" ]; then
+            echo "the artifact has no .deb or no AppImage:"
+            find bundles -maxdepth 6 | head -n 60
+            exit 1
+          fi
+          scripts/minipro/verify-bundle.sh linux "$deb" "$appimage"
