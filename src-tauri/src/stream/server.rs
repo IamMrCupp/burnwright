@@ -20,7 +20,7 @@ use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::hub::Hub;
 
@@ -35,7 +35,8 @@ const PAGE_POLICY: &str = "default-src 'none'; style-src 'unsafe-inline'; \
 /// How often the accept loop looks for a connection, and for a stop.
 const ACCEPT_POLL: Duration = Duration::from_millis(25);
 
-/// How long a client gets to send its request, and to take what it's sent.
+/// How long a client gets to send its whole request, and how long any one
+/// write to it may take.
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How often an idle feed sends a comment, so a page that went away is
@@ -60,6 +61,8 @@ struct Running {
 pub struct StreamServer {
     hub: Arc<Hub>,
     heartbeat: Duration,
+    /// How long a client gets to send its request's head.
+    head_timeout: Duration,
     running: Mutex<Option<Running>>,
     /// Connections being served now, across restarts.
     connections: Arc<AtomicUsize>,
@@ -80,9 +83,17 @@ impl StreamServer {
         Self {
             hub: Arc::new(Hub::new()),
             heartbeat,
+            head_timeout: IO_TIMEOUT,
             running: Mutex::new(None),
             connections: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    /// The same server with another deadline for a request's head.
+    #[cfg(test)]
+    fn with_head_timeout(mut self, head_timeout: Duration) -> Self {
+        self.head_timeout = head_timeout;
+        self
     }
 
     /// Where the app publishes what the page shows.
@@ -128,6 +139,7 @@ impl StreamServer {
                 connections: Arc::clone(&self.connections),
                 port,
                 heartbeat: self.heartbeat,
+                head_timeout: self.head_timeout,
             };
             thread::Builder::new()
                 .name("stream-accept".into())
@@ -173,6 +185,7 @@ struct Serving {
     connections: Arc<AtomicUsize>,
     port: u16,
     heartbeat: Duration,
+    head_timeout: Duration,
 }
 
 /// One connection's place in the count, given back when it's dropped.
@@ -218,11 +231,10 @@ fn accept_loop(listener: TcpListener, serving: Serving) {
 fn serve(mut stream: TcpStream, serving: &Serving, busy: bool) -> io::Result<()> {
     // On some systems an accepted socket takes after its listener.
     stream.set_nonblocking(false)?;
-    stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
     // Read the request even when it's about to be turned away: closing on
     // unread data resets the connection, and the client never sees why.
-    let head = read_head(&mut stream)?;
+    let head = read_head(&mut stream, serving.head_timeout)?;
     if busy {
         return respond(&mut stream, "503 Service Unavailable", &[], "Busy.\n");
     }
@@ -259,7 +271,13 @@ fn serve(mut stream: TcpStream, serving: &Serving, busy: bool) -> io::Result<()>
 
 /// Read up to the blank line that ends a request's head. A `GET` has no
 /// body, so that's all of it.
-fn read_head(stream: &mut TcpStream) -> io::Result<String> {
+///
+/// `limit` is for the whole head, not for each read. With a timeout per
+/// read, a client that sends a byte every few seconds never runs out of
+/// time, and holds its thread and its place in the connection count for as
+/// long as it likes.
+fn read_head(stream: &mut TcpStream, limit: Duration) -> io::Result<String> {
+    let deadline = Instant::now() + limit;
     let mut head = Vec::new();
     let mut chunk = [0u8; 1024];
     while !head.windows(4).any(|w| w == b"\r\n\r\n") {
@@ -269,6 +287,11 @@ fn read_head(stream: &mut TcpStream) -> io::Result<String> {
                 "request too long",
             ));
         }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
+        stream.set_read_timeout(Some(left))?;
         let n = stream.read(&mut chunk)?;
         if n == 0 {
             return Err(io::ErrorKind::UnexpectedEof.into());
@@ -361,8 +384,18 @@ fn feed(mut stream: TcpStream, serving: &Serving) -> io::Result<()> {
     )?;
     let (mut version, json) = serving.hub.latest();
     write_event(&mut stream, &json)?;
-    while !serving.stop.load(Ordering::SeqCst) {
-        let (latest, json) = serving.hub.wait(version, serving.heartbeat);
+    loop {
+        // The wake count is read before the stop flag, and `shut_down` sets
+        // the flag before it wakes. So a stop that lands after this line
+        // changes the count and ends the wait below at once, and one that
+        // landed before it is caught by the check. Reading the count inside
+        // the wait left a gap where a stop was slept through, and the page
+        // kept its last card for a whole heartbeat.
+        let wakes = serving.hub.wakes();
+        if serving.stop.load(Ordering::SeqCst) {
+            break;
+        }
+        let (latest, json) = serving.hub.wait(version, wakes, serving.heartbeat);
         if serving.stop.load(Ordering::SeqCst) {
             break;
         }
@@ -741,6 +774,50 @@ mod tests {
         let err = server.start(port).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::AddrInUse);
         assert_eq!(server.port(), None);
+    }
+
+    /// A client that sends its request a byte at a time gets one deadline
+    /// for all of it, not a fresh timeout for every byte.
+    #[test]
+    fn a_request_trickled_in_is_dropped_at_the_deadline() {
+        let server = StreamServer::new().with_head_timeout(Duration::from_millis(200));
+        let port = server.start(0).unwrap();
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        wait_until("the connection to be counted", || server.connections() == 1);
+
+        // A byte every 40 ms: every read comes back long before any timeout
+        // of its own, and the head never ends.
+        let started = Instant::now();
+        let request = format!("GET /stream HTTP/1.1\r\nX-Slow: {}", "a".repeat(64));
+        let mut freed_after = None;
+        for byte in request.bytes() {
+            if server.connections() == 0 {
+                freed_after = Some(started.elapsed());
+                break;
+            }
+            // Writing to a connection the server has dropped can fail.
+            let _ = stream.write_all(&[byte]);
+            thread::sleep(Duration::from_millis(40));
+        }
+        let freed_after =
+            freed_after.expect("the server held the connection for the whole trickle");
+        assert!(
+            freed_after >= Duration::from_millis(150),
+            "dropped too soon: {freed_after:?}"
+        );
+        assert!(
+            freed_after < Duration::from_secs(2),
+            "dropped too late: {freed_after:?}"
+        );
+        // It hung up without an answer.
+        let mut answer = String::new();
+        let _ = stream.read_to_string(&mut answer);
+        assert_eq!(answer, "");
+        // And it still answers a client that gets on with it.
+        assert!(get(port, "/stream").starts_with("HTTP/1.1 200 OK"));
     }
 
     #[test]
