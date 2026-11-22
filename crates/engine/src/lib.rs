@@ -6,8 +6,15 @@
 //!
 //! [`MiniproEngine`] drives the vendored minipro CLI behind this trait, and
 //! [`MiniproLocator`] finds the binary it runs. [`StubEngine`] remains as a
-//! do-nothing placeholder. Phase 1 may swap in an FFI-backed engine via the
-//! `minipro-sys` crate, also behind [`Engine`].
+//! do-nothing placeholder.
+//!
+//! Running the tool as a child process is the design, not a stopgap (issue
+//! #14). minipro's library exposes device primitives only: read, write,
+//! verify and the rest live in its `main.c`, and linking the library would
+//! mean rewriting them here and keeping them in step with upstream for every
+//! chip family. A child process also keeps a crash or a hang in the tool out
+//! of the app, makes cancel a kill, and lets two minipro builds ship side by
+//! side.
 //!
 //! [`Backend`] generalises [`Engine`] for tools other than minipro (issue
 //! #36: flashrom, ITE bridges). [`MiniproBackend`] is the first one;
@@ -361,8 +368,8 @@ impl fmt::Debug for OpContext {
 
 /// The device operations burnwright needs from an engine backend.
 ///
-/// Implementations: [`StubEngine`] (placeholder), [`MiniproEngine`] (minipro
-/// CLI, issue #6), and later an FFI engine (Phase 1). The Tauri command layer
+/// Implementations: [`StubEngine`] (placeholder) and [`MiniproEngine`]
+/// (the minipro CLI, issue #6). The Tauri command layer
 /// wraps these one-to-one. Every operation takes an [`OpContext`] for
 /// progress and cancellation.
 pub trait Engine {

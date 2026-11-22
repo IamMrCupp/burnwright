@@ -22,7 +22,7 @@
         {
           "type": "toml",
           "path": "Cargo.lock",
-          "jsonpath": "$.package[?(@.name.value=='burnwright' || @.name.value=='engine' || @.name.value=='minipro-sys')].version"
+          "jsonpath": "$.package[?(@.name.value=='burnwright' || @.name.value=='engine')].version"
         }
       ]
     }
