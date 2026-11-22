@@ -9,7 +9,7 @@ description = "burnwright device engine — drives upstream minipro (CLI in Phas
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-sha2 = "0.10"
+sha2 = "0.11"
 # A private directory for the image flashrom reads into: it can't read to stdout.
 tempfile = "3"
 thiserror = "2"
