@@ -68,6 +68,8 @@ export class StreamController {
   private sent: string | null = null;
   /** A `publish` is on its way; the next waits for it, so they land in order. */
   private publishing = false;
+  /** A send was asked for while one was on its way: look again when it lands. */
+  private again = false;
 
   constructor(deps: StreamDeps) {
     this.backend = deps.backend;
@@ -124,6 +126,23 @@ export class StreamController {
   private apply(): Promise<void> {
     this.applied = this.applied.then(async () => {
       const { enabled, port } = this.state.settings;
+      // What the server holds by the time it's up, when that's known to be
+      // the current status.
+      let handed: string | null = null;
+      if (enabled && !this.state.server?.running) {
+        // The server keeps the last status it was given, and it's given none
+        // while it's off. Hand it today's before it starts serving, so a
+        // page that connects the moment it's up isn't shown the bench as it
+        // was when the page was last on.
+        const status = streamStatus(this.device.getState());
+        // A send still on its way from before could land behind this one.
+        const alone = !this.publishing;
+        const landed = await this.backend.publish(status).then(
+          () => true,
+          () => false,
+        );
+        if (landed && alone) handed = JSON.stringify(status);
+      }
       let server: StreamServerState;
       try {
         server = await this.backend.configure(enabled, port);
@@ -131,8 +150,8 @@ export class StreamController {
         server = { running: false, url: null, error: failure(err) };
       }
       this.setState({ ...this.state, server });
-      // A server that just came up may hold a status from before it went off.
-      this.sent = null;
+      // Whatever changed while that was being set up.
+      this.sent = handed;
       this.publish();
     });
     return this.applied;
@@ -141,12 +160,18 @@ export class StreamController {
   /** Send the page the device screen's status, if it has changed. */
   private readonly publish = (): void => {
     // With the server off there's nobody to tell.
-    if (!this.state.server?.running || this.publishing) return;
+    if (!this.state.server?.running) return;
+    if (this.publishing) {
+      // It goes out behind the one on its way, so they land in order.
+      this.again = true;
+      return;
+    }
     const status = streamStatus(this.device.getState());
     const json = JSON.stringify(status);
     if (json === this.sent) return;
     this.sent = json;
     this.publishing = true;
+    this.again = false;
     this.backend
       .publish(status)
       .catch(() => {
@@ -155,9 +180,14 @@ export class StreamController {
       })
       .finally(() => {
         this.publishing = false;
-        // Whatever changed while that one was on its way. A failed send is
-        // left for the next change to retry, not looped on.
-        if (this.sent !== null) this.publish();
+        // Whatever was asked for while that one was on its way: a change on
+        // the device screen, or a server that was just set up again. A send
+        // that failed with nothing new behind it is left for the next change
+        // to retry, not looped on.
+        if (this.again) {
+          this.again = false;
+          this.publish();
+        }
       });
   };
 }

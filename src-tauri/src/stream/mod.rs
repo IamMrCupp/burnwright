@@ -87,8 +87,10 @@ pub fn stream_configure(
     configure(&server, enabled, port)
 }
 
-/// Replace what the stream page shows. Works with the server off: the page
-/// then has the latest status as soon as it's turned on.
+/// Replace what the stream page shows. Works with the server off, which is
+/// how the frontend hands over the current status just before it turns the
+/// server on: the first page to connect then gets today's bench, not the one
+/// from when the page was last on.
 #[tauri::command]
 pub fn stream_publish(server: State<'_, StreamServer>, status: StreamStatus) {
     server.hub().publish(status);

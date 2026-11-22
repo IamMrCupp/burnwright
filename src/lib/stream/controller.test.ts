@@ -313,6 +313,70 @@ describe("what the page is sent", () => {
     expect(last(published)).toBe(published[before - 1]);
   });
 
+  it("hands the server the current status before it starts serving", async () => {
+    const { stream, ready, backend, configured, published } = setup();
+    await ready();
+    expect(published).toEqual([]);
+    // What the server had been told by the time it was asked to serve.
+    const toldFirst: string[][] = [];
+    const configure = backend.configure;
+    backend.configure = (enabled, port) => {
+      if (enabled) toldFirst.push([...published]);
+      return configure(enabled, port);
+    };
+    await stream.setEnabled(true);
+    expect(configured).toEqual([[true, 8790]]);
+    expect(toldFirst).toHaveLength(1);
+    expect(toldFirst[0]).toHaveLength(1);
+    expect(toldFirst[0][0]).toContain("FLASH32@SOIC8");
+    // And it isn't told the same thing again once it's up.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(published).toHaveLength(1);
+  });
+
+  it("catches up after a port change that lands while a status is on its way", async () => {
+    const device = new DeviceController({
+      engine: createFakeEngine({ chips: [{ info: fakeChip("FLASH32@SOIC8", 32) }] }),
+      dialogs: { open: async () => null, save: async () => null, openAlgorithms: async () => null },
+    });
+    let hold: Promise<void> | null = null;
+    let release = () => {};
+    const published: StreamStatus[] = [];
+    const stream = new StreamController({
+      backend: {
+        configure: async (_enabled, port) => ({
+          running: true,
+          url: `http://127.0.0.1:${port}/stream`,
+          error: null,
+        }),
+        publish: async (status) => {
+          await hold;
+          published.push(status);
+        },
+      },
+      device,
+    });
+    await stream.setEnabled(true);
+    await device.detect();
+    await soon(() => expect(last(published)?.programmer).toBe("T48"));
+    // Let that send finish, so the next one starts on its own.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    hold = new Promise((resolve) => (release = resolve));
+    // This one is held on its way...
+    device.selectChip({ name: "FLASH32@SOIC8", package: null });
+    // ...the screen moves on behind it, and the server is set up again.
+    device.clearChip();
+    await stream.setPort(9001);
+    expect(stream.getState().server?.url).toBe("http://127.0.0.1:9001/stream");
+    expect(last(published)?.chip).toBeNull();
+
+    release();
+    await soon(() =>
+      expect(published.slice(-2).map((status) => status.chip)).toEqual(["FLASH32@SOIC8", null]),
+    );
+  });
+
   it("sends statuses one at a time, and ends on the latest", async () => {
     const device = new DeviceController({
       engine: createFakeEngine({ chips: [{ info: fakeChip("FLASH32@SOIC8", 32) }] }),
