@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.17.0](https://github.com/IamMrCupp/burnwright/compare/v0.16.0...v0.17.0) (2026-11-22)
+
+
+### Features
+
+* **stream:** a small burnwright credit in the card's corner ([#130](https://github.com/IamMrCupp/burnwright/issues/130)) ([8bdacc4](https://github.com/IamMrCupp/burnwright/commit/8bdacc4c697be9dc27b69044279176687dfe218e))
+
 ## [0.16.0](https://github.com/IamMrCupp/burnwright/compare/v0.15.1...v0.16.0) (2026-11-22)
 
 
