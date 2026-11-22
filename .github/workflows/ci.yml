@@ -129,9 +129,15 @@ jobs:
   # meant for. This installs those same files on a newer one, where the
   # system libraries, apt and udev have all moved on, and runs the same
   # checks the build leg ran.
+  #
+  # It waits for the build legs and then runs whatever they did: a macOS or
+  # Windows leg that failed says nothing about the Linux bundles. If the
+  # Ubuntu leg is the one that failed, there's no artifact and the download
+  # step says so.
   verify-linux:
     name: Verify Linux bundles · ${{ matrix.os }}
     needs: build
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
