@@ -3,8 +3,15 @@ import ReactDOM from "react-dom/client";
 import { isTauri } from "@tauri-apps/api/core";
 import App, { type AppProps } from "./App";
 import { AppearanceController, appearanceStore } from "./lib/appearance";
+import { linkAppearanceMenu } from "./lib/appearanceMenu";
 import { DeviceController } from "./lib/device/controller";
-import { guardWindowClose, setWindowTheme, tauriDeps, tauriThemes } from "./lib/device/tauri";
+import {
+  guardWindowClose,
+  setWindowTheme,
+  tauriAppearanceMenu,
+  tauriDeps,
+  tauriThemes,
+} from "./lib/device/tauri";
 import { EcController } from "./lib/ec/controller";
 import { tauriEcDeps } from "./lib/ec/tauri";
 import { engine } from "./lib/engine";
@@ -35,6 +42,8 @@ const appearance = new AppearanceController({
   themes: themeSource(),
 });
 appearance.start();
+// View → Appearance in the macOS menu bar shows the same choice.
+if (isTauri()) linkAppearanceMenu(appearance, tauriAppearanceMenu());
 
 async function setup(): Promise<Omit<AppProps, "appearance">> {
   // `pnpm dev` opened in a plain browser has no Tauri backend: use the fake
