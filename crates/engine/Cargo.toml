@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "burnwright device engine — drives upstream minipro (CLI in Phase 0, FFI in Phase 1)"
+description = "burnwright device engine — drives the minipro and flashrom command-line tools"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
