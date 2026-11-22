@@ -78,6 +78,10 @@ export function StreamControl({ controller }: StreamControlProps) {
         <span className={`stream-dot stream-dot-${status}`} aria-hidden="true" />
         Stream page: {status}
       </button>
+      {settings.hidePaths && (
+        // Said in the window itself, so it can be checked before going live.
+        <span className="stream-hidden">Paths hidden</span>
+      )}
       {open && (
         <section id={panelId} className="panel stream-panel" aria-label="Stream page">
           <label className="stream-row">
@@ -127,6 +131,19 @@ export function StreamControl({ controller }: StreamControlProps) {
             In OBS, add a Browser source with this address. It shows the programmer, the chip,
             the operation and its progress. File paths, the log and the buffer stay here. Only
             this computer can open it.
+          </p>
+          <label className="stream-row stream-apart">
+            <input
+              type="checkbox"
+              checked={settings.hidePaths}
+              onChange={(event) => controller.setHidePaths(event.target.checked)}
+            />
+            Hide file paths in this window
+          </label>
+          <p className="hint">
+            For when OBS captures the window itself. Every path, in the log and everywhere
+            else, reads [hidden]. Files open and save as usual, and the system's own open and
+            save panels aren't covered.
           </p>
         </section>
       )}

@@ -2,6 +2,26 @@
 
 .stream-control {
   position: relative;
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stream-hidden {
+  padding: 0.1em 0.6em;
+  border: 1px solid var(--bw-warning-border);
+  border-radius: 6px;
+  background: var(--bw-warning-soft);
+  color: var(--bw-warning);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
+.stream-apart {
+  margin-top: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--bw-border);
 }
 
 .stream-toggle {

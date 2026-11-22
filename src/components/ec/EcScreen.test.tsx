@@ -148,3 +148,40 @@ describe("a backup", () => {
     expect(screen.queryByRole("heading", { name: "KB9012 (EDI) answered" })).toBeNull();
   });
 });
+
+describe("with file paths hidden", () => {
+  it("hides flashrom's path, the backup's and the ones in the log", async () => {
+    const reveal = vi.fn<(path: string) => Promise<void>>().mockResolvedValue();
+    const bench = createFakeBench();
+    const controller = new EcController({ bench, reveal });
+    const view = render(<EcScreen controller={controller} hidePaths />);
+    await ready();
+    tickAll();
+    fireEvent.click(button("Identify"));
+    await outcome("KB9012 (EDI) answered");
+    fireEvent.click(button("Back up"));
+    await outcome("Backup saved");
+
+    const real = controller.getState();
+    const backup = real.backup!;
+    const flashrom = real.flashrom!.path!;
+    const text = () => document.body.textContent ?? "";
+    expect(text()).not.toContain(backup.path);
+    expect(text()).not.toContain(flashrom);
+    expect(text()).not.toContain("/tmp/");
+    expect(text()).not.toMatch(/(^|[\s(])\/[A-Za-z]/);
+    // The proof of the backup is still on screen, and the commands still read.
+    const steps = region("Backup");
+    expect(within(steps).getByText(backup.sha256)).toBeInTheDocument();
+    expect(within(steps).getByText("131,072 bytes")).toBeInTheDocument();
+    const log = screen.getByRole("log", { name: "flashrom commands and output" });
+    expect(within(log).getAllByText(/-p ch341a_spi/).length).toBeGreaterThan(1);
+
+    // The real file is the one that's shown in the folder.
+    fireEvent.click(within(steps).getByRole("button", { name: "Show in folder" }));
+    await waitFor(() => expect(reveal).toHaveBeenCalledWith(backup.path));
+
+    view.rerender(<EcScreen controller={controller} />);
+    expect(within(region("Backup")).getByText(backup.path)).toBeInTheDocument();
+  });
+});

@@ -145,4 +145,22 @@ describe("StreamControl", () => {
     fireEvent.pointerDown(serve());
     expect(panel()).not.toBeNull();
   });
+
+  it("hides file paths on its own switch, and says so in the bar", () => {
+    const { controller, configured } = setup();
+    expect(screen.queryByText("Paths hidden")).toBeNull();
+    open();
+    const hide = screen.getByRole("checkbox", { name: "Hide file paths in this window" });
+    expect(hide).not.toBeChecked();
+    fireEvent.click(hide);
+    expect(hide).toBeChecked();
+    expect(controller.getState().settings.hidePaths).toBe(true);
+    expect(screen.getByText("Paths hidden")).toBeInTheDocument();
+    // It has nothing to do with the page: the server isn't started for it.
+    expect(configured).toEqual([]);
+    expect(toggle()).toHaveTextContent("Stream page: off");
+
+    fireEvent.click(hide);
+    expect(screen.queryByText("Paths hidden")).toBeNull();
+  });
 });

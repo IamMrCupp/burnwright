@@ -77,13 +77,13 @@ function setup(settings?: StreamSettings, taken: number[] = []) {
   return { device, stream, storage, ready, idle, ...fake };
 }
 
-const ON: StreamSettings = { enabled: true, port: 8790 };
+const ON: StreamSettings = { enabled: true, port: 8790, hidePaths: false };
 
 describe("the setting", () => {
   it("is off by default: the server is never asked for, and nothing is sent", async () => {
     const { stream, device, ready, idle, configured, published } = setup();
     expect(stream.getState()).toEqual({
-      settings: { enabled: false, port: 8790 },
+      settings: { enabled: false, port: 8790, hidePaths: false },
       server: { running: false, url: null, error: null },
     });
     await ready();
@@ -114,6 +114,7 @@ describe("the setting", () => {
     expect(JSON.parse(storage.stored.get("burnwright.stream")!)).toEqual({
       enabled: false,
       port: 8790,
+      hidePaths: false,
     });
     expect(configured).toEqual([
       [true, 8790],
@@ -172,6 +173,23 @@ describe("the setting", () => {
       url: null,
       error: "no such command",
     });
+  });
+
+  it("hides paths without touching the server, and remembers it", () => {
+    const { stream, storage, configured } = setup();
+    const listener = vi.fn();
+    stream.subscribe(listener);
+    stream.setHidePaths(true);
+    expect(stream.getState().settings.hidePaths).toBe(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(storage.stored.get("burnwright.stream")!)).toEqual({
+      enabled: false,
+      port: 8790,
+      hidePaths: true,
+    });
+    stream.setHidePaths(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(configured).toEqual([]);
   });
 
   it("tells its listeners", async () => {

@@ -92,4 +92,16 @@ describe("the bench switch", () => {
     // Nothing is started for a page nobody asked for.
     expect(configure).not.toHaveBeenCalled();
   });
+
+  it("hides paths on both benches from the one switch", async () => {
+    setup();
+    fireEvent.click(screen.getByRole("button", { name: "Stream page: off" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Hide file paths in this window" }));
+    expect(screen.getByText("Paths hidden")).toBeInTheDocument();
+    fireEvent.click(mode("Laptop EC"));
+    expect(screen.getByText("Paths hidden")).toBeInTheDocument();
+    // The fake flashrom lives at a path; with the switch on it isn't drawn.
+    await screen.findByText("CH341A connected");
+    expect(document.body.textContent).not.toMatch(/\/usr|\/opt|\/bin\//);
+  });
 });
