@@ -4,7 +4,8 @@ Putting a programming session on a live stream used to mean capturing the
 app's window — and with it the file paths in the buffer panel, minipro's
 command lines in the log and the hex view. The stream page is the other way:
 burnwright serves a small web page of its own, and OBS loads it as a Browser
-source. It shows the programmer, the chip and a progress bar. Nothing else.
+source. It shows the programmer, the chip and a progress bar — and its own name in
+the corner. Nothing else.
 
 It follows the **Programmer** bench. The Laptop EC bench isn't on it yet.
 
@@ -30,6 +31,11 @@ up — it layers straight over a camera.
   burnwright reads the chip back to show the differences, that shows as a
   Read.
 - **How the last operation ended**: OK, warning or error, by name and colour.
+
+The card's top-right corner carries the tool's name, small and muted — a
+credit, so a scene says what's drawing the card without another logo to
+place. To leave it off, add `?credit=0` to the address in OBS:
+`http://127.0.0.1:8790/stream?credit=0`.
 
 The card is in burnwright's dark look whatever **Appearance** is set to — it
 sits over video. A theme file doesn't change it.
