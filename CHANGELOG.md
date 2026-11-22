@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.15.0](https://github.com/IamMrCupp/burnwright/compare/v0.14.0...v0.15.0) (2026-11-22)
+
+
+### Features
+
+* **stream:** add a switch that hides file paths in the window while it's being captured ([1c62cd8](https://github.com/IamMrCupp/burnwright/commit/1c62cd80b70c517ff3c38a06817d605d20afafd0))
+* **stream:** serve a page for OBS that shows the programmer, the chip and an operation's progress ([c4cd1a8](https://github.com/IamMrCupp/burnwright/commit/c4cd1a82d437e4938227653229dd333d6a37f9c1))
+
 ## [0.14.0](https://github.com/IamMrCupp/burnwright/compare/v0.13.0...v0.14.0) (2026-11-22)
 
 
