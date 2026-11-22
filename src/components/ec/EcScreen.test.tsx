@@ -1,5 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
+
 import { createFakeBench, type FakeBenchOptions } from "../../dev/fakeBench";
 import { EcController, type EcDeps } from "../../lib/ec/controller";
 import { WIRING } from "../../lib/ec/state";
@@ -55,9 +58,30 @@ describe("when the screen opens", () => {
     const { bench } = setup({ programmer: false });
     const panel = region("Programmer");
     await within(panel).findByText("No CH341A found");
+    const why = await within(panel).findByRole("region", { name: "Why no CH341A was found" });
+    expect(within(why).getByRole("heading", { name: "No CH341A plugged in" })).toBeInTheDocument();
+    expect(within(why).getByText(/mode jumper/)).toBeInTheDocument();
+
     bench.setProgrammer(true);
     fireEvent.click(within(panel).getByRole("button", { name: "Look again" }));
     await within(panel).findByText("CH341A connected");
+    expect(within(panel).queryByRole("region", { name: "Why no CH341A was found" })).toBeNull();
+  });
+
+  it("tells a Linux user their CH341A is there and needs a udev rule", async () => {
+    setup({ access: "no_udev_rule" });
+    const panel = region("Programmer");
+    // flashrom's "couldn't open" isn't passed on as "not found" once the OS
+    // has said the programmer is there.
+    await within(panel).findByText("CH341A plugged in, but not usable yet");
+    expect(within(panel).queryByText("No CH341A found")).toBeNull();
+    const why = await within(panel).findByRole("region", { name: "Why no CH341A was found" });
+    expect(
+      within(why).getByRole("heading", { name: "No permission to use the programmer" }),
+    ).toBeInTheDocument();
+    expect(within(why).getByText("CH341A (1a86:5512)")).toBeInTheDocument();
+    expect(within(why).getByText(/60-burnwright-flashrom\.rules/)).toBeInTheDocument();
+    expect(within(why).getByRole("button", { name: "Copy command" })).toBeInTheDocument();
   });
 });
 

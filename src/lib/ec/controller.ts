@@ -28,6 +28,7 @@ export type EcBench = Pick<
   | "flashromStatus"
   | "setFlashromPath"
   | "listProbes"
+  | "diagnoseProgrammer"
   | "openSession"
   | "backup"
   | "closeSession"
@@ -243,31 +244,48 @@ export class EcController {
     }
   }
 
+  /**
+   * After a step that found no CH341A, ask the OS why: flashrom's own answer
+   * is the same for an unplugged programmer and one the user can't open.
+   */
+  private async explainMissing(): Promise<void> {
+    if (this.state.probe.status !== "none" || this.state.diagnosis !== null) return;
+    // diagnoseProgrammer doesn't reject; if the IPC itself fails there's
+    // just nothing more to say.
+    const diagnosis = await this.bench.diagnoseProgrammer().catch(() => null);
+    this.dispatch({ type: "diagnosed", diagnosis });
+  }
+
   /** Whether a CH341A is plugged in. Doesn't touch the EC. */
-  lookForProgrammer = (): Promise<void> =>
-    this.run(
+  lookForProgrammer = async (): Promise<void> => {
+    await this.run(
       "probe",
       (options) => this.bench.listProbes(options),
       (probes) => ({ type: "probed", probes }),
     );
+    await this.explainMissing();
+  };
 
   /** Ask the chip what it is and open a session on it. */
-  identify = (): Promise<void> =>
-    this.run(
+  identify = async (): Promise<void> => {
+    await this.run(
       "identify",
       (options) => this.bench.openSession(CH341A, KB9012, options),
       (session) => ({ type: "identified", session }),
     );
+    await this.explainMissing();
+  };
 
   /** Read the chip and save it. */
-  backup = (): Promise<void> => {
+  backup = async (): Promise<void> => {
     const session = this.state.session;
-    if (!session) return Promise.resolve();
-    return this.run(
+    if (!session) return;
+    await this.run(
       "backup",
       (options) => this.bench.backup(session.id, options),
       (backup) => ({ type: "backed_up", backup }),
     );
+    await this.explainMissing();
   };
 
   /** Stop the running step. Nothing here writes, so there's nothing to ask first. */

@@ -8,6 +8,7 @@
 //! 1. [`flashrom_status`]: is there a flashrom to run? burnwright doesn't
 //!    ship one. [`set_flashrom_path`] points at one the search didn't find.
 //! 2. [`list_probes`]: which programmers flashrom can reach right now.
+//!    When that's none, [`diagnose_spi_programmer`] asks the OS why.
 //! 3. [`open_session`]: identify the chip on a probe. The session it returns
 //!    stays open in the app; later commands name it by id.
 //! 4. [`backup_session`]: read the chip (twice, on a live board), save the
@@ -30,6 +31,7 @@
 
 use std::path::PathBuf;
 
+use engine::diagnose::{Diagnosis, DrivenBy, HostOs};
 use engine::{
     Availability, Backend, BackendId, Bench, Capabilities, EngineError, FlashromBackend,
     FlashromSource, Identified, MemoryKind, Overrides, Probe, ProbeInfo, ProgressEvent,
@@ -167,6 +169,26 @@ pub async fn list_probes(
     on_progress: Channel<ProgressEvent>,
 ) -> CommandResult<Vec<ProbeInfo>> {
     probes(&ops, op_id, channel_sink(on_progress)).await
+}
+
+/// Why flashrom found no CH341A: ask the OS whether one is on USB and what's
+/// in the way of it (on Linux, a missing udev rule or a group the user isn't
+/// in). flashrom says `Couldn't open device` for all of those and for a
+/// programmer that isn't plugged in; this is what tells them apart. The UI
+/// calls it when [`list_probes`] comes back empty or a step rejects with
+/// `no_programmer`.
+///
+/// Read-only and never claims the CH341A, so it takes no lock and no
+/// `op_id`. It doesn't fail: a probe that can't run says so in `probe_error`.
+#[tauri::command]
+pub async fn diagnose_spi_programmer() -> Diagnosis {
+    tauri::async_runtime::spawn_blocking(|| engine::diagnose::diagnose_for(DrivenBy::Flashrom))
+        .await
+        .unwrap_or_else(|e| Diagnosis {
+            os: HostOs::current(),
+            programmers: Vec::new(),
+            probe_error: Some(format!("diagnosis task failed: {e}")),
+        })
 }
 
 async fn open<S>(
@@ -652,6 +674,7 @@ fi
                         crate::session_commands::flashrom_status,
                         crate::session_commands::set_flashrom_path,
                         crate::session_commands::list_probes,
+                        crate::session_commands::diagnose_spi_programmer,
                         crate::session_commands::open_session,
                         crate::session_commands::backup_session,
                         crate::session_commands::close_session,
@@ -772,6 +795,23 @@ fi
         }
 
         #[test]
+        fn the_diagnosis_answers_for_this_os_without_arguments() {
+            // bench.diagnoseProgrammer(). What it finds depends on what's
+            // plugged into the machine running the test, so only the shape
+            // is checked: it resolves, for this OS, and every programmer it
+            // names is a CH341A.
+            let ipc = Ipc::new();
+            let diagnosis = ipc.invoke("diagnose_spi_programmer", json!({})).unwrap();
+            assert_eq!(
+                diagnosis["os"],
+                serde_json::to_value(HostOs::current()).unwrap()
+            );
+            for programmer in diagnosis["programmers"].as_array().expect("a list") {
+                assert_eq!(programmer["usb_id"], "1a86:5512", "{diagnosis}");
+            }
+        }
+
+        #[test]
         fn setting_the_flashrom_path_takes_a_string_or_null() {
             let ipc = Ipc::new();
             // bench.setFlashromPath("/nonexistent/flashrom")
@@ -834,6 +874,7 @@ fi
                 "flashrom_status",
                 "set_flashrom_path",
                 "list_probes",
+                "diagnose_spi_programmer",
                 "open_session",
                 "backup_session",
                 "close_session",

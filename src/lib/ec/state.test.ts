@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { CH341A, KB9012, type EngineError, type SessionInfo } from "../engine";
+import {
+  CH341A,
+  KB9012,
+  type Diagnosis,
+  type EngineError,
+  type SessionInfo,
+} from "../engine";
 import {
   failureOutcome,
   flashromReady,
@@ -157,6 +163,41 @@ describe("the session", () => {
     expect(state.probe).toEqual({ status: "none" });
     const found = apply(state, { type: "identified", session: SESSION });
     expect(found.probe.status).toBe("found");
+  });
+});
+
+describe("why no CH341A was found", () => {
+  const NONE: Diagnosis = { os: "linux", programmers: [], probe_error: null };
+  const ready = apply(initialState(), { type: "flashrom", status: READY });
+
+  it("is kept only while the programmer is missing", () => {
+    const missing = apply(ready, { type: "probed", probes: [] }, { type: "diagnosed", diagnosis: NONE });
+    expect(missing.diagnosis).toEqual(NONE);
+    // Found again: the old explanation goes.
+    const found = apply(missing, {
+      type: "probed",
+      probes: [{ backend: "flashrom", probe: CH341A, model: "CH341A", firmware: null }],
+    });
+    expect(found.diagnosis).toBeNull();
+    // An answer that arrives after it was found is dropped.
+    expect(apply(found, { type: "diagnosed", diagnosis: NONE }).diagnosis).toBeNull();
+  });
+
+  it("is asked for again after every look that finds nothing", () => {
+    const missing = apply(ready, { type: "probed", probes: [] }, { type: "diagnosed", diagnosis: NONE });
+    expect(apply(missing, { type: "probed", probes: [] }).diagnosis).toBeNull();
+    const failed = apply(tickAll(missing), {
+      type: "failed",
+      step: "identify",
+      error: error("no_programmer"),
+    });
+    expect(failed.diagnosis).toBeNull();
+    expect(failed.outcome?.details.join(" ")).toMatch(/Programmer panel/);
+  });
+
+  it("goes when the chip answers", () => {
+    const missing = apply(ready, { type: "probed", probes: [] }, { type: "diagnosed", diagnosis: NONE });
+    expect(apply(missing, { type: "identified", session: SESSION }).diagnosis).toBeNull();
   });
 });
 

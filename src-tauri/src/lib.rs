@@ -118,6 +118,7 @@ pub fn run() {
             session_commands::flashrom_status,
             session_commands::set_flashrom_path,
             session_commands::list_probes,
+            session_commands::diagnose_spi_programmer,
             session_commands::open_session,
             session_commands::backup_session,
             session_commands::close_session,

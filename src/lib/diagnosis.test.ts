@@ -302,3 +302,93 @@ describe("explainDiagnosis: other cases", () => {
     expect(all).toHaveLength(2);
   });
 });
+
+describe("explainDiagnosis: a CH341A for the Laptop EC bench", () => {
+  const CH341A = { models: "CH341A", usb_id: "1a86:5512" };
+  const explain = (os: HostOs, states: ProgrammerState[] = []) =>
+    explainDiagnosis(diagnosis(os, states, CH341A), "ch341a");
+
+  it("says none is plugged in, and mentions the mode jumper", () => {
+    const [none] = explain("linux");
+    expect(none.title).toBe("No CH341A plugged in");
+    expect(none.detail).toMatch(/1a86:5512/);
+    expect(none.detail).toMatch(/mode jumper/);
+    expect(none.detail).not.toMatch(/TL866|T-series/);
+    expect(none.programmer).toBeNull();
+  });
+
+  it("says when it couldn't look, or can't on this OS", () => {
+    const [failed] = explainDiagnosis(
+      { os: "linux", programmers: [], probe_error: "can't list /sys/bus/usb/devices" },
+      "ch341a",
+    );
+    expect(failed.title).toBe("No CH341A found");
+    expect(failed.detail).toMatch(/can't list \/sys\/bus\/usb\/devices/);
+    const [other] = explain("other");
+    expect(other.detail).toMatch(/can't list USB devices on this OS/);
+  });
+
+  it("hands over the install command for a missing udev rule", () => {
+    const [missing] = explain("linux", [
+      {
+        kind: "udev_rules_missing",
+        node: "/dev/bus/usb/001/007",
+        appimage: true,
+        install_command: "sudo tee /etc/udev/rules.d/60-burnwright-flashrom.rules",
+      },
+    ]);
+    expect(missing.title).toBe("No permission to use the programmer");
+    expect(missing.detail).toMatch(/AppImage can't/);
+    expect(missing.command).toBe("sudo tee /etc/udev/rules.d/60-burnwright-flashrom.rules");
+    expect(missing.programmer).toBe("CH341A (1a86:5512)");
+  });
+
+  it("calls installed rules flashrom's, not minipro's", () => {
+    const [pending] = explain("linux", [
+      {
+        kind: "udev_rules_not_applied",
+        node: "/dev/bus/usb/001/007",
+        rules_files: ["/usr/lib/udev/rules.d/60-burnwright-flashrom.rules"],
+        reload_command: "sudo udevadm control --reload-rules",
+      },
+    ]);
+    expect(pending.detail).toMatch(/^flashrom rules are installed/);
+    expect(pending.detail).not.toMatch(/minipro/);
+    expect(pending.command).toBe("sudo udevadm control --reload-rules");
+  });
+
+  it("says a reachable one is busy with another flashrom", () => {
+    const [busy] = explain("macos", [{ kind: "ready", driver: null, xgpro_compatible: null }]);
+    expect(busy.title).toBe("The CH341A is busy");
+    expect(busy.detail).toMatch(/any other flashrom/);
+    expect(busy.detail).not.toMatch(/minipro|Xgpro/);
+  });
+
+  it("keeps the shared wording for a group it isn't in", () => {
+    const [group] = explain("linux", [
+      {
+        kind: "not_in_group",
+        node: "/dev/bus/usb/001/007",
+        group: "plugdev",
+        command: 'sudo usermod -aG plugdev "$USER"',
+      },
+    ]);
+    expect(group.title).toBe("You're not in the plugdev group");
+  });
+
+  it("doesn't send a Windows user after drivers the bench can't use", () => {
+    for (const state of [
+      { kind: "no_driver" },
+      { kind: "ready", driver: "WinUSB", xgpro_compatible: false },
+    ] as ProgrammerState[]) {
+      const [windows] = explain("windows", [state]);
+      expect(windows.title).toBe("The Laptop EC bench doesn't run on Windows yet");
+      expect(windows.detail).not.toMatch(/Zadig|Xgpro/);
+    }
+  });
+
+  it("leaves the XGecu wording alone when no subject is given", () => {
+    const [none] = explainDiagnosis(diagnosis("linux"));
+    expect(none.title).toBe("No programmer plugged in");
+  });
+});

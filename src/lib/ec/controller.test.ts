@@ -51,11 +51,52 @@ describe("opening the screen", () => {
     expect(bench.calls).toEqual([]);
   });
 
-  it("says so when no CH341A is plugged in", async () => {
-    const { controller } = setup({ programmer: false });
+  it("says so when no CH341A is plugged in, and asks the OS why", async () => {
+    const { bench, controller } = setup({ programmer: false });
     await controller.open();
     expect(controller.getState().probe).toEqual({ status: "none" });
     expect(controller.getState().outcome).toBeNull();
+    expect(bench.calls).toEqual(["list_probes", "diagnose_spi_programmer"]);
+    expect(controller.getState().diagnosis).toEqual({
+      os: "macos",
+      programmers: [],
+      probe_error: null,
+    });
+  });
+
+  it("doesn't ask the OS anything when the CH341A is found", async () => {
+    const { bench, controller } = setup();
+    await controller.open();
+    expect(bench.calls).toEqual(["list_probes"]);
+    expect(controller.getState().diagnosis).toBeNull();
+  });
+
+  it("learns that a CH341A is plugged in but not its to open", async () => {
+    const { bench, controller } = setup({ access: "no_udev_rule" });
+    await controller.open();
+    // flashrom's answer is the same as for no programmer at all...
+    expect(controller.getState().probe).toEqual({ status: "none" });
+    // ...and the OS's isn't.
+    const [report] = controller.getState().diagnosis!.programmers;
+    expect(report.usb_id).toBe("1a86:5512");
+    expect(report.state.kind).toBe("udev_rules_missing");
+
+    // The rule goes in; the next look finds it and the explanation goes.
+    bench.setAccess("ok");
+    await controller.lookForProgrammer();
+    expect(controller.getState().probe.status).toBe("found");
+    expect(controller.getState().diagnosis).toBeNull();
+  });
+
+  it("carries on when the diagnosis itself can't be had", async () => {
+    const { bench, controller } = setup({ programmer: false });
+    bench.diagnoseProgrammer = async () => {
+      throw new Error("ipc down");
+    };
+    await controller.open();
+    expect(controller.getState().probe).toEqual({ status: "none" });
+    expect(controller.getState().diagnosis).toBeNull();
+    expect(controller.getState().running).toBeNull();
   });
 });
 
@@ -204,6 +245,9 @@ describe("identify and back up", () => {
     await controller.identify();
     expect(controller.getState().outcome?.title).toBe("No CH341A found");
     expect(controller.getState().probe).toEqual({ status: "none" });
+    // An identify that finds no programmer gets the OS's view as well.
+    expect(bench.calls.slice(-2)).toEqual(["open_session", "diagnose_spi_programmer"]);
+    expect(controller.getState().diagnosis?.programmers).toEqual([]);
   });
 
   it("closes the session when a wiring check is unticked", async () => {

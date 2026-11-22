@@ -34,6 +34,7 @@ impl super::UsbProbe for MacProbe {
             os: HostOs::Macos,
             devices: parse_ioreg(&String::from_utf8_lossy(&output.stdout)),
             udev_rules: Vec::new(),
+            flashrom_udev_rules: Vec::new(),
             appimage: false,
         })
     }

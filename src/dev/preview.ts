@@ -15,7 +15,8 @@
 //
 // The Laptop EC bench has a pretend flashrom, CH341A and KB9012.
 // `?flashrom=missing` starts without flashrom ("Choose flashrom…" picks a
-// pretend one), `?ch341a=none` with no programmer, and `?ec=silent`,
+// pretend one), `?ch341a=none` with no programmer, `?ch341a=denied` with one
+// plugged into a Linux machine that has no udev rule for it, and `?ec=silent`,
 // `?ec=other` or `?ec=flaky` with a chip that doesn't answer, a different
 // chip, or a loose wire whose two reads differ.
 //
@@ -66,6 +67,7 @@ function ecDeps(params: URLSearchParams): EcDeps {
       flashrom: params.get("flashrom") === "missing" ? null : undefined,
       otherFlashroms: ["/preview/bin/flashrom"],
       programmer: params.get("ch341a") !== "none",
+      access: params.get("ch341a") === "denied" ? "no_udev_rule" : "ok",
       chip,
       stepMs: 150,
       steps: 12,

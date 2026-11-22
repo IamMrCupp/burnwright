@@ -19,6 +19,12 @@
 //!
 //! The probes only read. They don't need admin rights, and they never claim
 //! the device.
+//!
+//! The Laptop EC bench has the same problem with another tool: flashrom
+//! says `Couldn't open device 1a86:5512.` for a CH341A that isn't plugged in
+//! and for one the user isn't allowed to open. So a diagnosis is about the
+//! programmers one tool drives ([`DrivenBy`]): [`diagnose`] is minipro's,
+//! [`diagnose_for`] takes the tool. The probes collect both kinds at once.
 
 use std::path::PathBuf;
 
@@ -71,6 +77,38 @@ pub const KNOWN_PROGRAMMERS: [KnownProgrammer; 3] = [
     },
 ];
 
+/// Which tool drives a programmer. A diagnosis is about one tool's
+/// programmers: someone looking for a T48 isn't helped by news of a CH341A.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DrivenBy {
+    /// The XGecu programmers in [`KNOWN_PROGRAMMERS`].
+    Minipro,
+    /// The SPI programmers in [`FLASHROM_PROGRAMMERS`].
+    Flashrom,
+}
+
+/// Every programmer flashrom drives for burnwright: the CH341A in its
+/// SPI/I2C mode. In serial mode the same chip has another product ID, which
+/// flashrom can't use and this doesn't look for.
+pub const FLASHROM_PROGRAMMERS: [KnownProgrammer; 1] = [KnownProgrammer {
+    vendor_id: 0x1a86,
+    product_id: 0x5512,
+    models: "CH341A",
+    supported: true,
+    // WCH's own Windows driver isn't WinUSB and registers no interface GUID
+    // burnwright looks for.
+    vendor_interface_guid: "",
+}];
+
+/// The programmers `tool` drives.
+pub fn programmers_driven_by(tool: DrivenBy) -> &'static [KnownProgrammer] {
+    match tool {
+        DrivenBy::Minipro => &KNOWN_PROGRAMMERS,
+        DrivenBy::Flashrom => &FLASHROM_PROGRAMMERS,
+    }
+}
+
 /// The T76's USB ID. On Apple Silicon Macs it only answers over USB 2.0
 /// (issue #50).
 pub const T76_USB_ID: (u16, u16) = (0xa466, 0x1a86);
@@ -78,10 +116,12 @@ pub const T76_USB_ID: (u16, u16) = (0xa466, 0x1a86);
 /// The slowest USB 3 link, SuperSpeed: 5 Gb/s.
 pub const SUPERSPEED_BPS: u64 = 5_000_000_000;
 
-/// The known programmer with this USB ID, if any.
+/// The known programmer with this USB ID, if any, whichever tool drives it.
+/// The probes use this to decide which USB devices are worth reporting.
 pub fn known_programmer(vendor_id: u16, product_id: u16) -> Option<&'static KnownProgrammer> {
     KNOWN_PROGRAMMERS
         .iter()
+        .chain(&FLASHROM_PROGRAMMERS)
         .find(|p| p.vendor_id == vendor_id && p.product_id == product_id)
 }
 
@@ -119,6 +159,9 @@ pub struct HostFacts {
     pub devices: Vec<UsbDeviceFacts>,
     /// Linux: udev rules files that mention minipro.
     pub udev_rules: Vec<PathBuf>,
+    /// Linux: udev rules files that mention flashrom. Kept apart: rules for
+    /// one tool's programmers say nothing about the other's.
+    pub flashrom_udev_rules: Vec<PathBuf>,
     /// Linux: running from an AppImage, which can't install udev rules.
     pub appimage: bool,
 }
@@ -390,11 +433,23 @@ pub const UDEV_RULES_PATH: &str = "/etc/udev/rules.d/60-burnwright-minipro.rules
 pub const UDEV_RELOAD_COMMAND: &str =
     "sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=usb";
 
+/// Where the manual install puts the rules for flashrom's programmers. The
+/// `.deb` installs a file of the same name.
+pub const FLASHROM_UDEV_RULES_PATH: &str = "/etc/udev/rules.d/60-burnwright-flashrom.rules";
+
 /// udev rules that let the logged-in user (`uaccess`) and the `plugdev`
-/// group open every known programmer.
+/// group open every XGecu programmer.
 pub fn udev_rules() -> String {
-    let mut rules = String::from("# burnwright: USB access for XGecu programmers\n");
-    for p in &KNOWN_PROGRAMMERS {
+    udev_rules_for(DrivenBy::Minipro)
+}
+
+/// The same for the programmers `tool` drives.
+pub fn udev_rules_for(tool: DrivenBy) -> String {
+    let mut rules = String::from(match tool {
+        DrivenBy::Minipro => "# burnwright: USB access for XGecu programmers\n",
+        DrivenBy::Flashrom => "# burnwright: USB access for the programmers flashrom drives\n",
+    });
+    for p in programmers_driven_by(tool) {
         rules.push_str(&format!(
             "# {}\nSUBSYSTEM==\"usb\", ATTRS{{idVendor}}==\"{:04x}\", ATTRS{{idProduct}}==\"{:04x}\", TAG+=\"uaccess\", MODE=\"0660\", GROUP=\"plugdev\"\n",
             p.models, p.vendor_id, p.product_id
@@ -405,24 +460,41 @@ pub fn udev_rules() -> String {
 
 /// Shell commands that install [`udev_rules`] and apply them.
 pub fn udev_install_command() -> String {
+    udev_install_command_for(DrivenBy::Minipro)
+}
+
+/// Shell commands that install [`udev_rules_for`] `tool` and apply them.
+pub fn udev_install_command_for(tool: DrivenBy) -> String {
+    let path = match tool {
+        DrivenBy::Minipro => UDEV_RULES_PATH,
+        DrivenBy::Flashrom => FLASHROM_UDEV_RULES_PATH,
+    };
     format!(
-        "sudo tee {UDEV_RULES_PATH} >/dev/null <<'EOF'\n{}EOF\n{UDEV_RELOAD_COMMAND}",
-        udev_rules()
+        "sudo tee {path} >/dev/null <<'EOF'\n{}EOF\n{UDEV_RELOAD_COMMAND}",
+        udev_rules_for(tool)
     )
 }
 
-/// Map raw facts to a diagnosis. Pure.
+/// Map raw facts to a diagnosis of minipro's programmers. Pure.
 pub fn diagnose_facts(facts: &HostFacts) -> Diagnosis {
+    diagnose_facts_for(facts, DrivenBy::Minipro)
+}
+
+/// Map raw facts to a diagnosis of the programmers `tool` drives. Pure. The
+/// other tool's programmers are left out, plugged in or not.
+pub fn diagnose_facts_for(facts: &HostFacts, tool: DrivenBy) -> Diagnosis {
     let programmers = facts
         .devices
         .iter()
         .filter_map(|device| {
-            let programmer = known_programmer(device.vendor_id, device.product_id)?;
+            let programmer = programmers_driven_by(tool)
+                .iter()
+                .find(|p| (p.vendor_id, p.product_id) == (device.vendor_id, device.product_id))?;
             Some(ProgrammerReport {
                 models: programmer.models.to_string(),
                 usb_id: format!("{:04x}:{:04x}", device.vendor_id, device.product_id),
                 location: device.location.clone(),
-                state: device_state(programmer, device, facts),
+                state: device_state(programmer, device, facts, tool),
             })
         })
         .collect();
@@ -437,6 +509,7 @@ fn device_state(
     programmer: &KnownProgrammer,
     device: &UsbDeviceFacts,
     facts: &HostFacts,
+    tool: DrivenBy,
 ) -> ProgrammerState {
     // Checked before `supported`: the link is in the way whichever minipro
     // runs, and the state carries both facts.
@@ -454,7 +527,7 @@ fn device_state(
             driver: None,
             xgpro_compatible: None,
         },
-        AccessFacts::Linux(access) => linux_state(access, facts),
+        AccessFacts::Linux(access) => linux_state(access, facts, tool),
         AccessFacts::Windows(driver) => windows_state(classify_driver(driver, programmer)),
     }
 }
@@ -470,8 +543,13 @@ fn stuck_usb3_link(device: &UsbDeviceFacts, os: HostOs) -> Option<u64> {
     device.link_speed_bps.filter(|&bps| bps >= SUPERSPEED_BPS)
 }
 
-fn linux_state(access: &LinuxAccess, facts: &HostFacts) -> ProgrammerState {
+fn linux_state(access: &LinuxAccess, facts: &HostFacts, tool: DrivenBy) -> ProgrammerState {
     let node = access.node.display().to_string();
+    // Only this tool's rules count: minipro's don't open a CH341A.
+    let rules = match tool {
+        DrivenBy::Minipro => &facts.udev_rules,
+        DrivenBy::Flashrom => &facts.flashrom_udev_rules,
+    };
     match &access.open {
         NodeOpen::Ok => ProgrammerState::Ready {
             driver: None,
@@ -495,18 +573,14 @@ fn linux_state(access: &LinuxAccess, facts: &HostFacts) -> ProgrammerState {
                     command: format!("sudo usermod -aG {group} \"$USER\""),
                 }
             }
-            _ if facts.udev_rules.is_empty() => ProgrammerState::UdevRulesMissing {
+            _ if rules.is_empty() => ProgrammerState::UdevRulesMissing {
                 node,
                 appimage: facts.appimage,
-                install_command: udev_install_command(),
+                install_command: udev_install_command_for(tool),
             },
             _ => ProgrammerState::UdevRulesNotApplied {
                 node,
-                rules_files: facts
-                    .udev_rules
-                    .iter()
-                    .map(|p| p.display().to_string())
-                    .collect(),
+                rules_files: rules.iter().map(|p| p.display().to_string()).collect(),
                 reload_command: UDEV_RELOAD_COMMAND.to_string(),
             },
         },
@@ -544,10 +618,15 @@ fn windows_state(driver: DriverState) -> ProgrammerState {
     }
 }
 
-/// Run `probe` and map what it found.
+/// Run `probe` and map what it found about minipro's programmers.
 pub fn diagnose_with(probe: &dyn UsbProbe) -> Diagnosis {
+    diagnose_with_for(probe, DrivenBy::Minipro)
+}
+
+/// Run `probe` and map what it found about the programmers `tool` drives.
+pub fn diagnose_with_for(probe: &dyn UsbProbe, tool: DrivenBy) -> Diagnosis {
     match probe.probe() {
-        Ok(facts) => diagnose_facts(&facts),
+        Ok(facts) => diagnose_facts_for(&facts, tool),
         Err(error) => Diagnosis {
             os: probe.os(),
             programmers: Vec::new(),
@@ -556,9 +635,14 @@ pub fn diagnose_with(probe: &dyn UsbProbe) -> Diagnosis {
     }
 }
 
-/// Ask this OS why no programmer was found.
+/// Ask this OS why minipro found no programmer.
 pub fn diagnose() -> Diagnosis {
-    diagnose_with(system_probe().as_ref())
+    diagnose_for(DrivenBy::Minipro)
+}
+
+/// Ask this OS why `tool` found no programmer.
+pub fn diagnose_for(tool: DrivenBy) -> Diagnosis {
+    diagnose_with_for(system_probe().as_ref(), tool)
 }
 
 /// The probe for the OS this build runs on.
@@ -594,6 +678,7 @@ impl UsbProbe for NoProbe {
             os: HostOs::Other,
             devices: Vec::new(),
             udev_rules: Vec::new(),
+            flashrom_udev_rules: Vec::new(),
             appimage: false,
         })
     }
