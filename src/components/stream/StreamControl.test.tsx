@@ -146,6 +146,46 @@ describe("StreamControl", () => {
     expect(panel()).not.toBeNull();
   });
 
+  it("keeps a port typed when the panel is put away, however it's put away", async () => {
+    const { configured } = setup();
+    open();
+    fireEvent.click(serve());
+    await screen.findByText("http://127.0.0.1:8790/stream");
+
+    fireEvent.change(port(), { target: { value: "9001" } });
+    act(() => {
+      document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    expect(panel()).toBeNull();
+    open();
+    expect(await screen.findByText("http://127.0.0.1:9001/stream")).toBeInTheDocument();
+
+    fireEvent.change(port(), { target: { value: "9002" } });
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(panel()).toBeNull();
+    open();
+    expect(await screen.findByText("http://127.0.0.1:9002/stream")).toBeInTheDocument();
+
+    fireEvent.change(port(), { target: { value: "9003" } });
+    fireEvent.click(toggle());
+    expect(panel()).toBeNull();
+    open();
+    expect(await screen.findByText("http://127.0.0.1:9003/stream")).toBeInTheDocument();
+    expect(configured.map(([, p]) => p)).toEqual([8790, 9001, 9002, 9003]);
+  });
+
+  it("drops a port that can't be used when the panel is put away", async () => {
+    const { configured } = setup();
+    open();
+    fireEvent.change(port(), { target: { value: "80" } });
+    expect(port()).toHaveAttribute("aria-invalid", "true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    open();
+    expect(port()).toHaveValue(8790);
+    expect(port()).toHaveAttribute("aria-invalid", "false");
+    expect(configured).toEqual([]);
+  });
+
   it("hides file paths on its own switch, and says so in the bar", () => {
     const { controller, configured } = setup();
     expect(screen.queryByText("Paths hidden")).toBeNull();
