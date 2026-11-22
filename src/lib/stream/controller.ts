@@ -106,6 +106,14 @@ export class StreamController {
     return this.change({ ...this.state.settings, port });
   };
 
+  /** Hide file paths in the app's window, or show them again. The server isn't involved. */
+  setHidePaths = (hidePaths: boolean): void => {
+    if (hidePaths === this.state.settings.hidePaths) return;
+    const settings = { ...this.state.settings, hidePaths };
+    this.store?.save(settings);
+    this.setState({ ...this.state, settings });
+  };
+
   private change(settings: StreamSettings): Promise<void> {
     this.store?.save(settings);
     this.setState({ ...this.state, settings });

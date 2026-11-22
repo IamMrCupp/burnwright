@@ -20,13 +20,29 @@ describe("streamSettingsStore", () => {
     expect(streamSettingsStore(memoryStorage()).load()).toEqual({
       enabled: false,
       port: DEFAULT_STREAM_PORT,
+      hidePaths: false,
     });
   });
 
   it("remembers the switch and the port", () => {
     const storage = memoryStorage();
-    streamSettingsStore(storage).save({ enabled: true, port: 9001 });
-    expect(streamSettingsStore(storage).load()).toEqual({ enabled: true, port: 9001 });
+    streamSettingsStore(storage).save({ enabled: true, port: 9001, hidePaths: false });
+    expect(streamSettingsStore(storage).load()).toEqual({ enabled: true, port: 9001, hidePaths: false });
+  });
+
+  it("remembers that paths are hidden, and takes nothing but true for it", () => {
+    const storage = memoryStorage();
+    streamSettingsStore(storage).save({ enabled: false, port: 8790, hidePaths: true });
+    expect(streamSettingsStore(storage).load()).toEqual({
+      enabled: false,
+      port: 8790,
+      hidePaths: true,
+    });
+    // A setting saved before the switch existed.
+    const older = memoryStorage({ "burnwright.stream": '{"enabled":true,"port":9001}' });
+    expect(streamSettingsStore(older).load().hidePaths).toBe(false);
+    const odd = memoryStorage({ "burnwright.stream": '{"hidePaths":"yes"}' });
+    expect(streamSettingsStore(odd).load().hidePaths).toBe(false);
   });
 
   it("reads anything it can't make sense of as off", () => {
@@ -44,6 +60,7 @@ describe("streamSettingsStore", () => {
       expect(streamSettingsStore(storage).load()).toEqual({
         enabled: true,
         port: DEFAULT_STREAM_PORT,
+        hidePaths: false,
       });
     }
   });
@@ -59,7 +76,7 @@ describe("streamSettingsStore", () => {
     };
     const store = streamSettingsStore(broken);
     expect(store.load()).toEqual(DEFAULT_STREAM_SETTINGS);
-    expect(() => store.save({ enabled: true, port: 9001 })).not.toThrow();
+    expect(() => store.save({ enabled: true, port: 9001, hidePaths: false })).not.toThrow();
   });
 });
 

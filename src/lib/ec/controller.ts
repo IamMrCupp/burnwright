@@ -11,6 +11,7 @@
 //   answered before may not be what's connected now.
 // - It never writes to a chip. There's no command here that could.
 import { CH341A, KB9012, type BenchApi, type ProgressEvent } from "../engine";
+import { pathMasker } from "../stream/mask";
 import {
   flashromReady,
   initialState,
@@ -128,6 +129,7 @@ export class EcController {
 
   private async firstLook(): Promise<void> {
     const remembered = this.deps.flashromPath?.load() ?? null;
+    pathMasker.remember(remembered);
     await this.refreshFlashrom(
       () =>
         remembered === null
@@ -183,6 +185,7 @@ export class EcController {
     let path: string | null;
     try {
       path = await choose();
+      pathMasker.remember(path);
     } catch {
       path = null;
     }

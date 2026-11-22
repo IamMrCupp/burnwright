@@ -10,6 +10,7 @@ import {
   type EcStep,
 } from "../../lib/ec/state";
 import { LogPane } from "../device/LogPane";
+import { useMasked } from "../../lib/stream/useMasked";
 import "../device/DeviceScreen.css";
 import "./EcScreen.css";
 
@@ -17,6 +18,8 @@ export interface EcScreenProps {
   controller: EcController;
   /** Shown under the side column: the app's version line. */
   footer?: ReactNode;
+  /** Draw every file path as "[hidden]": the window is on a live stream. */
+  hidePaths?: boolean;
 }
 
 /** The two steps with a button in the main column. */
@@ -55,8 +58,10 @@ function programmerText(state: EcState): string {
  * steps and the log on the right. All of its state lives in the controller;
  * this only lays it out.
  */
-export function EcScreen({ controller, footer }: EcScreenProps) {
-  const state = useSyncExternalStore(controller.subscribe, controller.getState);
+export function EcScreen({ controller, footer, hidePaths = false }: EcScreenProps) {
+  const real = useSyncExternalStore(controller.subscribe, controller.getState);
+  // Only what's drawn is masked: the controller works on the real state.
+  const state = useMasked(real, hidePaths);
   const reasonId = useId();
   const [copied, setCopied] = useState<"idle" | "copied" | "failed">("idle");
 

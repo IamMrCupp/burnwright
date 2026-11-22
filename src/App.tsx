@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { AppearancePicker } from "./components/appearance";
 import { DeviceScreen } from "./components/device";
 import { EcScreen } from "./components/ec";
@@ -39,6 +39,11 @@ const MODES: readonly { id: Mode; label: string }[] = [
 function App({ controller, ec, appearance, stream, loadAppInfo }: AppProps) {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [mode, setMode] = useState<Mode>("programmer");
+  // The window is on a stream: both benches draw their paths hidden.
+  const hidePaths = useSyncExternalStore(
+    stream.subscribe,
+    () => stream.getState().settings.hidePaths,
+  );
 
   useEffect(() => {
     loadAppInfo().then(setInfo, () => setInfo(null));
@@ -76,9 +81,9 @@ function App({ controller, ec, appearance, stream, loadAppInfo }: AppProps) {
       </header>
       <div className="app-bench">
         {mode === "programmer" ? (
-          <DeviceScreen controller={controller} footer={footer} />
+          <DeviceScreen controller={controller} footer={footer} hidePaths={hidePaths} />
         ) : (
-          <EcScreen controller={ec} footer={footer} />
+          <EcScreen controller={ec} footer={footer} hidePaths={hidePaths} />
         )}
       </div>
     </div>

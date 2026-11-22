@@ -40,6 +40,7 @@ import {
   verifyOutcome,
   writeOutcome,
 } from "./messages";
+import { pathMasker } from "../stream/mask";
 import type { RecentStore } from "./recent";
 import type { SettingsStore } from "./settings";
 import {
@@ -228,6 +229,7 @@ export class DeviceController {
   /** Hand the engine the algorithm file remembered from the last run. */
   private async restoreAlgorithmFile(): Promise<void> {
     const path = this.settings?.loadAlgorithmPath() ?? null;
+    pathMasker.remember(path);
     if (path !== null) await this.applyRemembered(path);
   }
 
@@ -274,6 +276,7 @@ export class DeviceController {
       let path: string | null;
       try {
         path = await this.dialogs.openAlgorithms();
+        pathMasker.remember(path);
       } catch (err) {
         this.dispatch({
           type: "logged",
@@ -444,6 +447,8 @@ export class DeviceController {
       let path: string | null;
       try {
         path = await this.dialogs.open();
+        // Before anything is said about it: an open that fails names the file.
+        pathMasker.remember(path);
       } catch (err) {
         this.fileFailed(`Couldn't show the open dialog: ${errorMessage(err)}`);
         return;
@@ -486,6 +491,7 @@ export class DeviceController {
           this.state.buffer.path ?? `${chip.replace(/[^A-Za-z0-9._-]+/g, "_")}.bin`;
         try {
           path = await this.dialogs.save(suggested);
+          pathMasker.remember(path);
         } catch (err) {
           this.fileFailed(`Couldn't show the save dialog: ${errorMessage(err)}`);
           return;

@@ -181,7 +181,11 @@ captured. The page shows the programmer, the chip, the operation and its
 progress. File paths, the log and the buffer stay in the app.
 
 It's off by default: **Stream page** in the top-right corner turns it on. It
-listens on this computer only. More in
+listens on this computer only.
+
+To show the whole window instead, capture it in OBS and turn on **Hide file
+paths in this window** in the same panel: every path in the log and
+everywhere else reads `[hidden]`. More on both in
 [docs/stream-page.md](docs/stream-page.md).
 
 ## License

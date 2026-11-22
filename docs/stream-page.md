@@ -46,6 +46,40 @@ is one of a few fixed words or a number.
 So the page says *that* a write failed, not why. The why is in the app, where
 only you can see it.
 
+## Showing the whole window instead
+
+The card is for a corner of a scene. To put all of burnwright on stream — the
+chip's details, the hex view, the log — capture its window in OBS like any
+other app, and turn on **Stream page** → **Hide file paths in this window**
+first.
+
+While it's on, every file path on both benches reads `[hidden]`, keeping the
+extension: `Opened [hidden].bin: 4,194,304 bytes.` That covers the log
+(burnwright's own lines and minipro's and flashrom's command lines), the
+buffer's file name and its tooltip, error messages, the T76's algorithm file
+and the EC bench's flashrom and backup lines. The folder and the file name
+both go — a file name is the likeliest place for a customer's name. A
+**Paths hidden** marker sits in the top bar while it's on, so you can check
+before going live.
+
+It hides what's drawn, not what's kept. Files open and save as usual, **Copy
+log** copies the masked text while it's on, and turning it off shows the real
+paths again, old log lines included. It's remembered between runs, and it's
+separate from the card: either works without the other.
+
+What it doesn't cover:
+
+- **The hex view.** The chip's contents are on screen.
+- **The system's open and save panels.** Those are the OS's own windows. If
+  OBS captures the window rather than the whole screen, they aren't in the
+  picture, but check your capture.
+- **A path burnwright never saw.** A path with a space in it is hidden whole
+  when you picked it in a file panel or burnwright holds it (the buffer's
+  file, the algorithm file, flashrom, a backup). One that only ever appears
+  inside minipro's or flashrom's own output is cut at the space, so the part
+  after it stays readable. The usual case is a temp folder under a Windows
+  user name with a space in it.
+
 ## When burnwright isn't running
 
 The page keeps trying to reconnect, and picks the feed back up on its own

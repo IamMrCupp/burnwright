@@ -13,6 +13,7 @@ import {
   type Availability,
   type OpKind,
 } from "../../lib/device/state";
+import { useMasked } from "../../lib/stream/useMasked";
 import { BufferPanel } from "./BufferPanel";
 import { ChipPicker } from "./ChipPicker";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -25,7 +26,11 @@ export interface DeviceScreenProps {
   controller: DeviceController;
   /** Shown under the side column: the app's version line. */
   footer?: ReactNode;
+  /** Draw every file path as "[hidden]": the window is on a live stream. */
+  hidePaths?: boolean;
 }
+
+const MASK_SKIP = ["chip"] as const;
 
 const OPS: readonly OpKind[] = ["read", "verify", "blank_check", "check", "erase", "write"];
 
@@ -46,8 +51,12 @@ function operationsFocus(): HTMLElement | null {
  * the left; operations, the buffer and the log on the right. All of its
  * state lives in the controller; this only lays it out.
  */
-export function DeviceScreen({ controller, footer }: DeviceScreenProps) {
-  const state = useSyncExternalStore(controller.subscribe, controller.getState);
+export function DeviceScreen({ controller, footer, hidePaths = false }: DeviceScreenProps) {
+  const real = useSyncExternalStore(controller.subscribe, controller.getState);
+  // Only what's drawn is masked: the controller works on the real state.
+  // The chip picker is left alone. Its names come from the chip list, and
+  // masking the search box would rewrite what's being typed into it.
+  const state = useMasked(real, hidePaths, MASK_SKIP);
   const busy = state.running !== null;
   const programmer = activeProgrammer(state);
   const info = selectedInfo(state);

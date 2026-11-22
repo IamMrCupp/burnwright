@@ -669,3 +669,147 @@ describe("log pane", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("with file paths hidden", () => {
+  const SECRET = "/home/me/customers/Jane Doe/bios dump.bin";
+  const ALGORITHMS = "/home/me/xgecu/algorithm.xml";
+
+  /** Everything the window shows: its text, and what hovering would show. */
+  function shown(): string {
+    const titles = [...document.querySelectorAll("[title]")].map((el) => el.getAttribute("title"));
+    return [document.body.textContent, ...titles].join("\n");
+  }
+
+  function expectNoPaths() {
+    for (const secret of ["/home", "Jane", "Doe", "customers", "xgecu", "bios dump", "/tmp", "/usr"]) {
+      expect(shown(), secret).not.toContain(secret);
+    }
+  }
+
+  function setupHidden(options: FakeEngineOptions = {}) {
+    const fake = createFakeEngine({ chips: CHIPS, ...options });
+    const dialogs = {
+      open: vi.fn<() => Promise<string | null>>().mockResolvedValue(SECRET),
+      save: vi.fn<(suggested: string) => Promise<string | null>>().mockResolvedValue(null),
+      openAlgorithms: vi.fn<() => Promise<string | null>>().mockResolvedValue(ALGORITHMS),
+    };
+    const controller = new DeviceController({ engine: fake, dialogs });
+    const view = render(<DeviceScreen controller={controller} hidePaths />);
+    const show = (hidePaths: boolean) =>
+      view.rerender(<DeviceScreen controller={controller} hidePaths={hidePaths} />);
+    return { fake, dialogs, controller, show };
+  }
+
+  it("hides the opened file in the buffer panel, its tooltip and the log", async () => {
+    const { controller, fake } = setupHidden({
+      socket: { chip: "FLASH32@SOIC8", memory: ramp(32) },
+      files: { [SECRET]: ramp(32) },
+    });
+    await pick("FLASH32@SOIC8");
+    click("Open…");
+    await screen.findByRole("grid", { name: "Buffer bytes" });
+    click("Verify");
+    await outcome("Verify passed");
+
+    const buffer = screen.getByRole("region", { name: "Buffer" });
+    expect(within(buffer).getByText("[hidden].bin")).toHaveAttribute("title", "[hidden].bin");
+    const log = screen.getByRole("log");
+    expect(within(log).getByText("Opened [hidden].bin: 32 bytes.")).toBeInTheDocument();
+    expectNoPaths();
+    // The chip, the operation and its output are all still there.
+    expect(within(log).getByText(/^\$ minipro -p FLASH32@SOIC8/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "FLASH32@SOIC8" })).toBeInTheDocument();
+
+    // Only the drawing is masked: the engine was handed the real file.
+    expect(controller.getState().buffer?.path).toBe(SECRET);
+    expect(fake.calls.some((call) => JSON.stringify(call).includes(SECRET))).toBe(true);
+  });
+
+  it("hides a save's path, and a failed open's", async () => {
+    const { dialogs } = setupHidden({
+      socket: { chip: "FLASH32@SOIC8", memory: ramp(32) },
+      files: { [SECRET]: ramp(32) },
+    });
+    await pick("FLASH32@SOIC8");
+    click("Read");
+    await outcome("Read FLASH32@SOIC8");
+    dialogs.save.mockResolvedValue("/home/me/customers/Jane Doe/read back.bin");
+    click("Save as…");
+    await within(screen.getByRole("log")).findByText("Saved 32 bytes to [hidden].bin.");
+    expectNoPaths();
+
+    dialogs.open.mockResolvedValue("/home/me/customers/Jane Doe/missing.bin");
+    click("Open…");
+    await screen.findByRole("alert");
+    expectNoPaths();
+  });
+
+  it("hides the T76's algorithm file, chosen or not", async () => {
+    setupHidden({
+      programmer: {
+        programmer: "T76",
+        firmware: "00.1.17",
+        chip: null,
+        firmware_status: null,
+        firmware_expected: null,
+        support_warning: null,
+      },
+      algorithmFiles: [ALGORITHMS],
+    });
+    click("Detect");
+    const bar = screen.getByRole("region", { name: "Programmer" });
+    const alert = await within(bar).findByRole("alert");
+    // The file's own name is no secret; where minipro looks for it is.
+    expect(alert).toHaveTextContent("XGecu's algorithm.xml");
+    expect(alert).toHaveTextContent("[hidden].xml");
+    expectNoPaths();
+
+    click("Choose file…");
+    expect(await within(bar).findByText("[hidden].xml (chosen here)")).toBeInTheDocument();
+    expectNoPaths();
+  });
+
+  it("shows the real paths again when it's turned off, old log lines included", async () => {
+    const { show } = setupHidden({
+      socket: { chip: "FLASH32@SOIC8", memory: ramp(32) },
+      files: { [SECRET]: ramp(32) },
+    });
+    await pick("FLASH32@SOIC8");
+    click("Open…");
+    await screen.findByRole("grid", { name: "Buffer bytes" });
+    expectNoPaths();
+
+    show(false);
+    expect(
+      within(screen.getByRole("log")).getByText(`Opened ${SECRET}: 32 bytes.`),
+    ).toBeInTheDocument();
+    expect(screen.getByText("bios dump.bin")).toHaveAttribute("title", SECRET);
+
+    show(true);
+    expectNoPaths();
+  });
+
+  it("leaves the chip search as typed", async () => {
+    setupHidden();
+    click(/^Detect/);
+    await screen.findByText(/firmware 01\.1\.32$/);
+    fireEvent.change(search(), { target: { value: "/odd" } });
+    expect(search()).toHaveValue("/odd");
+  });
+
+  it("keeps the hex editor's edits across a redraw", async () => {
+    const { controller } = setupHidden({
+      socket: { chip: "FLASH32@SOIC8", memory: ramp(32) },
+      files: { [SECRET]: ramp(32) },
+    });
+    await pick("FLASH32@SOIC8");
+    click("Open…");
+    const grid = await screen.findByRole("grid", { name: "Buffer bytes" });
+    // A log line redraws the screen from a fresh masked copy; the editor
+    // must be handed the very same bytes, or it would start over.
+    click("Verify");
+    await outcome("Verify passed");
+    expect(screen.getByRole("grid", { name: "Buffer bytes" })).toBe(grid);
+    expect(controller.getState().buffer?.original).toBeInstanceOf(Uint8Array);
+  });
+});
