@@ -59,12 +59,30 @@ body {
   opacity: 0;
 }
 
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .programmer {
   margin: 0;
   font-size: 0.8rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--bw-muted);
+}
+
+/* The tool's name, as a credit rather than a logo: small and quiet, in the
+   corner the programmer's name leaves free. It's inside the card, so it shows
+   and hides with it. */
+.credit {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--bw-muted);
+  opacity: 0.8;
 }
 
 .chip {
@@ -164,7 +182,12 @@ body {
      programmer's model, the chip's name, the operation, its percent and how
      it ended (src-tauri/src/stream/status.rs). -->
 <div class="card">
-  <p class="programmer" id="programmer"></p>
+  <div class="head">
+    <p class="programmer" id="programmer"></p>
+    <!-- What's drawing the card (#130). ?credit=0 on the page's address leaves
+         it off. -->
+    <span class="credit" id="credit">burnwright</span>
+  </div>
   <p class="chip" id="chip"></p>
   <div class="work" id="work" hidden>
     <div class="work-row">
@@ -229,6 +252,11 @@ function render(status) {
     el("outcome").textContent = `${ended}: ${tone}`;
     el("outcome").className = `outcome ${outcome.tone}`;
   }
+}
+
+// The same switch benchhud's job card has.
+if (new URLSearchParams(location.search).get("credit") === "0") {
+  el("credit").hidden = true;
 }
 
 // EventSource reconnects by itself, so a page left in an OBS scene picks the

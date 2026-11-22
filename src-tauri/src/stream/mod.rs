@@ -221,6 +221,25 @@ mod tests {
         assert!(!page.contains("src="));
     }
 
+    /// The card names the tool, in its own markup, and the address can turn
+    /// that off.
+    #[test]
+    fn the_card_carries_a_credit_that_can_be_turned_off() {
+        let page = include_str!("page.html");
+        let card = page.split_once("<div class=\"card\">").unwrap().1;
+        let card = &card[..card.find("<script>").unwrap()];
+        // Inside the card, so it shows and hides with it.
+        assert!(card.contains("<span class=\"credit\" id=\"credit\">burnwright</span>"));
+        assert!(page.contains(".credit {"));
+        let script = page.split_once("<script>").unwrap().1;
+        assert!(script.contains(".get(\"credit\") === \"0\""));
+        assert!(script.contains("el(\"credit\").hidden = true"));
+        // The name is the page's own: nothing the feed sends sets it.
+        let render = script.split_once("function render(").unwrap().1;
+        let render = &render[..render.find("\n}\n").unwrap()];
+        assert!(!render.contains("credit"));
+    }
+
     fn free_port() -> u16 {
         let spare = TcpListener::bind("127.0.0.1:0").unwrap();
         spare.local_addr().unwrap().port()

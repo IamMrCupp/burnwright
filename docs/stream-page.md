@@ -31,6 +31,11 @@ up — it layers straight over a camera.
   Read.
 - **How the last operation ended**: OK, warning or error, by name and colour.
 
+The card's top-right corner carries the tool's name, small and muted — a
+credit, so a scene says what's drawing the card without another logo to
+place. To leave it off, add `?credit=0` to the address in OBS:
+`http://127.0.0.1:8790/stream?credit=0`.
+
 The card is in burnwright's dark look whatever **Appearance** is set to — it
 sits over video. A theme file doesn't change it.
 
