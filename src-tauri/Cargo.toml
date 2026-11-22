@@ -27,3 +27,6 @@ engine = { path = "../crates/engine" }
 [dev-dependencies]
 # Scratch folders for the session-command tests.
 tempfile = "3"
+# The mock runtime, to call commands the way the webview does (a name and a
+# JSON body) without opening a window.
+tauri = { version = "2", features = ["test"] }
