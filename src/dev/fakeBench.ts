@@ -5,6 +5,7 @@
 // is read twice, and a cancel rejects with `cancelled`.
 import type {
   BenchApi,
+  Diagnosis,
   EngineError,
   EngineErrorKind,
   FlashromStatus,
@@ -23,6 +24,12 @@ export interface FakeBenchOptions {
   otherFlashroms?: string[];
   /** Whether a CH341A is plugged in. */
   programmer?: boolean;
+  /**
+   * Whether this user may open it. `"no_udev_rule"` is a Linux machine with
+   * no rule for it: flashrom finds nothing, and only the diagnosis can say
+   * the programmer is there.
+   */
+  access?: "ok" | "no_udev_rule";
   /**
    * What's on the end of the wires: a KB9012, nothing that answers, another
    * chip, or a KB9012 on a loose wire whose two reads differ.
@@ -48,6 +55,8 @@ export interface FakeBench extends BenchApi {
   readonly calls: string[];
   /** Plug the CH341A in or pull it out. */
   setProgrammer(present: boolean): void;
+  /** Install the udev rule, or take it away. */
+  setAccess(access: "ok" | "no_udev_rule"): void;
   /** Install flashrom where the search finds it, or take it away. */
   setInstalled(path: string | null): void;
 }
@@ -59,6 +68,9 @@ export function createFakeBench(options: FakeBenchOptions = {}): FakeBench {
   let installed = options.flashrom === undefined ? FLASHROM : options.flashrom;
   let chosen: string | null = null;
   let programmer = options.programmer ?? true;
+  let access = options.access ?? "ok";
+  /** flashrom can open the CH341A: it's there and it's ours to use. */
+  const reachable = () => programmer && access === "ok";
   let silentTries = options.silentTries ?? 0;
   let nextSession = 1;
   let open: SessionInfo | null = null;
@@ -145,6 +157,9 @@ export function createFakeBench(options: FakeBenchOptions = {}): FakeBench {
     setProgrammer(present) {
       programmer = present;
     },
+    setAccess(next) {
+      access = next;
+    },
     setInstalled(path) {
       installed = path;
     },
@@ -158,17 +173,43 @@ export function createFakeBench(options: FakeBenchOptions = {}): FakeBench {
       const path = flashromPath();
       emit(options, { type: "command", line: `${path} -p ch341a_spi -c MX25L6405` });
       await tick("operation", options);
-      const found: ProbeInfo[] = programmer
+      const found: ProbeInfo[] = reachable()
         ? [{ backend: "flashrom", probe: CH341A, model: "CH341A", firmware: null }]
         : [];
       return found;
+    },
+    diagnoseProgrammer: async () => {
+      calls.push("diagnose_spi_programmer");
+      const diagnosis: Diagnosis = {
+        os: access === "no_udev_rule" ? "linux" : "macos",
+        programmers: [],
+        probe_error: null,
+      };
+      if (programmer) {
+        diagnosis.programmers.push({
+          models: "CH341A",
+          usb_id: "1a86:5512",
+          location: "1-2",
+          state:
+            access === "no_udev_rule"
+              ? {
+                  kind: "udev_rules_missing",
+                  node: "/dev/bus/usb/001/007",
+                  appimage: true,
+                  install_command:
+                    "sudo tee /etc/udev/rules.d/60-burnwright-flashrom.rules >/dev/null <<'EOF'\n# CH341A\nEOF\nsudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=usb",
+                }
+              : { kind: "ready", driver: null, xgpro_compatible: null },
+        });
+      }
+      return diagnosis;
     },
     openSession: async (probe, target, options) => {
       calls.push("open_session");
       const path = flashromPath();
       emit(options, { type: "command", line: `${path} -p ch341a_spi -c 'KB9012 (EDI)' -V` });
       await tick("operation", options);
-      if (!programmer) {
+      if (!reachable()) {
         emit(options, { type: "error", message: "Couldn't open device 1a86:5512." });
         throw fail("no_programmer", "no programmer detected");
       }

@@ -832,6 +832,13 @@ export const bench = {
   listProbes: (options?: SessionOptions): Promise<ProbeInfo[]> =>
     deviceOp("list_probes", {}, options),
   /**
+   * Ask the OS why flashrom found no CH341A: whether one is on USB, and
+   * what's in the way of it. Call it when `listProbes` resolves to nothing
+   * or a step rejects with `no_programmer`. Never rejects; doesn't claim
+   * the programmer. Explain it with `explainDiagnosis(d, "ch341a")`.
+   */
+  diagnoseProgrammer: (): Promise<Diagnosis> => invoke("diagnose_spi_programmer"),
+  /**
    * Identify `target` on `probe` and keep the session open. Rejects with
    * `no_programmer`, `no_chip` or `chip_id_mismatch`. For an EC this stops
    * the EC while it runs, so the board should be off, on standby power.

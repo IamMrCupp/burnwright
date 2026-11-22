@@ -326,6 +326,13 @@ describe("session commands", () => {
     expect(args.onProgress).toBeDefined();
   });
 
+  it("asks why no CH341A was found, with no arguments", async () => {
+    const diagnosis = { os: "linux", programmers: [], probe_error: null };
+    invoke.mockResolvedValueOnce(diagnosis);
+    await expect(bench.diagnoseProgrammer()).resolves.toEqual(diagnosis);
+    expect(invoke).toHaveBeenLastCalledWith("diagnose_spi_programmer");
+  });
+
   it("opens a session on a probe and a target", async () => {
     invoke.mockResolvedValueOnce({ id: 7 });
     await expect(bench.openSession(CH341A, KB9012)).resolves.toEqual({ id: 7 });

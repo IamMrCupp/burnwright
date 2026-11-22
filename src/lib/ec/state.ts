@@ -8,6 +8,7 @@
 import {
   errorMessage,
   isEngineError,
+  type Diagnosis,
   type FlashromStatus,
   type ProbeInfo,
   type ProgressEvent,
@@ -124,6 +125,11 @@ export interface EcState {
   /** The flashrom the user pointed at, when they did. It may not be there. */
   flashromChosen: string | null;
   probe: ProbeState;
+  /**
+   * Why no CH341A was found, from the OS: not plugged in, or plugged in and
+   * not ours to open. `null` while one is found, and until it's been asked.
+   */
+  diagnosis: Diagnosis | null;
   /** The wiring checks that are ticked, by id. */
   wiring: Record<string, boolean>;
   /** The chip that answered, while its session is open. */
@@ -142,6 +148,7 @@ export function initialState(): EcState {
     flashromBusy: false,
     flashromChosen: null,
     probe: { status: "unknown" },
+    diagnosis: null,
     wiring: {},
     session: null,
     backup: null,
@@ -162,6 +169,7 @@ export type Action =
   | { type: "progress"; event: ProgressEvent }
   | { type: "cancelling" }
   | { type: "probed"; probes: ProbeInfo[] }
+  | { type: "diagnosed"; diagnosis: Diagnosis | null }
   | { type: "identified"; session: SessionInfo }
   | { type: "backed_up"; backup: SavedBackup }
   | { type: "failed"; step: EcStep; error: unknown }
@@ -183,6 +191,7 @@ export function reducer(state: EcState, action: Action): EcState {
         flashromChosen: action.chosen === undefined ? state.flashromChosen : action.chosen,
         // A different flashrom hasn't looked for the programmer yet.
         probe: same ? state.probe : { status: "unknown" },
+        diagnosis: same ? state.diagnosis : null,
       };
     }
     case "wiring": {
@@ -221,15 +230,23 @@ export function reducer(state: EcState, action: Action): EcState {
         ...state,
         running: null,
         probe: info ? { status: "found", info } : { status: "none" },
+        // Asked again after every look that finds nothing.
+        diagnosis: null,
         outcome: null,
       };
     }
+    case "diagnosed":
+      // Only worth showing while the programmer is still missing.
+      return state.probe.status === "none"
+        ? { ...state, diagnosis: action.diagnosis }
+        : state;
     case "identified":
       return {
         ...state,
         running: null,
         session: action.session,
         backup: null,
+        diagnosis: null,
         // Something answered through it, so it's there.
         probe:
           state.probe.status === "found"
@@ -259,6 +276,7 @@ export function reducer(state: EcState, action: Action): EcState {
         running: null,
         // The programmer isn't there, so neither is what was found on it.
         probe: kind === "no_programmer" ? { status: "none" } : state.probe,
+        diagnosis: kind === "no_programmer" ? null : state.diagnosis,
         session:
           action.step === "identify" || kind === "no_programmer" || kind === "invalid_input"
             ? null
@@ -381,8 +399,8 @@ export function failureOutcome(step: EcStep, error: unknown): EcOutcome {
     case "no_programmer":
       return failed(
         "No CH341A found",
-        "flashrom couldn't open the CH341A. Check that it's plugged in.",
-        "On Linux, flashrom says the same thing when it isn't allowed to open the device: that takes a udev rule for USB ID 1a86:5512.",
+        "flashrom couldn't open the CH341A. It says that for one that isn't plugged in and for one you're not allowed to open.",
+        "The Programmer panel says which, and what to do about it.",
       );
     case "no_chip":
       return failed(

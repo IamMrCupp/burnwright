@@ -103,6 +103,7 @@ impl super::UsbProbe for LinuxProbe {
             os: HostOs::Linux,
             devices,
             udev_rules: find_rules(&self.rules_dirs),
+            flashrom_udev_rules: find_rules_named(&self.rules_dirs, "flashrom"),
             appimage: self.appimage,
         })
     }
@@ -197,6 +198,13 @@ pub fn group_name(group_file: &str, gid: u32) -> Option<String> {
 /// our `60-burnwright-minipro.rules`, a distro package's), in every
 /// directory given. Missing directories are skipped.
 pub fn find_rules(dirs: &[PathBuf]) -> Vec<PathBuf> {
+    find_rules_named(dirs, "minipro")
+}
+
+/// Rules files whose name mentions `tool` (`"flashrom"` finds our
+/// `60-burnwright-flashrom.rules` and flashrom's own `flashrom_udev.rules`),
+/// in every directory given. Missing directories are skipped.
+pub fn find_rules_named(dirs: &[PathBuf], tool: &str) -> Vec<PathBuf> {
     // /lib is often a symlink to /usr/lib: read each real directory once.
     let mut real_dirs: Vec<PathBuf> = Vec::new();
     for dir in dirs {
@@ -213,7 +221,7 @@ pub fn find_rules(dirs: &[PathBuf]) -> Vec<PathBuf> {
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy().to_ascii_lowercase();
-            if name.contains("minipro") && name.ends_with(".rules") {
+            if name.contains(tool) && name.ends_with(".rules") {
                 found.push(entry.path());
             }
         }

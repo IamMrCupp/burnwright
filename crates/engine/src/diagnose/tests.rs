@@ -1,12 +1,13 @@
 use std::path::{Path, PathBuf};
 
-use super::linux::{find_rules, group_name, parse_hex_id, process_gids};
+use super::linux::{find_rules, find_rules_named, group_name, parse_hex_id, process_gids};
 use super::macos::parse_ioreg;
 use super::*;
 
 const TL866II: (u16, u16) = (0xa466, 0x0a53);
 const T76: (u16, u16) = (0xa466, 0x1a86);
 const TL866A: (u16, u16) = (0x04d8, 0xe11c);
+const CH341A: (u16, u16) = (0x1a86, 0x5512);
 
 fn tl866ii() -> &'static KnownProgrammer {
     known_programmer(TL866II.0, TL866II.1).unwrap()
@@ -17,6 +18,7 @@ fn host(os: HostOs, devices: Vec<UsbDeviceFacts>) -> HostFacts {
         os,
         devices,
         udev_rules: Vec::new(),
+        flashrom_udev_rules: Vec::new(),
         appimage: false,
     }
 }
@@ -175,7 +177,7 @@ fn an_unsupported_model_says_so_whatever_the_driver() {
         vec![device(T76, AccessFacts::Windows(winusb(&[])))],
     );
     assert_eq!(
-        device_state(&unsupported, &facts.devices[0], &facts),
+        device_state(&unsupported, &facts.devices[0], &facts, DrivenBy::Minipro),
         ProgrammerState::UnsupportedModel
     );
 }
@@ -731,7 +733,172 @@ fn finds_minipro_rules_and_skips_missing_dirs() {
     );
     // The same directory twice (a /lib -> /usr/lib symlink) counts once.
     assert_eq!(find_rules(&[root.join("etc"), root.join("etc")]).len(), 1);
+
+    // flashrom's rules are found on their own, ours and flashrom's.
+    write(&root.join("lib/flashrom_udev.rules"), "");
+    let flashrom: Vec<_> = find_rules_named(&[root.join("etc"), root.join("lib")], "flashrom")
+        .iter()
+        .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        flashrom,
+        vec!["60-burnwright-flashrom.rules", "flashrom_udev.rules"]
+    );
     let _ = std::fs::remove_dir_all(root);
+}
+
+// --- flashrom's programmers ----------------------------------------------
+
+fn only_flashrom_state(facts: &HostFacts) -> ProgrammerState {
+    let diagnosis = diagnose_facts_for(facts, DrivenBy::Flashrom);
+    assert_eq!(diagnosis.programmers.len(), 1, "{diagnosis:?}");
+    diagnosis.programmers[0].state.clone()
+}
+
+#[test]
+fn each_tools_diagnosis_reports_only_its_own_programmers() {
+    let facts = host(
+        HostOs::Linux,
+        vec![
+            device(TL866II, linux(NodeOpen::Ok, None, false)),
+            device(CH341A, linux(NodeOpen::Ok, None, false)),
+        ],
+    );
+    // The probes pick both up...
+    assert!(known_programmer(CH341A.0, CH341A.1).is_some());
+    // ...and each diagnosis keeps to its own.
+    let minipro = diagnose_facts(&facts);
+    assert_eq!(minipro.programmers.len(), 1);
+    assert_eq!(minipro.programmers[0].usb_id, "a466:0a53");
+    let flashrom = diagnose_facts_for(&facts, DrivenBy::Flashrom);
+    assert_eq!(flashrom.programmers.len(), 1);
+    assert_eq!(flashrom.programmers[0].models, "CH341A");
+    assert_eq!(flashrom.programmers[0].usb_id, "1a86:5512");
+    assert!(matches!(
+        flashrom.programmers[0].state,
+        ProgrammerState::Ready { .. }
+    ));
+
+    // Nothing of flashrom's plugged in is an empty answer, whatever else is.
+    let only_xgecu = host(
+        HostOs::Linux,
+        vec![device(TL866II, linux(NodeOpen::Ok, None, false))],
+    );
+    assert!(
+        diagnose_facts_for(&only_xgecu, DrivenBy::Flashrom)
+            .programmers
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_denied_ch341a_gets_flashroms_rules_not_minipros() {
+    let mut facts = host(
+        HostOs::Linux,
+        vec![device(
+            CH341A,
+            linux(NodeOpen::PermissionDenied, None, false),
+        )],
+    );
+    // minipro's rules are installed. They don't open a CH341A.
+    facts.udev_rules = vec![PathBuf::from(
+        "/usr/lib/udev/rules.d/60-burnwright-minipro.rules",
+    )];
+    let ProgrammerState::UdevRulesMissing {
+        install_command, ..
+    } = only_flashrom_state(&facts)
+    else {
+        panic!("wrong state");
+    };
+    assert_eq!(
+        install_command,
+        udev_install_command_for(DrivenBy::Flashrom)
+    );
+    assert!(install_command.starts_with(&format!(
+        "sudo tee {FLASHROM_UDEV_RULES_PATH} >/dev/null <<'EOF'\n"
+    )));
+    assert!(install_command.contains(
+        "ATTRS{idVendor}==\"1a86\", ATTRS{idProduct}==\"5512\", TAG+=\"uaccess\", MODE=\"0660\", GROUP=\"plugdev\""
+    ));
+    assert!(!install_command.contains("a466"), "{install_command}");
+    assert!(install_command.ends_with(UDEV_RELOAD_COMMAND));
+
+    // With flashrom's rules there too, it's a replug or a reload.
+    facts.flashrom_udev_rules = vec![PathBuf::from(
+        "/usr/lib/udev/rules.d/60-burnwright-flashrom.rules",
+    )];
+    let ProgrammerState::UdevRulesNotApplied { rules_files, .. } = only_flashrom_state(&facts)
+    else {
+        panic!("wrong state");
+    };
+    assert_eq!(
+        rules_files,
+        ["/usr/lib/udev/rules.d/60-burnwright-flashrom.rules"]
+    );
+}
+
+#[test]
+fn flashroms_rules_dont_count_for_an_xgecu_programmer() {
+    let mut facts = host(
+        HostOs::Linux,
+        vec![device(
+            TL866II,
+            linux(NodeOpen::PermissionDenied, None, false),
+        )],
+    );
+    facts.flashrom_udev_rules = vec![PathBuf::from(
+        "/usr/lib/udev/rules.d/60-burnwright-flashrom.rules",
+    )];
+    assert!(matches!(
+        only_state(&facts),
+        ProgrammerState::UdevRulesMissing { .. }
+    ));
+}
+
+#[test]
+fn a_ch341a_in_a_group_we_are_not_in_says_so() {
+    let facts = host(
+        HostOs::Linux,
+        vec![device(
+            CH341A,
+            linux(NodeOpen::PermissionDenied, Some("plugdev"), false),
+        )],
+    );
+    assert!(matches!(
+        only_flashrom_state(&facts),
+        ProgrammerState::NotInGroup { ref group, .. } if group == "plugdev"
+    ));
+}
+
+#[test]
+fn the_xgecu_rules_and_command_are_unchanged_by_the_second_family() {
+    assert_eq!(udev_rules(), udev_rules_for(DrivenBy::Minipro));
+    assert!(!udev_rules().contains("1a86\", ATTRS{idProduct}==\"5512"));
+    assert_eq!(
+        udev_install_command(),
+        udev_install_command_for(DrivenBy::Minipro)
+    );
+    assert_eq!(
+        serde_json::to_value(DrivenBy::Flashrom).unwrap(),
+        serde_json::json!("flashrom")
+    );
+}
+
+#[test]
+fn a_ch341a_on_a_mac_is_found_and_usable() {
+    // The T76's product ID is also 1a86: the vendor is what tells them apart.
+    let facts = host(
+        HostOs::Macos,
+        vec![
+            mac_device(CH341A, Some(12_000_000)),
+            mac_device(T76, Some(HIGH_SPEED)),
+        ],
+    );
+    assert!(matches!(
+        only_flashrom_state(&facts),
+        ProgrammerState::Ready { .. }
+    ));
+    assert_eq!(diagnose_facts(&facts).programmers[0].models, "T76");
 }
 
 // --- the Linux probe against a fake tree --------------------------------

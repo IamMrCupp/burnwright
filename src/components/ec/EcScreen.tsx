@@ -9,6 +9,7 @@ import {
   type EcState,
   type EcStep,
 } from "../../lib/ec/state";
+import { ProgrammerDiagnosis } from "../detect";
 import { LogPane } from "../device/LogPane";
 import { useMasked } from "../../lib/stream/useMasked";
 import "../device/DeviceScreen.css";
@@ -46,7 +47,10 @@ function programmerText(state: EcState): string {
     case "found":
       return `${state.probe.info.model} connected`;
     case "none":
-      return "No CH341A found";
+      // flashrom found nothing either way. The OS may know one is there.
+      return state.diagnosis && state.diagnosis.programmers.length > 0
+        ? "CH341A plugged in, but not usable yet"
+        : "No CH341A found";
     case "unknown":
       return "Not looked for yet";
   }
@@ -151,7 +155,7 @@ export function EcScreen({ controller, footer, hidePaths = false }: EcScreenProp
           )}
         </section>
 
-        <section className="panel ec-programmer" aria-label="Programmer">
+        <section className="panel programmer ec-programmer" aria-label="Programmer">
           <h2>Programmer</h2>
           <p
             className={`ec-headline${state.probe.status === "none" ? " ec-headline-none" : ""}`}
@@ -172,6 +176,9 @@ export function EcScreen({ controller, footer, hidePaths = false }: EcScreenProp
               {state.probe.status === "unknown" ? "Look for it" : "Look again"}
             </button>
           </div>
+          {state.probe.status === "none" && state.diagnosis && !busy && (
+            <ProgrammerDiagnosis diagnosis={state.diagnosis} subject="ch341a" />
+          )}
         </section>
         {footer && <footer className="device-footer">{footer}</footer>}
       </div>

@@ -90,6 +90,7 @@ impl UsbProbe for WindowsProbe {
             os: HostOs::Windows,
             devices,
             udev_rules: Vec::new(),
+            flashrom_udev_rules: Vec::new(),
             appimage: false,
         })
     }

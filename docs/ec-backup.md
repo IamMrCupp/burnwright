@@ -82,9 +82,14 @@ Copy them somewhere that isn't this laptop.
 
 - **"No CH341A found."** flashrom couldn't open USB device `1a86:5512`. It
   says the same thing for a programmer that isn't plugged in and one you're
-  not allowed to open. On Linux the second needs a udev rule. The `.deb`
-  installs one; with the AppImage you copy it in yourself
-  ([linux.md](linux.md)). After installing it, replug the CH341A.
+  not allowed to open, so burnwright asks the OS which it is and says so in
+  the Programmer panel. If nothing's on USB, check the cable and the CH341A's
+  mode jumper: in serial mode it's a different device, and flashrom can't use
+  it.
+- **"CH341A plugged in, but not usable yet."** It's there and you can't open
+  it. On Linux that's a missing udev rule, and the panel has the command to
+  install it. The `.deb` installs the rule for you; with the AppImage it's a
+  one-time step ([linux.md](linux.md)). Then replug the CH341A.
 - **"Nothing answered."** Try Identify again first — people report a KB9012
   that only answers every second time. Then check the wiring and that the
   board has standby power. Some EC firmware turns the debug port off;

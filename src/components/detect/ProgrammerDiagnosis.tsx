@@ -2,6 +2,7 @@ import { useState, type MouseEvent } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   explainDiagnosis,
+  type DiagnosisSubject,
   type Explanation,
   type ExplanationLink,
 } from "../../lib/diagnosis";
@@ -10,13 +11,18 @@ import "./ProgrammerDiagnosis.css";
 
 export interface ProgrammerDiagnosisProps {
   diagnosis: Diagnosis;
+  /** Whose diagnosis it is. The XGecu programmers unless said otherwise. */
+  subject?: DiagnosisSubject;
 }
 
 /** Why no programmer was found, and how to fix it. */
-export function ProgrammerDiagnosis({ diagnosis }: ProgrammerDiagnosisProps) {
-  const explanations = explainDiagnosis(diagnosis);
+export function ProgrammerDiagnosis({ diagnosis, subject = "xgecu" }: ProgrammerDiagnosisProps) {
+  const explanations = explainDiagnosis(diagnosis, subject);
   return (
-    <section className="diagnosis" aria-label="Why no programmer was found">
+    <section
+      className="diagnosis"
+      aria-label={subject === "ch341a" ? "Why no CH341A was found" : "Why no programmer was found"}
+    >
       {explanations.map((explanation, i) => (
         <ExplanationCard key={i} explanation={explanation} />
       ))}

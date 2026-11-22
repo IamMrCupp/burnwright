@@ -40,13 +40,92 @@ const PROBLEM_CODES: Record<number, string> = {
   45: "the device isn't connected right now",
 };
 
+/**
+ * Whose diagnosis it is: the XGecu programmers minipro drives
+ * (`engine.diagnoseProgrammer`), or the CH341A flashrom drives for the
+ * Laptop EC bench (`bench.diagnoseProgrammer`). The facts have the same
+ * shape; some of the words differ.
+ */
+export type DiagnosisSubject = "xgecu" | "ch341a";
+
 /** Everything worth saying about `diagnosis`, most useful first. */
-export function explainDiagnosis(diagnosis: Diagnosis): Explanation[] {
-  if (diagnosis.programmers.length === 0) return [explainNothing(diagnosis)];
+export function explainDiagnosis(
+  diagnosis: Diagnosis,
+  subject: DiagnosisSubject = "xgecu",
+): Explanation[] {
+  if (diagnosis.programmers.length === 0) {
+    return [subject === "ch341a" ? explainNoCh341a(diagnosis) : explainNothing(diagnosis)];
+  }
   return diagnosis.programmers.map((report) => ({
-    ...explainState(report, diagnosis),
+    ...((subject === "ch341a" ? explainCh341aState(report, diagnosis) : null) ??
+      explainState(report, diagnosis)),
     programmer: `${report.models} (${report.usb_id})`,
   }));
+}
+
+function explainNoCh341a(diagnosis: Diagnosis): Explanation {
+  const checks =
+    "Check the cable (some are charge-only) and try another USB port. If it is plugged in, check its mode jumper: in serial mode it shows up as a different device, which flashrom can't use.";
+  if (diagnosis.probe_error !== null) {
+    return {
+      title: "No CH341A found",
+      detail: `burnwright couldn't look at the USB devices itself (${diagnosis.probe_error}). ${checks}`,
+      command: null,
+      programmer: null,
+    };
+  }
+  if (diagnosis.os === "other") {
+    return {
+      title: "No CH341A found",
+      detail: `burnwright can't list USB devices on this OS, so it can't say more. ${checks}`,
+      command: null,
+      programmer: null,
+    };
+  }
+  return {
+    title: "No CH341A plugged in",
+    detail: `Nothing on USB is a CH341A in SPI mode (1a86:5512). ${checks}`,
+    command: null,
+    programmer: null,
+  };
+}
+
+/**
+ * What reads differently for a CH341A. `null` leaves the state to the shared
+ * wording: the Linux permission states say the same thing for any programmer.
+ */
+function explainCh341aState(
+  report: ProgrammerReport,
+  diagnosis: Diagnosis,
+): Omit<Explanation, "programmer"> | null {
+  const state = report.state;
+  if (diagnosis.os === "windows") {
+    // The Windows states are about drivers minipro can use. flashrom on
+    // Windows is its own problem, and the bench doesn't take it on.
+    return {
+      title: "The Laptop EC bench doesn't run on Windows yet",
+      detail:
+        "The CH341A is plugged in, but burnwright only drives it through flashrom on macOS and Linux.",
+      command: null,
+    };
+  }
+  switch (state.kind) {
+    case "ready":
+      return {
+        title: "The CH341A is busy",
+        detail:
+          "It's plugged in and you can open it, so another program probably has it: close any other flashrom, then look again. If you just plugged it in, give it a second.",
+        command: null,
+      };
+    case "udev_rules_not_applied":
+      return {
+        title: "The udev rules haven't applied yet",
+        detail: `flashrom rules are installed (${state.rules_files.join(", ")}), but ${state.node} still isn't yours to open. Unplug the CH341A and plug it back in, or reload the rules:`,
+        command: state.reload_command,
+      };
+    default:
+      return null;
+  }
 }
 
 function explainNothing(diagnosis: Diagnosis): Explanation {
