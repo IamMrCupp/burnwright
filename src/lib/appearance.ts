@@ -143,6 +143,12 @@ export interface AppearanceState {
   folder: string | null;
   /** Something to tell the user: a theme that went away, a folder that couldn't be read. */
   notice: string | null;
+  /**
+   * The theme file the notice is about, when it's about one. The notice has
+   * already said why that file can't be used, so it isn't listed again with
+   * the other broken files.
+   */
+  noticeFile: string | null;
 }
 
 function message(error: unknown): string {
@@ -179,6 +185,7 @@ export class AppearanceController {
       hasFolder: deps.themes !== undefined,
       folder: null,
       notice: null,
+      noticeFile: null,
     };
   }
 
@@ -223,7 +230,7 @@ export class AppearanceController {
     this.active = theme;
     this.deps.store.save(choice);
     this.deps.store.saveTheme(theme);
-    this.update({ choice, notice: null });
+    this.update({ choice, notice: null, noticeFile: null });
     this.show();
   };
 
@@ -242,7 +249,10 @@ export class AppearanceController {
     } catch (error) {
       if (read !== this.reads) return;
       // Whatever is on the page stays there.
-      this.update({ notice: `The themes folder couldn't be read: ${message(error)}` });
+      this.update({
+        notice: `The themes folder couldn't be read: ${message(error)}`,
+        noticeFile: null,
+      });
       return;
     }
     if (read !== this.reads) return;
@@ -250,6 +260,7 @@ export class AppearanceController {
     const { themes, broken } = readListing(listing);
     let { choice } = this.state;
     let notice: string | null = null;
+    let noticeFile: string | null = null;
     const file = themeFile(choice);
     if (file !== null) {
       const found = themes.find((theme) => theme.id === file);
@@ -261,13 +272,14 @@ export class AppearanceController {
         notice = why
           ? `${file} can't be used as a theme any more: ${why.reason}. Appearance is back on System.`
           : `${file} isn't in the themes folder any more. Appearance is back on System.`;
+        noticeFile = file;
         choice = "system";
         this.active = null;
         this.deps.store.save(choice);
         this.deps.store.saveTheme(null);
       }
     }
-    this.update({ choice, themes, broken, folder: listing.folder, notice });
+    this.update({ choice, themes, broken, folder: listing.folder, notice, noticeFile });
     this.show();
   };
 
@@ -279,7 +291,10 @@ export class AppearanceController {
       await source.openFolder();
     } catch (error) {
       const where = this.state.folder ? ` It's at ${this.state.folder}.` : "";
-      this.update({ notice: `The themes folder couldn't be opened: ${message(error)}.${where}` });
+      this.update({
+        notice: `The themes folder couldn't be opened: ${message(error)}.${where}`,
+        noticeFile: null,
+      });
     }
   };
 

@@ -375,6 +375,7 @@ describe("AppearanceController with a themes folder", () => {
     expect(controller.getState().notice).toBe(
       "amber.json isn't in the themes folder any more. Appearance is back on System.",
     );
+    expect(controller.getState().noticeFile).toBe("amber.json");
     expect(root.dataset.theme).toBe("light");
     expect(inline(root)).toEqual({});
     expect(windowThemes[windowThemes.length - 1]).toBeNull();
@@ -383,6 +384,7 @@ describe("AppearanceController with a themes folder", () => {
     // Choosing something clears the notice.
     controller.choose("dark");
     expect(controller.getState().notice).toBeNull();
+    expect(controller.getState().noticeFile).toBeNull();
   });
 
   it("goes back to System when the chosen theme's file breaks, with the reason", async () => {
@@ -400,6 +402,14 @@ describe("AppearanceController with a themes folder", () => {
       /^amber\.json can't be used as a theme any more: it isn't valid JSON .* Appearance is back on System\.$/,
     );
     expect(state.broken.map((problem) => problem.file)).toEqual(["amber.json"]);
+    // The notice is about that file, so nothing else needs to name it.
+    expect(state.noticeFile).toBe("amber.json");
+
+    // Still broken at the next read: now it's just a file that isn't offered.
+    await controller.reloadThemes();
+    expect(controller.getState().notice).toBeNull();
+    expect(controller.getState().noticeFile).toBeNull();
+    expect(controller.getState().broken.map((problem) => problem.file)).toEqual(["amber.json"]);
   });
 
   it("keeps what's on the page when the folder can't be read", async () => {
@@ -413,6 +423,7 @@ describe("AppearanceController with a themes folder", () => {
     await controller.reloadThemes();
     const state = controller.getState();
     expect(state.notice).toBe("The themes folder couldn't be read: permission denied");
+    expect(state.noticeFile).toBeNull();
     expect(state.choice).toBe("theme:amber.json");
     expect(root.dataset.theme).toBe("dark");
     expect(state.themes).toHaveLength(2);
