@@ -607,5 +607,242 @@ fi
                 .unwrap();
             assert_eq!(rig.backup(info.id).unwrap_err().kind, "busy");
         }
+
+        // --- through the IPC layer ---------------------------------------
+        //
+        // The tests above call the commands' inner functions. These go in
+        // the way the webview does: a command name and a JSON body, through
+        // Tauri's own argument handling, on its mock runtime. The bodies are
+        // the ones `bench` in src/lib/engine.ts sends, key for key, so a
+        // renamed argument or a type the two sides spell differently fails
+        // here and not in front of a user.
+
+        use serde_json::{Value, json};
+        use tauri::ipc::{CallbackFn, InvokeBody};
+        use tauri::test::{INVOKE_KEY, MockRuntime, get_ipc_response, mock_builder, mock_context};
+        use tauri::webview::InvokeRequest;
+
+        /// `CH341A` and `KB9012` as src/lib/engine.ts spells them.
+        fn ch341a_json() -> Value {
+            json!({ "kind": "spi_master", "master": { "model": "ch341a" }, "clock_hz": null })
+        }
+
+        fn kb9012_json() -> Value {
+            json!({ "family": "ene_kb", "part": "KB9012 (EDI)" })
+        }
+
+        /// What the JS `Channel` turns into on the wire.
+        const CHANNEL: &str = "__CHANNEL__:7";
+
+        /// The app's session commands behind Tauri's IPC, with the stand-in
+        /// flashrom.
+        struct Ipc {
+            dir: tempfile::TempDir,
+            webview: tauri::WebviewWindow<MockRuntime>,
+            // Kept alive for as long as its webview is used.
+            _app: tauri::App<MockRuntime>,
+        }
+
+        impl Ipc {
+            fn new() -> Self {
+                let Rig { dir, ops } = Rig::new();
+                let app = mock_builder()
+                    .manage(ops)
+                    .invoke_handler(tauri::generate_handler![
+                        crate::session_commands::flashrom_status,
+                        crate::session_commands::set_flashrom_path,
+                        crate::session_commands::list_probes,
+                        crate::session_commands::open_session,
+                        crate::session_commands::backup_session,
+                        crate::session_commands::close_session,
+                        crate::commands::cancel_operation,
+                    ])
+                    .build(mock_context(tauri::test::noop_assets()))
+                    .expect("the mock app builds");
+                let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+                    .build()
+                    .expect("the mock window builds");
+                Self {
+                    dir,
+                    webview,
+                    _app: app,
+                }
+            }
+
+            /// `invoke(cmd, body)` as the frontend makes it: `Ok` is what
+            /// the promise resolves to, `Err` what it rejects with.
+            fn invoke(&self, cmd: &str, body: Value) -> Result<Value, Value> {
+                get_ipc_response(
+                    &self.webview,
+                    InvokeRequest {
+                        cmd: cmd.into(),
+                        callback: CallbackFn(0),
+                        error: CallbackFn(1),
+                        url: "tauri://localhost".parse().unwrap(),
+                        body: InvokeBody::Json(body),
+                        headers: Default::default(),
+                        invoke_key: INVOKE_KEY.to_string(),
+                    },
+                )
+                .map(|body| body.deserialize::<Value>().unwrap())
+            }
+        }
+
+        #[test]
+        fn the_frontends_calls_run_a_whole_backup() {
+            let ipc = Ipc::new();
+
+            // bench.flashromStatus()
+            let status = ipc.invoke("flashrom_status", json!({})).unwrap();
+            assert_eq!(
+                status,
+                json!({
+                    "availability": { "status": "ready", "version": "v1.8.0" },
+                    "path": ipc.dir.path().join("flashrom"),
+                    "source": "configured",
+                })
+            );
+
+            // bench.listProbes()
+            let probes = ipc
+                .invoke(
+                    "list_probes",
+                    json!({ "opId": "op-1", "onProgress": CHANNEL }),
+                )
+                .unwrap();
+            assert_eq!(
+                probes,
+                json!([{
+                    "backend": "flashrom",
+                    "probe": ch341a_json(),
+                    "model": "CH341A",
+                    "firmware": null,
+                }])
+            );
+
+            // bench.openSession(CH341A, KB9012)
+            let session = ipc
+                .invoke(
+                    "open_session",
+                    json!({
+                        "probe": ch341a_json(),
+                        "target": kb9012_json(),
+                        "opId": "op-2",
+                        "onProgress": CHANNEL,
+                    }),
+                )
+                .unwrap();
+            assert_eq!(session["backend"], "flashrom");
+            assert_eq!(session["probe"], ch341a_json());
+            assert_eq!(session["chip"]["target"], kb9012_json());
+            assert_eq!(session["chip"]["size"], 131_072);
+            assert_eq!(session["capabilities"]["in_circuit"], true);
+            assert_eq!(session["backup_required"], true);
+            let id = session["id"].as_u64().expect("a numeric session id");
+
+            // bench.backup(id)
+            let saved = ipc
+                .invoke(
+                    "backup_session",
+                    json!({ "sessionId": id, "kind": null, "opId": "op-3", "onProgress": CHANNEL }),
+                )
+                .unwrap();
+            assert_eq!(saved["len"], 131_072);
+            assert_eq!(saved["region"], "code");
+            let path = PathBuf::from(saved["path"].as_str().expect("a path string"));
+            assert!(path.starts_with(ipc.dir.path().join("backups")), "{path:?}");
+            assert_eq!(fs::read(&path).unwrap().len(), 131_072);
+            assert_eq!(saved["sha256"].as_str().map(str::len), Some(64));
+
+            // bench.closeSession(id)
+            assert_eq!(
+                ipc.invoke("close_session", json!({ "sessionId": id })),
+                Ok(json!(true))
+            );
+            assert_eq!(
+                ipc.invoke("close_session", json!({ "sessionId": id })),
+                Ok(json!(false))
+            );
+
+            // The abort path: cancelOperation(opId), for an id that isn't running.
+            assert_eq!(
+                ipc.invoke("cancel_operation", json!({ "opId": "op-3" })),
+                Ok(json!(false))
+            );
+        }
+
+        #[test]
+        fn setting_the_flashrom_path_takes_a_string_or_null() {
+            let ipc = Ipc::new();
+            // bench.setFlashromPath("/nonexistent/flashrom")
+            let missing = ipc
+                .invoke(
+                    "set_flashrom_path",
+                    json!({ "path": "/nonexistent/flashrom" }),
+                )
+                .unwrap();
+            assert_eq!(missing["availability"]["status"], "missing");
+            assert_eq!(missing["path"], Value::Null);
+            assert_eq!(missing["source"], Value::Null);
+            // bench.setFlashromPath(null): back to whatever the machine has,
+            // which may be nothing. Either way it's an answer, not a rejection.
+            let cleared = ipc
+                .invoke("set_flashrom_path", json!({ "path": null }))
+                .unwrap();
+            assert!(cleared["availability"]["status"].is_string(), "{cleared}");
+        }
+
+        #[test]
+        fn a_failure_rejects_with_the_error_object_the_frontend_reads() {
+            let ipc = Ipc::new();
+            let err = ipc
+                .invoke(
+                    "backup_session",
+                    json!({ "sessionId": 4_000_000_000u64, "kind": null, "opId": "op", "onProgress": CHANNEL }),
+                )
+                .unwrap_err();
+            assert_eq!(err["kind"], "invalid_input");
+            assert_eq!(err["device_state"], Value::Null);
+            assert!(
+                err["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("identify the chip again")),
+                "{err}"
+            );
+        }
+
+        #[test]
+        fn an_argument_under_another_name_is_refused() {
+            // The check that these tests can fail: Tauri wants `sessionId`,
+            // and says so when it gets the Rust spelling instead.
+            let ipc = Ipc::new();
+            let err = ipc
+                .invoke(
+                    "backup_session",
+                    json!({ "session_id": 1, "kind": null, "opId": "op", "onProgress": CHANNEL }),
+                )
+                .unwrap_err();
+            assert!(err.to_string().contains("sessionId"), "{err}");
+        }
+
+        #[test]
+        fn the_app_registers_every_session_command() {
+            // The handler list above is this test's own. The app's is in
+            // lib.rs, and a command left out of it fails only at runtime.
+            let lib = include_str!("lib.rs");
+            for command in [
+                "flashrom_status",
+                "set_flashrom_path",
+                "list_probes",
+                "open_session",
+                "backup_session",
+                "close_session",
+            ] {
+                assert!(
+                    lib.contains(&format!("session_commands::{command},")),
+                    "lib.rs doesn't register {command}"
+                );
+            }
+        }
     }
 }
