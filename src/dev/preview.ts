@@ -18,9 +18,13 @@
 // pretend one), `?ch341a=none` with no programmer, and `?ec=silent`,
 // `?ec=other` or `?ec=flaky` with a chip that doesn't answer, a different
 // chip, or a loose wire whose two reads differ.
+//
+// The stream page has no server in a browser: turning it on shows the
+// address it would have. `?stream=taken` has the port in use instead.
 import type { DeviceDeps } from "../lib/device/controller";
 import type { EcDeps } from "../lib/ec/controller";
 import { recentStore } from "../lib/device/recent";
+import type { StreamBackend } from "../lib/stream/controller";
 import { settingsStore } from "../lib/device/settings";
 import type { AppInfo, DeviceInfo } from "../lib/engine";
 import { createFakeBench, type FakeBenchOptions } from "./fakeBench";
@@ -71,9 +75,28 @@ function ecDeps(params: URLSearchParams): EcDeps {
   };
 }
 
+function streamBackend(params: URLSearchParams): StreamBackend {
+  const taken = params.get("stream") === "taken";
+  return {
+    configure: async (enabled, port) => {
+      if (!enabled) return { running: false, url: null, error: null };
+      if (taken) {
+        return {
+          running: false,
+          url: null,
+          error: `Port ${port} is in use by something else. Pick another.`,
+        };
+      }
+      return { running: true, url: `http://127.0.0.1:${port}/stream`, error: null };
+    },
+    publish: async () => {},
+  };
+}
+
 export function previewSetup(): {
   deps: DeviceDeps;
   ecDeps: EcDeps;
+  streamBackend: StreamBackend;
   loadAppInfo: () => Promise<AppInfo>;
 } {
   const params = new URLSearchParams(window.location.search);
@@ -108,6 +131,7 @@ export function previewSetup(): {
       settings: settingsStore(window.localStorage),
     },
     ecDeps: ecDeps(params),
+    streamBackend: streamBackend(params),
     loadAppInfo: async () => ({
       version: "preview",
       minipro: "fake",

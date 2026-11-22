@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>burnwright · stream</title>
+<style>
+/* The app's built-in dark look (src/App.css). A stream overlay sits on
+   video, so it's dark whatever Appearance is set to, and a theme file doesn't
+   reach it. A test keeps these in step with the app's. */
+:root {
+  --bw-panel: #1f1f22;
+  --bw-border: #3a3a40;
+  --bw-fg: #ececef;
+  --bw-muted: #a3a3ab;
+  --bw-control-bg: #2a2a2e;
+  --bw-accent: #8fb0ff;
+  --bw-danger: #ff9a92;
+  --bw-danger-soft: #4a1f1c;
+  --bw-warning: #ffc66b;
+  --bw-warning-soft: #3d2e10;
+  --bw-ok: #7fd6a0;
+  --bw-ok-soft: #173624;
+
+  color-scheme: dark;
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--bw-fg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Transparent, so OBS layers the card over whatever is under it. */
+html,
+body {
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  padding: 8px;
+}
+
+.card {
+  box-sizing: border-box;
+  max-width: 420px;
+  padding: 0.75rem 0.9rem 0.85rem;
+  border: 1px solid var(--bw-border);
+  border-radius: 8px;
+  background: var(--bw-panel);
+  transition: opacity 0.2s;
+}
+
+/* burnwright isn't answering: show nothing. A frozen progress bar on stream
+   would pass for a live one. */
+.offline .card {
+  opacity: 0;
+}
+
+.programmer {
+  margin: 0;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bw-muted);
+}
+
+.chip {
+  margin: 0.1rem 0 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.chip.none {
+  font-weight: 400;
+  color: var(--bw-muted);
+}
+
+.work {
+  margin-top: 0.6rem;
+}
+
+.work-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.operation {
+  font-weight: 600;
+}
+
+.percent {
+  font-variant-numeric: tabular-nums;
+  color: var(--bw-muted);
+}
+
+.bar {
+  position: relative;
+  height: 8px;
+  margin-top: 0.35rem;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--bw-control-bg);
+}
+
+.bar-fill {
+  width: 0;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--bw-accent);
+  transition: width 0.15s linear;
+}
+
+/* The programmer hasn't said how far along it is. */
+.bar.unknown .bar-fill {
+  position: absolute;
+  width: 30%;
+  transition: none;
+  animation: sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes sweep {
+  from { left: -30%; }
+  to { left: 100%; }
+}
+
+.outcome {
+  display: inline-block;
+  margin-top: 0.6rem;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.outcome.ok {
+  color: var(--bw-ok);
+  background: var(--bw-ok-soft);
+}
+
+.outcome.warning {
+  color: var(--bw-warning);
+  background: var(--bw-warning-soft);
+}
+
+.outcome.error {
+  color: var(--bw-danger);
+  background: var(--bw-danger-soft);
+}
+
+[hidden] {
+  display: none;
+}
+</style>
+</head>
+<body class="offline">
+<!-- Only the fields burnwright lists for the stream reach this page: the
+     programmer's model, the chip's name, the operation, its percent and how
+     it ended (src-tauri/src/stream/status.rs). -->
+<div class="card">
+  <p class="programmer" id="programmer"></p>
+  <p class="chip" id="chip"></p>
+  <div class="work" id="work" hidden>
+    <div class="work-row">
+      <span class="operation" id="operation"></span>
+      <span class="percent" id="percent"></span>
+    </div>
+    <div class="bar" id="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+      <div class="bar-fill" id="fill"></div>
+    </div>
+  </div>
+  <div class="outcome" id="outcome" hidden></div>
+</div>
+<script>
+"use strict";
+
+const OPERATIONS = {
+  read: "Read",
+  verify: "Verify",
+  blank_check: "Blank check",
+  erase: "Erase",
+  write: "Write",
+  check: "Check chip",
+};
+
+// How an operation ended, after its name.
+const TONES = {
+  ok: "OK",
+  warning: "warning",
+  error: "error",
+};
+
+const el = (id) => document.getElementById(id);
+
+function render(status) {
+  document.body.classList.toggle("offline", status === null);
+  if (status === null) return;
+
+  el("programmer").textContent = status.programmer || "No programmer";
+  el("chip").textContent = status.chip || "No chip selected";
+  el("chip").classList.toggle("none", !status.chip);
+
+  const running = status.running;
+  const operation = running ? OPERATIONS[running.operation] : undefined;
+  el("work").hidden = !operation;
+  if (operation) {
+    const known = typeof running.percent === "number";
+    const percent = known ? Math.max(0, Math.min(100, Math.round(running.percent))) : null;
+    el("operation").textContent = operation;
+    el("percent").textContent = known ? `${percent}%` : "";
+    el("bar").classList.toggle("unknown", !known);
+    el("fill").style.width = known ? `${percent}%` : "";
+    if (known) el("bar").setAttribute("aria-valuenow", String(percent));
+    else el("bar").removeAttribute("aria-valuenow");
+    el("bar").setAttribute("aria-label", `${operation} progress`);
+  }
+
+  const outcome = operation ? null : status.outcome;
+  const ended = outcome ? OPERATIONS[outcome.operation] : undefined;
+  const tone = outcome ? TONES[outcome.tone] : undefined;
+  el("outcome").hidden = !(ended && tone);
+  if (ended && tone) {
+    el("outcome").textContent = `${ended}: ${tone}`;
+    el("outcome").className = `outcome ${outcome.tone}`;
+  }
+}
+
+// EventSource reconnects by itself, so a page left in an OBS scene picks the
+// feed back up when burnwright starts.
+const source = new EventSource("/events");
+source.onmessage = (event) => {
+  let status = null;
+  try {
+    status = JSON.parse(event.data);
+  } catch {
+    // Not ours: show nothing.
+  }
+  render(status && typeof status === "object" ? status : null);
+};
+source.onerror = () => render(null);
+render(null);
+</script>
+</body>
+</html>
