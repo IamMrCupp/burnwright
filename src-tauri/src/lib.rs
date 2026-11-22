@@ -1,3 +1,4 @@
+mod appearance_menu;
 mod commands;
 mod ops;
 mod session_commands;
@@ -26,14 +27,15 @@ fn request_close(app: &tauri::AppHandle) {
 }
 
 /// Tauri's default macOS menu with its Quit item swapped for one that goes
-/// through [`request_close`].
+/// through [`request_close`], and View → Appearance added
+/// ([`appearance_menu`]).
 ///
 /// The stock item (and so Cmd+Q) calls `NSApplication terminate:`, which
 /// ends the process on the spot: no close request, no chance to stop a
 /// write first. Quitting from the Dock and a logout still end it that way;
 /// tao gives no hook to hold those.
 #[cfg(target_os = "macos")]
-fn menu_with_guarded_quit(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
+fn macos_menu(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>> {
     use tauri::menu::{Menu, MenuItem, MenuItemKind};
 
     let menu = Menu::default(app)?;
@@ -50,6 +52,7 @@ fn menu_with_guarded_quit(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::
             Some("Cmd+Q"),
         )?)?;
     }
+    appearance_menu::install(app, &menu)?;
     Ok(menu)
 }
 
@@ -57,13 +60,17 @@ fn menu_with_guarded_quit(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::
 pub fn run() {
     let builder = tauri::Builder::default();
     #[cfg(target_os = "macos")]
-    let builder = builder
-        .menu(menu_with_guarded_quit)
-        .on_menu_event(|app, event| {
-            if event.id().as_ref() == QUIT_ID {
-                request_close(app);
-            }
-        });
+    let builder = builder.menu(macos_menu).on_menu_event(|app, event| {
+        use tauri::Emitter;
+
+        let id = event.id().as_ref();
+        if id == QUIT_ID {
+            request_close(app);
+        } else if let Some(action) = appearance_menu::action_for(id) {
+            // The webview owns the Appearance choice: it does the rest.
+            let _ = app.emit(appearance_menu::EVENT, action);
+        }
+    });
     builder
         .plugin(tauri_plugin_opener::init())
         // The system's open and save panels, for image files.
@@ -117,6 +124,7 @@ pub fn run() {
             commands::list_themes,
             commands::open_themes_folder,
             commands::save_theme,
+            appearance_menu::set_appearance_menu,
             stream::stream_configure,
             stream::stream_publish,
         ])

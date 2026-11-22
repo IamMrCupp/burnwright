@@ -20,6 +20,9 @@ choice, opens it — and creates it the first time. Drop a `.json` file in, pres
 **Reload themes**, and it shows up in the Appearance list under Themes. Edit the
 file, reload again, and the change is on screen. No restart.
 
+On a Mac the Appearance choice and these commands are also under **View →
+Appearance** in the menu bar — handy once the footer has scrolled out of view.
+
 ## Start from what's on screen
 
 The quickest way in: pick the look closest to what you want — Light, Dark, or a

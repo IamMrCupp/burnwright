@@ -134,7 +134,8 @@ Xgpro T76 V13.19 with firmware 00.1.17. A file that doesn't match gets you
 ## Appearance and themes
 
 burnwright has a light and a dark look. **Appearance**, at the bottom of the
-side column, follows the system or holds one of them.
+side column, follows the system or holds one of them. On a Mac it's also under
+View → Appearance in the menu bar.
 
 You can also write your own: a theme is a small JSON file of colours in a
 `themes` folder in burnwright's config directory, and it shows up in the same

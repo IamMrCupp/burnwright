@@ -1,9 +1,11 @@
 // The device screen's dependencies in the real app: the Tauri engine, the
 // system's file panels, the webview's localStorage and the app's window.
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, type Theme } from "@tauri-apps/api/window";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { engine } from "../engine";
+import type { AppearanceMenuAction, AppearanceMenuLink } from "../appearanceMenu";
 import type { ThemeListing, ThemeSource } from "../theme";
 import type { DeviceController, DeviceDeps, FileDialogs } from "./controller";
 import { recentStore } from "./recent";
@@ -91,5 +93,23 @@ export function tauriThemes(): ThemeSource {
     list: () => invoke<ThemeListing>("list_themes"),
     openFolder: () => invoke<void>("open_themes_folder"),
     save: (file, contents) => invoke<void>("save_theme", { file, contents }),
+  };
+}
+
+/**
+ * View → Appearance in the macOS menu bar (src-tauri/src/appearance_menu.rs).
+ * On Windows and Linux there's no menu bar: `show` is accepted and does
+ * nothing, and no clicks ever come.
+ */
+export function tauriAppearanceMenu(): AppearanceMenuLink {
+  return {
+    show: (state) => {
+      void invoke("set_appearance_menu", { state }).catch(() => {});
+    },
+    onAction: (handler) => {
+      void listen<AppearanceMenuAction>("appearance-menu", (event) => handler(event.payload)).catch(
+        () => {},
+      );
+    },
   };
 }
