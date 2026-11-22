@@ -4,7 +4,8 @@ Putting a programming session on a live stream used to mean capturing the
 app's window — and with it the file paths in the buffer panel, minipro's
 command lines in the log and the hex view. The stream page is the other way:
 burnwright serves a small web page of its own, and OBS loads it as a Browser
-source. It shows the programmer, the chip and a progress bar. Nothing else.
+source. It shows the programmer, the chip and a progress bar — and its own name in
+the corner. Nothing else.
 
 It follows the **Programmer** bench. The Laptop EC bench isn't on it yet.
 
