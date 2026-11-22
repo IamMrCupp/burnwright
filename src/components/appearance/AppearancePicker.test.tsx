@@ -66,6 +66,7 @@ describe("AppearancePicker with a themes folder", () => {
         files: Object.entries(files).map(([file, text]) => ({ file, text })),
       })),
       openFolder: vi.fn(async () => {}),
+      save: vi.fn(async () => {}),
     };
     return source;
   }
@@ -138,6 +139,7 @@ describe("AppearancePicker with a themes folder", () => {
         files: Object.entries(mine).map(([file, text]) => ({ file, text })),
       }),
       openFolder: async () => {},
+      save: async () => {},
     };
     render(
       <AppearancePicker controller={controllerOn(document.createElement("html"), undefined, source)} />,
@@ -164,5 +166,31 @@ describe("AppearancePicker with a themes folder", () => {
         expect.stringMatching(/^broken\.json isn't offered: /),
       ]),
     );
+  });
+
+  it("saves the look as a theme from its button, and says what the file is called", async () => {
+    const mine: Record<string, string> = {};
+    const source = {
+      list: async () => ({
+        folder: "/config/themes",
+        files: Object.entries(mine).map(([file, text]) => ({ file, text })),
+      }),
+      openFolder: async () => {},
+      save: async (file: string, contents: string) => {
+        mine[file] = contents;
+      },
+    };
+    render(
+      <AppearancePicker controller={controllerOn(document.createElement("html"), undefined, source)} />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Save as theme" }));
+
+    await screen.findByText(
+      "Saved as my-theme.json. Edit it in the themes folder, then press Reload themes.",
+    );
+    expect(Object.keys(mine)).toEqual(["my-theme.json"]);
+    // Offered straight away, and not chosen for you.
+    expect(screen.getByRole("option", { name: "My theme" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Appearance")).toHaveValue("system");
   });
 });

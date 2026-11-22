@@ -116,6 +116,7 @@ pub fn run() {
             session_commands::close_session,
             commands::list_themes,
             commands::open_themes_folder,
+            commands::save_theme,
             stream::stream_configure,
             stream::stream_publish,
         ])

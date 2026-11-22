@@ -7,7 +7,13 @@ import {
   type AppearanceDeps,
   type Look,
 } from "./appearance";
-import type { ThemeListing, ThemeSource } from "./theme";
+import {
+  THEME_PROPERTIES,
+  parseTheme,
+  type ThemeListing,
+  type ThemeProperty,
+  type ThemeSource,
+} from "./theme";
 
 function memoryStorage() {
   const stored = new Map<string, string>();
@@ -47,6 +53,8 @@ function fakeFolder(files: Record<string, unknown> = { "amber.json": AMBER, "pap
     files,
     /** Set to make the next reads fail. */
     failure: null as string | null,
+    /** Set to make the next save fail. */
+    saveFailure: null as string | null,
     opened: 0,
     source: {
       list: async (): Promise<ThemeListing> => {
@@ -63,6 +71,11 @@ function fakeFolder(files: Record<string, unknown> = { "amber.json": AMBER, "pap
         if (folder.failure) throw new Error(folder.failure);
         folder.opened += 1;
       },
+      save: async (file: string, contents: string) => {
+        if (folder.saveFailure) throw new Error(folder.saveFailure);
+        if (file in folder.files) throw new Error(`${file} is already in the themes folder`);
+        folder.files[file] = contents;
+      },
     } satisfies ThemeSource,
   };
   return folder;
@@ -74,6 +87,8 @@ function setup(
     systemDark?: boolean;
     folder?: ReturnType<typeof fakeFolder>;
     storage?: ReturnType<typeof memoryStorage>;
+    /** What each property reads as on the page, for saving the look. */
+    page?: Partial<Record<ThemeProperty, string>>;
   } = {},
 ) {
   const storage = options.storage ?? memoryStorage();
@@ -87,6 +102,7 @@ function setup(
     systemDark: system.query,
     setWindowTheme: (look) => void windowThemes.push(look),
     themes: options.folder?.source,
+    readColor: (property) => options.page?.[property] ?? "",
   });
   return { controller, storage, system, root, windowThemes };
 }
@@ -465,5 +481,116 @@ describe("AppearanceController with a themes folder", () => {
     expect(controller.getState().choice).toBe("system");
     expect(root.dataset.theme).toBe("dark");
     expect(storage.stored.get("burnwright.appearance")).toBe("theme:amber.json");
+  });
+});
+
+describe("AppearanceController saving the look as a theme", () => {
+  /** Every property with a colour of its own, as a page would have. */
+  const page = Object.fromEntries(
+    THEME_PROPERTIES.map((property, index) => [
+      property,
+      property === "backdrop" ? "rgba(0, 0, 0, 0.45)" : `#${(0x101010 + index).toString(16)}`,
+    ]),
+  ) as Record<ThemeProperty, string>;
+
+  it("writes every colour on the page, over the base it's showing on", async () => {
+    const folder = fakeFolder({});
+    const { controller } = setup({ folder, page, systemDark: true });
+    controller.start();
+    await controller.saveLookAsTheme();
+
+    expect(Object.keys(folder.files)).toEqual(["my-theme.json"]);
+    const text = folder.files["my-theme.json"] as string;
+    expect(JSON.parse(text)).toEqual({ name: "My theme", base: "dark", colors: page });
+    // Laid out to be edited by hand, in the documented order.
+    expect(text).toMatch(/^\{\n {2}"name": "My theme",\n {2}"base": "dark",\n {2}"colors": \{\n {4}"bg": /);
+    expect(Object.keys(JSON.parse(text).colors)).toEqual([...THEME_PROPERTIES]);
+    expect(text.endsWith("}\n")).toBe(true);
+
+    // It loads back with nothing skipped, and is offered without a reload.
+    const parsed = parseTheme("my-theme.json", text);
+    expect(parsed.ok && parsed.theme.ignored).toEqual([]);
+    const state = controller.getState();
+    expect(state.themes.map((theme) => theme.name)).toEqual(["My theme"]);
+    expect(state.saved).toBe("my-theme.json");
+    // Saving doesn't change what's chosen.
+    expect(state.choice).toBe("system");
+  });
+
+  it("saves a chosen theme's colours with its base, so the file stands alone", async () => {
+    const folder = fakeFolder();
+    const { controller } = setup({ folder, page, systemDark: true });
+    controller.start();
+    await controller.reloadThemes();
+    controller.choose("theme:paper.json");
+    await controller.saveLookAsTheme();
+    const saved = JSON.parse(folder.files["my-theme.json"] as string);
+    expect(saved.base).toBe("light");
+    expect(Object.keys(saved.colors)).toHaveLength(THEME_PROPERTIES.length);
+  });
+
+  it("takes the next free name and never the one that's there", async () => {
+    const folder = fakeFolder({ "My-Theme.json": { name: "Mine", base: "light" } });
+    const { controller } = setup({ folder, page });
+    controller.start();
+    await controller.saveLookAsTheme();
+    await controller.saveLookAsTheme();
+    expect(Object.keys(folder.files)).toEqual([
+      "My-Theme.json",
+      "my-theme-2.json",
+      "my-theme-3.json",
+    ]);
+    expect(JSON.parse(folder.files["my-theme-2.json"] as string).name).toBe("My theme 2");
+    expect(folder.files["My-Theme.json"]).toEqual({ name: "Mine", base: "light" });
+    expect(controller.getState().saved).toBe("my-theme-3.json");
+  });
+
+  it("leaves out anything on the page a theme file can't hold", async () => {
+    const folder = fakeFolder({});
+    const { controller } = setup({
+      folder,
+      page: { ...page, panel: "url(https://example.com/x.png)", fg: "" },
+    });
+    controller.start();
+    await controller.saveLookAsTheme();
+    const saved = JSON.parse(folder.files["my-theme.json"] as string);
+    expect(saved.colors.panel).toBeUndefined();
+    expect(saved.colors.fg).toBeUndefined();
+    expect(saved.colors.bg).toBe(page.bg);
+  });
+
+  it("says why when the file can't be written, and writes nothing", async () => {
+    const folder = fakeFolder({});
+    folder.saveFailure = "the disk is full";
+    const { controller } = setup({ folder, page });
+    controller.start();
+    await controller.saveLookAsTheme();
+    expect(folder.files).toEqual({});
+    expect(controller.getState()).toMatchObject({
+      notice: "The look couldn't be saved as a theme: the disk is full.",
+      saved: null,
+    });
+  });
+
+  it("forgets the saved note at the next choice or reload", async () => {
+    const folder = fakeFolder({});
+    const { controller } = setup({ folder, page });
+    controller.start();
+    await controller.saveLookAsTheme();
+    expect(controller.getState().saved).toBe("my-theme.json");
+    await controller.reloadThemes();
+    expect(controller.getState().saved).toBeNull();
+
+    await controller.saveLookAsTheme();
+    expect(controller.getState().saved).toBe("my-theme-2.json");
+    controller.choose("dark");
+    expect(controller.getState().saved).toBeNull();
+  });
+
+  it("does nothing where there's no themes folder", async () => {
+    const { controller } = setup({ page });
+    controller.start();
+    await controller.saveLookAsTheme();
+    expect(controller.getState()).toMatchObject({ saved: null, notice: null });
   });
 });

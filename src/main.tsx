@@ -20,6 +20,7 @@ function themeSource(): ThemeSource | undefined {
     return {
       list: async () => (await preview).previewThemes.list(),
       openFolder: async () => (await preview).previewThemes.openFolder(),
+      save: async (file, contents) => (await preview).previewThemes.save(file, contents),
     };
   }
   return undefined;

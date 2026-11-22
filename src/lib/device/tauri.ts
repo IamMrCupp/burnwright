@@ -90,5 +90,6 @@ export function tauriThemes(): ThemeSource {
   return {
     list: () => invoke<ThemeListing>("list_themes"),
     openFolder: () => invoke<void>("open_themes_folder"),
+    save: (file, contents) => invoke<void>("save_theme", { file, contents }),
   };
 }

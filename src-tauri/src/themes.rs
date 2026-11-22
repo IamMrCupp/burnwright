@@ -6,7 +6,7 @@
 //! which checks every name and value before anything reaches the page.
 
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 /// The largest theme file that's read. A real one is a few hundred bytes.
@@ -68,6 +68,51 @@ pub fn list(dir: &Path) -> io::Result<ThemeListing> {
         folder: dir.to_string_lossy().into_owned(),
         files,
     })
+}
+
+/// Whether `file` is a name [`save_new`] will write: lowercase letters,
+/// digits and hyphens, starting with a letter or digit, ending `.json`, 48
+/// characters at most. Nothing that could name another folder.
+fn is_theme_file_name(file: &str) -> bool {
+    let Some(stem) = file.strip_suffix(".json") else {
+        return false;
+    };
+    !stem.is_empty()
+        && file.len() <= 48
+        && !stem.starts_with('-')
+        && stem
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// Write a new theme file called `file` into `dir`, making the folder if it
+/// isn't there yet. Never replaces a file: one of that name already there is
+/// an error. `contents` has to be a JSON object, and no bigger than a theme
+/// file [`list`] would read back.
+pub fn save_new(dir: &Path, file: &str, contents: &str) -> Result<(), String> {
+    if !is_theme_file_name(file) {
+        return Err(format!("{file:?} isn't a name a theme file can have"));
+    }
+    if contents.len() as u64 > MAX_THEME_BYTES {
+        return Err(format!("it's bigger than {} KiB", MAX_THEME_BYTES / 1024));
+    }
+    match serde_json::from_str::<serde_json::Value>(contents) {
+        Ok(serde_json::Value::Object(_)) => {}
+        _ => return Err("it isn't a JSON object".to_string()),
+    }
+    fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let path = dir.join(file);
+    // `create_new` fails if anything is there, with no gap to race in.
+    let mut out = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| match e.kind() {
+            io::ErrorKind::AlreadyExists => format!("{file} is already in the themes folder"),
+            _ => format!("{}: {e}", path.display()),
+        })?;
+    out.write_all(contents.as_bytes())
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// One file's text. `Ok(None)` for something that isn't a regular file (a
@@ -181,5 +226,86 @@ mod tests {
         );
         // Exactly the limit is still read.
         assert!(listing.files[2].text.is_some());
+    }
+
+    #[test]
+    fn saves_a_new_theme_file_that_lists_back() {
+        let scratch = Scratch::new();
+        let dir = scratch.themes();
+        // The folder doesn't exist yet: saving makes it.
+        save_new(
+            &dir,
+            "my-theme.json",
+            r##"{"base":"dark","colors":{"bg":"#101418"}}"##,
+        )
+        .unwrap();
+        let listing = list(&dir).unwrap();
+        assert_eq!(listing.files.len(), 1);
+        assert_eq!(listing.files[0].file, "my-theme.json");
+        assert_eq!(
+            listing.files[0].text.as_deref(),
+            Some(r##"{"base":"dark","colors":{"bg":"#101418"}}"##)
+        );
+    }
+
+    #[test]
+    fn never_replaces_a_file_thats_there() {
+        let scratch = Scratch::new();
+        let dir = scratch.themes();
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("my-theme.json"), "mine").unwrap();
+        let err = save_new(&dir, "my-theme.json", r#"{"base":"dark"}"#).unwrap_err();
+        assert_eq!(err, "my-theme.json is already in the themes folder");
+        assert_eq!(
+            fs::read_to_string(dir.join("my-theme.json")).unwrap(),
+            "mine"
+        );
+    }
+
+    #[test]
+    fn refuses_names_that_arent_plain_theme_files() {
+        let scratch = Scratch::new();
+        let dir = scratch.themes();
+        for name in [
+            "../escape.json",
+            "sub/theme.json",
+            "/tmp/theme.json",
+            "theme",
+            "theme.txt",
+            ".json",
+            ".hidden.json",
+            "-flag.json",
+            "My Theme.json",
+            "théme.json",
+            "a-name-that-goes-on-for-far-too-long-to-be-reasonable.json",
+        ] {
+            assert!(
+                save_new(&dir, name, r#"{"base":"dark"}"#).is_err(),
+                "{name} should be refused"
+            );
+        }
+        // Nothing was written, and nothing was made outside the folder.
+        assert!(!dir.exists() || fs::read_dir(&dir).unwrap().next().is_none());
+        assert!(!scratch.0.join("config").join("escape.json").exists());
+    }
+
+    #[test]
+    fn refuses_contents_that_arent_a_small_json_object() {
+        let scratch = Scratch::new();
+        let dir = scratch.themes();
+        assert_eq!(
+            save_new(&dir, "a.json", "not json").unwrap_err(),
+            "it isn't a JSON object"
+        );
+        assert_eq!(
+            save_new(&dir, "a.json", "[1, 2]").unwrap_err(),
+            "it isn't a JSON object"
+        );
+        let big = format!(r#"{{"pad":"{}"}}"#, "x".repeat(MAX_THEME_BYTES as usize));
+        assert_eq!(
+            save_new(&dir, "a.json", &big).unwrap_err(),
+            "it's bigger than 64 KiB"
+        );
+        assert!(!dir.join("a.json").exists());
     }
 }

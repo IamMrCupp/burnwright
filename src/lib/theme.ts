@@ -196,6 +196,29 @@ export interface ThemeSource {
   list(): Promise<ThemeListing>;
   /** Show the folder in the system's file manager. */
   openFolder(): Promise<void>;
+  /**
+   * Write a new theme file called `file` (`my-theme.json`) holding
+   * `contents`. Never replaces one: a file of that name already there is an
+   * error.
+   */
+  save(file: string, contents: string): Promise<void>;
+}
+
+/**
+ * The text of a theme file with these colours, in the order docs/themes.md
+ * lists them, laid out for someone to edit by hand.
+ */
+export function themeFileText(
+  name: string,
+  base: Look,
+  colors: Partial<Record<ThemeProperty, string>>,
+): string {
+  const ordered: Record<string, string> = {};
+  for (const property of THEME_PROPERTIES) {
+    const value = colors[property];
+    if (value !== undefined) ordered[property] = value;
+  }
+  return `${JSON.stringify({ name, base, colors: ordered }, null, 2)}\n`;
 }
 
 /** Sort a listing into the themes that can be used and the files that can't. */

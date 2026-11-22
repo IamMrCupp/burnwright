@@ -20,7 +20,21 @@ choice, opens it — and creates it the first time. Drop a `.json` file in, pres
 **Reload themes**, and it shows up in the Appearance list under Themes. Edit the
 file, reload again, and the change is on screen. No restart.
 
+## Start from what's on screen
+
+The quickest way in: pick the look closest to what you want — Light, Dark, or a
+theme you already have — and press **Save as theme**, next to Reload themes.
+burnwright writes that look into the themes folder as `my-theme.json` (then
+`my-theme-2.json`, and so on — it never overwrites a file), with all 34 colours
+at the values they have right now. It shows up in the Appearance list as "My
+theme" straight away.
+
+Then it's yours: rename the file, change the `name`, change the colours you
+care about, delete the lines you don't. Press Reload themes to see it.
+
 ## A starter
+
+Or write one by hand.
 
 Save this as `amber.json`:
 
