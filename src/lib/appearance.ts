@@ -6,10 +6,13 @@
 // colours it changes, set as inline properties on the same element.
 import {
   THEME_PROPERTIES,
+  isColor,
   parseTheme,
   readListing,
+  themeFileText,
   type BrokenTheme,
   type Theme,
+  type ThemeProperty,
   type ThemeSource,
 } from "./theme";
 
@@ -128,7 +131,20 @@ export interface AppearanceDeps {
   setWindowTheme?: (look: Look | null) => void;
   /** The themes folder. Left out where there isn't one: no themes are offered. */
   themes?: ThemeSource;
+  /**
+   * The colour a property has on the page now, for saving the look as a
+   * theme. Left out, it's read from the root element's computed style.
+   */
+  readColor?: (property: ThemeProperty) => string;
 }
+
+/** The file the look is saved as: `my-theme.json`, then `my-theme-2.json`, and so on. */
+function savedThemeFile(n: number): string {
+  return n === 1 ? "my-theme.json" : `my-theme-${n}.json`;
+}
+
+/** The most saved looks that are counted through before giving up on a free name. */
+const SAVED_THEME_LIMIT = 999;
 
 /** Everything the Appearance choice shows. */
 export interface AppearanceState {
@@ -149,6 +165,8 @@ export interface AppearanceState {
    * the other broken files.
    */
   noticeFile: string | null;
+  /** The file the look was just saved as, until the next choice or reload. */
+  saved: string | null;
 }
 
 function message(error: unknown): string {
@@ -186,6 +204,7 @@ export class AppearanceController {
       folder: null,
       notice: null,
       noticeFile: null,
+      saved: null,
     };
   }
 
@@ -230,7 +249,7 @@ export class AppearanceController {
     this.active = theme;
     this.deps.store.save(choice);
     this.deps.store.saveTheme(theme);
-    this.update({ choice, notice: null, noticeFile: null });
+    this.update({ choice, notice: null, noticeFile: null, saved: null });
     this.show();
   };
 
@@ -252,6 +271,7 @@ export class AppearanceController {
       this.update({
         notice: `The themes folder couldn't be read: ${message(error)}`,
         noticeFile: null,
+        saved: null,
       });
       return;
     }
@@ -279,7 +299,15 @@ export class AppearanceController {
         this.deps.store.saveTheme(null);
       }
     }
-    this.update({ choice, themes, broken, folder: listing.folder, notice, noticeFile });
+    this.update({
+      choice,
+      themes,
+      broken,
+      folder: listing.folder,
+      notice,
+      noticeFile,
+      saved: null,
+    });
     this.show();
   };
 
@@ -294,6 +322,48 @@ export class AppearanceController {
       this.update({
         notice: `The themes folder couldn't be opened: ${message(error)}.${where}`,
         noticeFile: null,
+      });
+    }
+  };
+
+  /**
+   * Save the look on screen as a new theme file: every colour with the
+   * value it has now, over the base it's showing on. It works from any
+   * choice, so a theme saved this way stands on its own. The file never
+   * replaces one that's there, and shows up in the list straight away.
+   */
+  saveLookAsTheme = async (): Promise<void> => {
+    const source = this.deps.themes;
+    if (!source) return;
+    const readColor =
+      this.deps.readColor ??
+      ((property: ThemeProperty) =>
+        getComputedStyle(this.deps.root).getPropertyValue(`--bw-${property}`));
+    const colors: Partial<Record<ThemeProperty, string>> = {};
+    for (const property of THEME_PROPERTIES) {
+      const value = readColor(property).trim();
+      // Only what a theme file can hold, so the file loads back whole.
+      if (isColor(value)) colors[property] = value;
+    }
+    try {
+      // The folder as it is now, for a name nothing has.
+      const listing = await source.list();
+      const taken = new Set(listing.files.map(({ file }) => file.toLowerCase()));
+      let n = 1;
+      while (taken.has(savedThemeFile(n))) {
+        n += 1;
+        if (n > SAVED_THEME_LIMIT) throw new Error("the themes folder is full of saved looks");
+      }
+      const file = savedThemeFile(n);
+      const name = n === 1 ? "My theme" : `My theme ${n}`;
+      await source.save(file, themeFileText(name, this.look(), colors));
+      await this.reloadThemes();
+      this.update({ saved: file });
+    } catch (error) {
+      this.update({
+        notice: `The look couldn't be saved as a theme: ${message(error)}.`,
+        noticeFile: null,
+        saved: null,
       });
     }
   };

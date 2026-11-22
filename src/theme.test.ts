@@ -1,7 +1,7 @@
 // Holds the stylesheets to the rule App.css states: every colour is a
 // --bw-* property defined there, once per look.
 import { describe, expect, it } from "vitest";
-import { THEME_PROPERTIES } from "./lib/theme";
+import { THEME_PROPERTIES, isColor } from "./lib/theme";
 
 const sheets = import.meta.glob<string>("./**/*.css", {
   query: "?raw",
@@ -74,5 +74,17 @@ describe("the stylesheets", () => {
     expect(page).toBeTruthy();
     const listed = [...page.matchAll(/^\| `([a-z-]+)` \|/gm)].map((match) => match[1]);
     expect(listed).toEqual([...THEME_PROPERTIES]);
+  });
+
+  it("give every property a value a theme file can hold, so a saved look loads back whole", () => {
+    for (const selector of ["\n:root", ':root[data-theme="dark"]']) {
+      const start = app.indexOf(`${selector} {`);
+      const body = app.slice(start, app.indexOf("}", start));
+      const declared = [...body.matchAll(/(--bw-[a-z-]+):\s*([^;]+);/g)];
+      expect(declared.length).toBe(THEME_PROPERTIES.length);
+      for (const [, name, value] of declared) {
+        expect(isColor(value), `${name}: ${value} under ${selector.trim()}`).toBe(true);
+      }
+    }
   });
 });

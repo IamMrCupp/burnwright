@@ -17,14 +17,15 @@ const LABELS: Record<(typeof APPEARANCES)[number], string> = {
 export interface AppearancePickerProps {
   controller: Pick<
     AppearanceController,
-    "subscribe" | "getState" | "choose" | "reloadThemes" | "openThemesFolder"
+    "subscribe" | "getState" | "choose" | "reloadThemes" | "openThemesFolder" | "saveLookAsTheme"
   >;
 }
 
 /**
  * The Appearance choice: follow the system, hold light or dark, or use a
  * theme from the themes folder. Under it, where there is a folder: a way to
- * open it, a way to read it again, and anything a theme file got wrong.
+ * open it, a way to read it again, a way to save the look on screen as a
+ * theme to start from, and anything a theme file got wrong.
  */
 export function AppearancePicker({ controller }: AppearancePickerProps) {
   const state = useSyncExternalStore(controller.subscribe, controller.getState);
@@ -84,7 +85,20 @@ export function AppearancePicker({ controller }: AppearancePickerProps) {
           >
             Reload themes
           </button>
+          <button
+            type="button"
+            className="button-quiet"
+            title="Save the colours on screen as a new file in the themes folder"
+            onClick={() => void controller.saveLookAsTheme()}
+          >
+            Save as theme
+          </button>
         </div>
+      )}
+      {state.saved && (
+        <p className="appearance-saved" aria-live="polite">
+          Saved as {state.saved}. Edit it in the themes folder, then press Reload themes.
+        </p>
       )}
       {notes.length > 0 && (
         <ul className="appearance-notes" role="status">

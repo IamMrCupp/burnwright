@@ -53,4 +53,9 @@ export const previewThemes: ThemeSource = {
   openFolder: async () => {
     throw new Error("there's no folder to open in the browser preview");
   },
+  // Kept until the page is reloaded.
+  save: async (file, contents) => {
+    if (file in FILES) throw new Error(`${file} is already in the themes folder`);
+    FILES[file] = contents;
+  },
 };

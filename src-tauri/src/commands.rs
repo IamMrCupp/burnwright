@@ -640,6 +640,16 @@ pub fn open_themes_folder(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Save a new theme file into the themes folder. `file` is a plain name
+/// (`my-theme.json`); a file of that name already there is left alone and
+/// reported. The frontend writes what it would accept back: this side only
+/// checks the name, the size and that it's a JSON object.
+#[tauri::command]
+pub fn save_theme(app: tauri::AppHandle, file: String, contents: String) -> Result<(), String> {
+    let dir = themes_dir(&app)?;
+    crate::themes::save_new(&dir, &file, &contents)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
