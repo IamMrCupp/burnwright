@@ -36,7 +36,10 @@ export function AppearancePicker({ controller }: AppearancePickerProps) {
     ...(active?.ignored.length
       ? [`${active.id} has entries that aren't used: ${active.ignored.join("; ")}.`]
       : []),
-    ...state.broken.map(({ file, reason }) => `${file} isn't offered: ${reason}.`),
+    ...state.broken
+      // The notice has already said why this one can't be used.
+      .filter(({ file }) => file !== state.noticeFile)
+      .map(({ file, reason }) => `${file} isn't offered: ${reason}.`),
   ];
 
   return (

@@ -117,6 +117,15 @@ function show(value: unknown): string {
 }
 
 /**
+ * A JSON error as the engine worded it, minus the label some engines put in
+ * front: WebKit's "JSON Parse error: " and Firefox's "JSON.parse: ". The
+ * sentence it goes into already says the file isn't valid JSON.
+ */
+function withoutEnginePrefix(detail: string): string {
+  return detail.replace(/^JSON(?: Parse error|\.parse):\s*/i, "");
+}
+
+/**
  * Read one theme file. `file` is its name in the folder and `text` what it
  * holds. A file that isn't a theme comes back as a problem with a reason
  * its author can act on; a theme with entries that can't be taken comes
@@ -130,7 +139,7 @@ export function parseTheme(file: string, text: string): ParsedTheme {
     data = JSON.parse(text);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    return broken(`it isn't valid JSON (${detail})`);
+    return broken(`it isn't valid JSON (${withoutEnginePrefix(detail)})`);
   }
   if (!isObject(data)) return broken("a theme is a JSON object: { … }");
 

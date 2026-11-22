@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isColor, parseTheme, readListing, type Theme } from "./theme";
 
 function theme(file: string, value: unknown): Theme {
@@ -119,6 +119,31 @@ describe("parseTheme", () => {
     expect(reason("{}")).toBe('"base" has to be "light" or "dark"');
     expect(reason('{"base":"sepia"}')).toBe('"base" has to be "light" or "dark"');
     expect(reason('{"base":"dark","colors":["#fff"]}')).toMatch(/^"colors" has to be an object/);
+  });
+
+  it("drops the label an engine puts in front of its JSON error", () => {
+    const failing = (message: string) => {
+      const parse = vi.spyOn(JSON, "parse").mockImplementationOnce(() => {
+        throw new SyntaxError(message);
+      });
+      try {
+        return reason("{");
+      } finally {
+        parse.mockRestore();
+      }
+    };
+    // WebKit, which is what the app runs in on macOS and Linux.
+    expect(failing("JSON Parse error: Property name must be a string literal")).toBe(
+      "it isn't valid JSON (Property name must be a string literal)",
+    );
+    // Firefox.
+    expect(failing("JSON.parse: expected property name or '}' at line 1 column 3")).toBe(
+      "it isn't valid JSON (expected property name or '}' at line 1 column 3)",
+    );
+    // Chromium's has no label to drop.
+    expect(failing("Expected property name or '}' in JSON at position 2")).toBe(
+      "it isn't valid JSON (Expected property name or '}' in JSON at position 2)",
+    );
   });
 
   it("doesn't let a long name or value through whole", () => {

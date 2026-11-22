@@ -129,4 +129,40 @@ describe("AppearancePicker with a themes folder", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reload themes" }));
     await waitFor(() => expect(source.list).toHaveBeenCalledTimes(2));
   });
+
+  it("names a chosen theme that broke once, with the other broken files after it", async () => {
+    const mine: Record<string, string> = { ...files };
+    const source = {
+      list: async () => ({
+        folder: "/config/themes",
+        files: Object.entries(mine).map(([file, text]) => ({ file, text })),
+      }),
+      openFolder: async () => {},
+    };
+    render(
+      <AppearancePicker controller={controllerOn(document.createElement("html"), undefined, source)} />,
+    );
+    await screen.findByRole("option", { name: "Amber" });
+    fireEvent.change(screen.getByLabelText("Appearance"), { target: { value: "theme:amber.json" } });
+
+    mine["amber.json"] = JSON.stringify({ name: "Amber", base: "sepia" });
+    fireEvent.click(screen.getByRole("button", { name: "Reload themes" }));
+    await waitFor(() => expect(screen.getByLabelText("Appearance")).toHaveValue("system"));
+
+    const notes = screen.getAllByRole("listitem").map((note) => note.textContent);
+    expect(notes).toEqual([
+      `amber.json can't be used as a theme any more: "base" has to be "light" or "dark". Appearance is back on System.`,
+      expect.stringMatching(/^broken\.json isn't offered: /),
+    ]);
+
+    // Read again with nothing changed: the fallback has been said, and the
+    // file is now one more that isn't offered.
+    fireEvent.click(screen.getByRole("button", { name: "Reload themes" }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("listitem").map((note) => note.textContent)).toEqual([
+        `amber.json isn't offered: "base" has to be "light" or "dark".`,
+        expect.stringMatching(/^broken\.json isn't offered: /),
+      ]),
+    );
+  });
 });
