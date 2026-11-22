@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.0](https://github.com/IamMrCupp/burnwright/compare/v0.17.0...v0.18.0) (2026-11-22)
+
+
+### Features
+
+* **ui:** tell a missing CH341A from one that's plugged in and not permitted on the Laptop EC bench ([25eb40f](https://github.com/IamMrCupp/burnwright/commit/25eb40f760e3a09b8ee0f64b50211d4ff23e7268))
+
 ## [0.17.0](https://github.com/IamMrCupp/burnwright/compare/v0.16.0...v0.17.0) (2026-11-22)
 
 
