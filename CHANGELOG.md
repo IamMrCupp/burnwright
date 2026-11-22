@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.0](https://github.com/IamMrCupp/burnwright/compare/v0.15.1...v0.16.0) (2026-11-22)
+
+
+### Features
+
+* **macos:** put the Appearance choice and the theme commands in the View menu ([9095632](https://github.com/IamMrCupp/burnwright/commit/90956324ba8b9a84be16d86bc61b491203bf20fa))
+* **ui:** save the look on screen as a theme file to start from ([0b3cf08](https://github.com/IamMrCupp/burnwright/commit/0b3cf083c89ebe8202be595812d059e5bd272e3e))
+
 ## [0.15.1](https://github.com/IamMrCupp/burnwright/compare/v0.15.0...v0.15.1) (2026-11-22)
 
 
