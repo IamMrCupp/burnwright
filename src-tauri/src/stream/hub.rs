@@ -72,13 +72,20 @@ impl Hub {
         (latest.version, latest.json.clone())
     }
 
+    /// How many times [`Hub::wake_all`] has been called. Read it before
+    /// deciding to wait, and hand it to [`Hub::wait`]: a wake that lands in
+    /// between then ends the wait at once, where a count read inside the
+    /// wait would already include it and sleep through it.
+    pub fn wakes(&self) -> u64 {
+        self.lock().wakes
+    }
+
     /// Block until the status is newer than version `after`, or `timeout`
-    /// passes, or [`Hub::wake_all`] is called. Returns the latest
-    /// `(version, json)` in every case: an unchanged version means there is
-    /// nothing new.
-    pub fn wait(&self, after: u64, timeout: Duration) -> (u64, String) {
+    /// passes, or [`Hub::wake_all`] has been called since `wakes` was read
+    /// ([`Hub::wakes`]). Returns the latest `(version, json)` in every case:
+    /// an unchanged version means there is nothing new.
+    pub fn wait(&self, after: u64, wakes: u64, timeout: Duration) -> (u64, String) {
         let latest = self.lock();
-        let wakes = latest.wakes;
         let (latest, _) = self
             .changed
             .wait_timeout_while(latest, timeout, |l| l.version <= after && l.wakes == wakes)
@@ -137,7 +144,7 @@ mod tests {
         let hub = Hub::new();
         hub.publish(chip("W25Q32BV"));
         let started = Instant::now();
-        let (version, _) = hub.wait(1, Duration::from_secs(30));
+        let (version, _) = hub.wait(1, hub.wakes(), Duration::from_secs(30));
         assert_eq!(version, 2);
         assert!(started.elapsed() < Duration::from_secs(5));
     }
@@ -145,7 +152,7 @@ mod tests {
     #[test]
     fn wait_times_out_with_the_version_unchanged() {
         let hub = Hub::new();
-        let (version, _) = hub.wait(1, Duration::from_millis(20));
+        let (version, _) = hub.wait(1, hub.wakes(), Duration::from_millis(20));
         assert_eq!(version, 1);
     }
 
@@ -154,7 +161,7 @@ mod tests {
         let hub = Arc::new(Hub::new());
         let waiter = {
             let hub = Arc::clone(&hub);
-            thread::spawn(move || hub.wait(1, Duration::from_secs(30)))
+            thread::spawn(move || hub.wait(1, hub.wakes(), Duration::from_secs(30)))
         };
         // Publishing until the waiter is done covers the case where it
         // hadn't started waiting yet.
@@ -169,12 +176,28 @@ mod tests {
         assert!(json.contains("chip-"));
     }
 
+    /// The stop a feed mustn't sleep through: it reads the count, the server
+    /// stops and wakes everyone, and only then does the feed start to wait.
+    #[test]
+    fn a_wake_between_reading_the_count_and_waiting_is_not_missed() {
+        let hub = Hub::new();
+        let wakes = hub.wakes();
+        hub.wake_all();
+        let started = Instant::now();
+        let (version, _) = hub.wait(1, wakes, Duration::from_secs(30));
+        assert_eq!(version, 1, "nothing new was published");
+        assert!(started.elapsed() < Duration::from_secs(5));
+        // A count read after the wake has nothing to be woken by.
+        let (version, _) = hub.wait(1, hub.wakes(), Duration::from_millis(20));
+        assert_eq!(version, 1);
+    }
+
     #[test]
     fn wake_all_returns_a_wait_without_a_new_status() {
         let hub = Arc::new(Hub::new());
         let waiter = {
             let hub = Arc::clone(&hub);
-            thread::spawn(move || hub.wait(1, Duration::from_secs(30)))
+            thread::spawn(move || hub.wait(1, hub.wakes(), Duration::from_secs(30)))
         };
         let started = Instant::now();
         while !waiter.is_finished() {

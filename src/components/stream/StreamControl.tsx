@@ -28,16 +28,38 @@ export function StreamControl({ controller }: StreamControlProps) {
   const typed = Number(port);
   const portOk = port.trim() !== "" && isStreamPort(typed);
 
+  const commitPort = () => {
+    if (portOk) void controller.setPort(typed);
+  };
+
+  /**
+   * Put the panel away. A port that was typed and never committed is settled
+   * first: taken if the page can be served on it, dropped if not. The field
+   * goes away with the panel without ever blurring, so leaving it to `onBlur`
+   * left the field saying one port and the address another.
+   */
+  const close = () => {
+    if (portOk) void controller.setPort(typed);
+    else setPort(String(settings.port));
+    setOpen(false);
+  };
+  // The listeners below are set up once per opening; this is the `close`
+  // that knows what's in the field now.
+  const closeNow = useRef(close);
+  useEffect(() => {
+    closeNow.current = close;
+  });
+
   // Escape, or a click anywhere else, puts the panel away.
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      setOpen(false);
+      closeNow.current();
       root.current?.querySelector<HTMLElement>(".stream-toggle")?.focus();
     };
     const onPointer = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!root.current?.contains(event.target as Node)) closeNow.current();
     };
     document.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointer);
@@ -46,10 +68,6 @@ export function StreamControl({ controller }: StreamControlProps) {
       document.removeEventListener("pointerdown", onPointer);
     };
   }, [open]);
-
-  const commitPort = () => {
-    if (portOk) void controller.setPort(typed);
-  };
 
   const copy = async () => {
     if (!server?.url) return;
@@ -71,7 +89,8 @@ export function StreamControl({ controller }: StreamControlProps) {
         aria-expanded={open}
         aria-controls={panelId}
         onClick={() => {
-          setOpen(!open);
+          if (open) close();
+          else setOpen(true);
           setCopied(false);
         }}
       >
