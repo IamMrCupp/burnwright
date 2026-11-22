@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.15.1](https://github.com/IamMrCupp/burnwright/compare/v0.15.0...v0.15.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **stream:** close open pages as soon as the server stops, and drop a request that takes too long to arrive ([88681d2](https://github.com/IamMrCupp/burnwright/commit/88681d22225202ced1f3cc8dd417bfd24b6e5ce8))
+* **stream:** give the page the current status the moment it's turned on, and after a port change made mid-update ([64f1550](https://github.com/IamMrCupp/burnwright/commit/64f1550b6e562adc345f374d475eea51f1564cdb))
+* **ui:** keep a port typed in the stream panel when the panel is closed ([cdaf602](https://github.com/IamMrCupp/burnwright/commit/cdaf6029ac319d5d81b1ab3b02daca986d30f7f5))
+* **ui:** name a chosen theme that broke once, and drop the engine's label from a theme file's JSON error ([d14fb5f](https://github.com/IamMrCupp/burnwright/commit/d14fb5f62e40895728b84260b09c830c84c3b46c))
+
 ## [0.15.0](https://github.com/IamMrCupp/burnwright/compare/v0.14.0...v0.15.0) (2026-11-22)
 
 
