@@ -15,7 +15,7 @@
 #   removes it again and checks the rules went with it; then extracts the
 #   AppImage and runs the sidecar from inside it.
 #   The bundles don't have to be built on the machine that checks them: CI
-#   builds on Ubuntu 22.04 and runs this there and again on 24.04.
+#   builds on Ubuntu 22.04 and runs this there and again on 24.04 and 26.04.
 #
 # Each sidecar must report its version and database counts, list more than a
 # thousand chips, and say "No programmer found" (CI has no hardware). The

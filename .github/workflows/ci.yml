@@ -126,7 +126,7 @@ jobs:
           if-no-files-found: warn
 
   # The Linux bundles are built on Ubuntu 22.04, the oldest release they're
-  # meant for. This installs those same files on a newer one, where the
+  # meant for. This installs those same files on each newer LTS, where the
   # system libraries, apt and udev have all moved on, and runs the same
   # checks the build leg ran.
   #
@@ -141,7 +141,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
+        os: [ubuntu-24.04, ubuntu-26.04]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
