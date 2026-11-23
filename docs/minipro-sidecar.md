@@ -244,7 +244,7 @@ After bundling, `scripts/minipro/verify-bundle.sh` (macOS and Linux) and
   `ldd` must show no libusb and nothing unresolved. The app's own binary has to
   find every library it links on that system, and the menu entry has to run it.
   The bundles are built on Ubuntu 22.04 and checked there, then the same files
-  are checked again on Ubuntu 24.04 (the `verify-linux` job). The `.deb` is also checked
+  are checked again on Ubuntu 24.04 and 26.04 (the `verify-linux` job). The `.deb` is also checked
   for its udev rules: both files are installed, match
   `packaging/linux/udev/` and parse (`udevadm verify` where it exists, otherwise
   `udevadm test`'s log); the minipro one flags all three XGecu USB IDs, and the
