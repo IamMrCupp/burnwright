@@ -437,8 +437,106 @@ mod tests {
     mod with_a_flashrom {
         use super::*;
         use std::fs;
-        use std::os::unix::fs::PermissionsExt;
+        use std::path::Path;
+        use std::process::Command;
         use std::sync::{Arc, Mutex};
+
+        /// Write an executable and close it in a child process, so this
+        /// process never has it open for writing.
+        ///
+        /// With `fs::write`, a test that forks in another thread while the
+        /// file is still open hands its child a copy of that writable
+        /// handle. Until the child gets as far as exec, running the file
+        /// fails with "Text file busy" (ETXTBSY): #143. The tests run in
+        /// parallel and every one of them starts flashrom, so that came up.
+        /// Here the only handle is the shell's, and it's gone when `status`
+        /// returns.
+        fn write_executable(path: &Path, contents: &str) {
+            let status = Command::new("/bin/sh")
+                .args(["-c", r#"printf '%s' "$2" > "$1" && chmod 755 "$1""#, "sh"])
+                .arg(path)
+                .arg(contents)
+                .status()
+                .unwrap();
+            assert!(
+                status.success(),
+                "couldn't write {}: {status}",
+                path.display()
+            );
+        }
+
+        /// #143, made likely instead of left to luck: other threads start
+        /// processes as fast as they can while this one writes stand-ins and
+        /// runs each one straight away. Written with `fs::write`, between 4%
+        /// and 14% of the runs failed on Linux, the first within 14 tries.
+        ///
+        /// Linux only. macOS doesn't refuse to run a file that's open for
+        /// writing (`fs::write` failed none of 300 runs there), so it would
+        /// prove nothing, and it starts processes slowly enough under this
+        /// load that the test took 40 seconds.
+        ///
+        /// It runs in a process of its own: the test binary again, with only
+        /// this test picked. Every process those threads start holds a copy
+        /// of everything this process has open until it execs, and alongside
+        /// the other tests that kept the stream server's closed sockets
+        /// answering ("still listening after stop").
+        #[cfg(target_os = "linux")]
+        #[test]
+        fn a_stand_in_runs_while_other_threads_start_processes() {
+            use std::sync::atomic::{AtomicBool, Ordering};
+
+            const ALONE: &str = "BURNWRIGHT_TEST_STAND_IN_ALONE";
+            if std::env::var_os(ALONE).is_none() {
+                // The test's path without the crate's name, which is how the
+                // test binary names it.
+                let module = module_path!().split_once("::").unwrap().1;
+                let name = format!("{module}::a_stand_in_runs_while_other_threads_start_processes");
+                let out = Command::new(std::env::current_exe().unwrap())
+                    .args([name.as_str(), "--exact", "--test-threads", "1"])
+                    .env(ALONE, "1")
+                    .output()
+                    .unwrap();
+                let report = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                assert!(out.status.success(), "{report}");
+                // A name that matched nothing would pass, having run nothing.
+                assert!(report.contains("1 passed"), "ran no test:\n{report}");
+                return;
+            }
+
+            let dir = tempfile::tempdir().unwrap();
+            let stop = Arc::new(AtomicBool::new(false));
+            let spawners: Vec<_> = (0..4)
+                .map(|_| {
+                    let stop = Arc::clone(&stop);
+                    std::thread::spawn(move || {
+                        while !stop.load(Ordering::Relaxed) {
+                            let _ = Command::new("true").status();
+                        }
+                    })
+                })
+                .collect();
+            let tries = std::panic::catch_unwind(|| {
+                for n in 0..200 {
+                    let stand_in = dir.path().join(format!("stand-in-{n}"));
+                    write_executable(&stand_in, "#!/bin/sh\nexit 0\n");
+                    let status = Command::new(&stand_in)
+                        .status()
+                        .unwrap_or_else(|e| panic!("try {n}: couldn't run the stand-in: {e}"));
+                    assert!(status.success(), "try {n}: {status}");
+                }
+            });
+            stop.store(true, Ordering::Relaxed);
+            for spawner in spawners {
+                spawner.join().unwrap();
+            }
+            if let Err(panic) = tries {
+                std::panic::resume_unwind(panic);
+            }
+        }
 
         const SCRIPT: &str = r#"#!/bin/sh
 case " $* " in
@@ -472,8 +570,7 @@ fi
             fn new() -> Self {
                 let dir = tempfile::tempdir().unwrap();
                 let flashrom = dir.path().join("flashrom");
-                fs::write(&flashrom, SCRIPT).unwrap();
-                fs::set_permissions(&flashrom, fs::Permissions::from_mode(0o755)).unwrap();
+                write_executable(&flashrom, SCRIPT);
                 let ops = DeviceOps::default();
                 ops.set_flashrom_path(Some(flashrom));
                 ops.set_backup_dir(dir.path().join("backups"));
