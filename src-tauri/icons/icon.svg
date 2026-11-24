@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="1024" height="1024">
+  <!-- burnwright's icon: a chip from above, its cells burned into a "b".
+       scripts/make-icons.sh turns this into the set in this folder. -->
+  <defs><radialGradient id="glow" cx="50%" cy="50%" r="55%"><stop offset="0" stop-color="#b55a2a" stop-opacity=".55"/><stop offset=".55" stop-color="#5a1c52" stop-opacity=".45"/><stop offset="1" stop-color="#1e1f26" stop-opacity="0"/></radialGradient></defs>
+  <rect x="4" y="4" width="172" height="172" rx="38" fill="#1e1f26" stroke="#3a3b47" stroke-width="2"/>
+  <rect x="4" y="4" width="172" height="172" rx="38" fill="url(#glow)"/>
+  <g stroke="#8fe3f2" stroke-width="5" stroke-linecap="round" fill="none">
+    <rect x="46" y="42" width="88" height="96" rx="6" fill="#1e1f26"/>
+    <path d="M30 60H46M30 80H46M30 100H46M30 120H46M134 60H150M134 80H150M134 100H150M134 120H150"/>
+  </g>
+  <g>
+    <rect x="61" y="52" width="11" height="11" rx="2" fill="#ffb347"/><rect x="77" y="52" width="11" height="11" rx="2" fill="#3a3b47"/><rect x="93" y="52" width="11" height="11" rx="2" fill="#3a3b47"/><rect x="109" y="52" width="11" height="11" rx="2" fill="#3a3b47"/>
+    <rect x="61" y="68" width="11" height="11" rx="2" fill="#ffb347"/><rect x="77" y="68" width="11" height="11" rx="2" fill="#3a3b47"/><rect x="93" y="68" width="11" height="11" rx="2" fill="#3a3b47"/><rect x="109" y="68" width="11" height="11" rx="2" fill="#3a3b47"/>
+    <rect x="61" y="84" width="11" height="11" rx="2" fill="#ffb347"/><rect x="77" y="84" width="11" height="11" rx="2" fill="#ffb347"/><rect x="93" y="84" width="11" height="11" rx="2" fill="#ffb347"/><rect x="109" y="84" width="11" height="11" rx="2" fill="#3a3b47"/>
+    <rect x="61" y="100" width="11" height="11" rx="2" fill="#ffb347"/><rect x="77" y="100" width="11" height="11" rx="2" fill="#3a3b47"/><rect x="93" y="100" width="11" height="11" rx="2" fill="#3a3b47"/><rect x="109" y="100" width="11" height="11" rx="2" fill="#ffb347"/>
+    <rect x="61" y="116" width="11" height="11" rx="2" fill="#ffb347"/><rect x="77" y="116" width="11" height="11" rx="2" fill="#ffb347"/><rect x="93" y="116" width="11" height="11" rx="2" fill="#ffb347"/><rect x="109" y="116" width="11" height="11" rx="2" fill="#3a3b47"/>
+  </g>
+</svg>
