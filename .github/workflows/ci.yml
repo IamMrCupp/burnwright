@@ -59,6 +59,9 @@ jobs:
       # A dropped connection to Apple's ticket server must mean another try.
       - name: macOS stapler retry
         run: scripts/macos/test-stapler-retry.sh
+      # "Resource busy" while making the disk image must mean another try.
+      - name: macOS disk-image retry
+        run: scripts/macos/test-hdiutil-retry.sh
 
   build:
     name: Build & bundle · ${{ matrix.os }}
@@ -101,6 +104,15 @@ jobs:
       - name: Stop Spotlight indexing (macOS)
         if: runner.os == 'macOS'
         run: sudo mdutil -a -i off || true
+      # That covers the eject. bundle_dmg.sh's `hdiutil create` fails the same
+      # way now and then and nothing retries it, so this puts a stand-in
+      # hdiutil first on PATH that tries that one call again and passes
+      # everything else through. (The stand-in xcrun beside it only matters
+      # to a signed build; here it passes everything through.)
+      - name: Retry Tauri's disk-image creation (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: echo "$GITHUB_WORKSPACE/scripts/macos/shim" >> "$GITHUB_PATH"
       - name: Build & bundle
         run: pnpm tauri build
       # Run the sidecar from each installed bundle, not the build tree.

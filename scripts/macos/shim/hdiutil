@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# A stand-in for hdiutil that goes first on PATH while Tauri builds the macOS
+# .dmg. Everything passes straight through to the real hdiutil except
+# `hdiutil create`, which is tried again when it fails with "Resource busy".
+#
+# Why: Tauri's bundle_dmg.sh makes the disk image with a bare
+# `hdiutil create -srcfolder`. On hosted runners that now and then fails with
+# "hdiutil: create failed - Resource busy" (something else on the machine
+# still has the scratch volume open) and the whole build dies with it.
+# bundle_dmg.sh retries its own eject. It doesn't retry this.
+#
+# Five tries, waiting 5, 10, 15 and 20 seconds between them. Any other
+# failure isn't retried: it comes back at once, with hdiutil's own exit code.
+# stdout and stderr stay the separate streams hdiutil wrote them to.
+#
+# Runs under the bash macOS ships (3.2).
+set -euo pipefail
+
+self="${BASH_SOURCE[0]}"
+
+# The real hdiutil: the first one on PATH that isn't this file.
+real=""
+while IFS= read -r candidate; do
+  [ "$candidate" -ef "$self" ] && continue
+  real="$candidate"
+  break
+done < <(type -ap hdiutil)
+if [ -z "$real" ]; then
+  echo "hdiutil: no real hdiutil on PATH" >&2
+  exit 127
+fi
+
+[ "${1:-}" = create ] || exec "$real" "$@"
+
+# The image is create's last argument. If it's there before the first try,
+# it's the caller's (they passed -ov) and it's left alone. If a failed try
+# leaves one that wasn't, the next try would stop on "File exists".
+image="${!#}"
+ours=""
+case "$image" in
+  *.dmg) [ -e "$image" ] || ours=1 ;;
+esac
+
+err="$(mktemp)"
+trap 'rm -f "$err"' EXIT
+
+tries=5
+try=1
+while :; do
+  set +e
+  {
+    "$real" "$@" 2>&1 >&3 3>&- | tee "$err" >&2
+    rc="${PIPESTATUS[0]}"
+  } 3>&1
+  set -e
+  [ "$rc" -ne 0 ] || exit 0
+
+  # 16 is EBUSY, for an hdiutil that says it with the exit code alone.
+  if [ "$rc" -ne 16 ] && ! grep -q 'Resource busy' "$err"; then
+    exit "$rc"
+  fi
+  if [ "$try" -ge "$tries" ]; then
+    echo "hdiutil create failed $tries times with \"Resource busy\"" >&2
+    exit "$rc"
+  fi
+  if [ -n "$ours" ] && [ -f "$image" ]; then
+    rm -f "$image"
+  fi
+  wait=$((try * 5))
+  echo "hdiutil create: Resource busy (try $try of $tries). Trying again in ${wait}s..." >&2
+  sleep "$wait"
+  try=$((try + 1))
+done
