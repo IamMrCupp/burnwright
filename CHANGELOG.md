@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.19.0](https://github.com/IamMrCupp/burnwright/compare/v0.18.0...v0.19.0) (2026-11-24)
+
+
+### Features
+
+* **icon:** burnwright's own app icon in place of the Tauri placeholder ([caff284](https://github.com/IamMrCupp/burnwright/commit/caff284dede0217ec7cb37abb331e74b8f92a030))
+
+
+### Bug Fixes
+
+* **icon:** macOS margin in the icns, PNG layers in the ico, fail before changing anything ([6acb0e4](https://github.com/IamMrCupp/burnwright/commit/6acb0e49878a49a8e9641e47a5d57e30e2e2c938))
+
 ## [0.18.0](https://github.com/IamMrCupp/burnwright/compare/v0.17.0...v0.18.0) (2026-11-22)
 
 
