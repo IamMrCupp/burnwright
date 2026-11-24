@@ -98,6 +98,8 @@ signed first:
 
 If stapling still fails, step 5 fails the job and nothing is uploaded. Re-running the failed job from the Actions page is safe: it rebuilds, notarizes again and uploads only that platform's `.dmg`, then `SHA256SUMS`.
 
+**So is making the disk image.** Tauri's `bundle_dmg.sh` builds the `.dmg` with a bare `hdiutil create`, and on a hosted runner that now and then fails with `hdiutil: create failed - Resource busy` — something else still has the scratch volume open. The script retries its own eject but not this, so one bad second used to cost the whole build. `scripts/macos/shim/hdiutil` sits in the same folder as the `xcrun` stand-in: it tries `hdiutil create` up to five times when the failure is "Resource busy", fails at once on anything else, and passes every other `hdiutil` call straight through. PR builds (`ci.yml`) put that folder on `PATH` for every macOS build; a release does for a signed one. `scripts/macos/test-hdiutil-retry.sh` covers it with a stand-in `hdiutil`, so it runs on Linux.
+
 **No entitlements file.** The hardened runtime gates things like JIT, unsigned
 executable memory and loading other people's libraries. burnwright needs none of
 them: the webview's JIT lives in Apple's own WebKit process, and the sidecar links

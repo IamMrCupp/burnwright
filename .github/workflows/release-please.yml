@@ -145,7 +145,9 @@ jobs:
       # failure, so a dropped connection to Apple's ticket server puts an
       # unstapled .app in the .dmg. This puts a stand-in xcrun first on PATH
       # that tries that one call again and passes everything else through.
-      - name: Retry Tauri's stapling (macOS)
+      # The same folder has a stand-in hdiutil, which tries `hdiutil create`
+      # again when it fails with "Resource busy" (see ci.yml).
+      - name: Retry Tauri's stapling and disk-image creation (macOS)
         if: steps.signing.outputs.enabled == 'true'
         run: echo "$GITHUB_WORKSPACE/scripts/macos/shim" >> "$GITHUB_PATH"
       # With signing set up, Tauri signs the sidecar, the app binary and the
