@@ -230,7 +230,12 @@ mod tests {
         // The card ends where the script starts: nothing sits between them.
         let card = &card[..card.find("\n</div>\n<script>").expect("the card closes")];
         // Inside the card, so it shows and hides with it.
-        assert!(card.contains("<span class=\"credit\" id=\"credit\">burnwright</span>"));
+        let credit = card
+            .split_once("<span class=\"credit\" id=\"credit\">")
+            .expect("the card has a credit")
+            .1;
+        assert!(credit.contains("<svg viewBox=\"0 0 16 16\" aria-hidden=\"true\">"));
+        assert!(credit.contains("<span>burnwright</span>"));
         assert!(page.contains(".credit {"));
         let script = page.split_once("<script>").unwrap().1;
         assert!(script.contains(".get(\"credit\") === \"0\""));
@@ -238,6 +243,30 @@ mod tests {
         // The name is the page's own: the switch is the only code that
         // touches it, so nothing the feed sends sets it.
         assert_eq!(script.matches("credit").count(), 2);
+    }
+
+    /// The card's logo is the app's small icon, drawn shape for shape, so a
+    /// change to the icon can't leave the stream showing the old one.
+    #[test]
+    fn the_cards_logo_is_the_small_icon() {
+        let page = include_str!("page.html");
+        let icon = include_str!("../../icons/icon-small.svg");
+        let shapes = |svg: &str| -> Vec<String> {
+            svg.split('<')
+                .filter(|tag| tag.starts_with("rect ") || tag.starts_with("path "))
+                .map(|tag| tag.trim().to_string())
+                .collect()
+        };
+        let logo = page
+            .split_once("<span class=\"credit\" id=\"credit\">")
+            .unwrap()
+            .1
+            .split_once("</svg>")
+            .expect("the credit draws the logo")
+            .0;
+        let drawn = shapes(icon);
+        assert!(!drawn.is_empty());
+        assert_eq!(shapes(logo), drawn);
     }
 
     fn free_port() -> u16 {

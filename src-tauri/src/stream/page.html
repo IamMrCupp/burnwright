@@ -77,15 +77,29 @@ body {
   color: var(--bw-muted);
 }
 
-/* The tool's name, as a credit rather than a logo: small and quiet, in the
-   corner the programmer's name leaves free. It's inside the card, so it shows
-   and hides with it. */
+/* What's drawing the card: the logo and the name, small, in the corner the
+   programmer's name leaves free. It's inside the card, so it shows and hides
+   with it. */
 .credit {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: center;
   font-size: 11px;
   letter-spacing: 0.08em;
   color: var(--bw-muted);
-  opacity: 0.8;
+}
+
+/* At 16px the icon's cells land on whole pixels, so it stays sharp. */
+.credit svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.credit[hidden] {
+  display: none;
 }
 
 .chip {
@@ -189,7 +203,17 @@ body {
     <p class="programmer" id="programmer"></p>
     <!-- What's drawing the card (#130). ?credit=0 on the page's address leaves
          it off. -->
-    <span class="credit" id="credit">burnwright</span>
+    <span class="credit" id="credit">
+      <!-- src-tauri/icons/icon-small.svg, drawn here because the page loads
+           nothing. A test keeps the two the same. -->
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <rect width="16" height="16" rx="3.5" fill="#1e1f26"/>
+        <rect x="3.5" y="1.5" width="9" height="13" rx="1" fill="none" stroke="#8fe3f2"/>
+        <path d="M1.5 5.5H3M1.5 10.5H3M13 5.5H14.5M13 10.5H14.5" stroke="#8fe3f2"/>
+        <rect x="5" y="3" width="2" height="2" fill="#ffb347"/><rect x="5" y="5" width="2" height="2" fill="#ffb347"/><rect x="5" y="7" width="2" height="2" fill="#ffb347"/><rect x="7" y="7" width="2" height="2" fill="#ffb347"/><rect x="9" y="7" width="2" height="2" fill="#ffb347"/><rect x="5" y="9" width="2" height="2" fill="#ffb347"/><rect x="9" y="9" width="2" height="2" fill="#ffb347"/><rect x="5" y="11" width="2" height="2" fill="#ffb347"/><rect x="7" y="11" width="2" height="2" fill="#ffb347"/><rect x="9" y="11" width="2" height="2" fill="#ffb347"/>
+      </svg>
+      <span>burnwright</span>
+    </span>
   </div>
   <p class="chip" id="chip"></p>
   <div class="work" id="work" hidden>
