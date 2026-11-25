@@ -163,6 +163,19 @@ databases and drives every programmer. If a path you set, or the bundled
 minipro, isn't there, burnwright stops with an error instead of quietly
 running some other minipro.
 
+## What's inside a dump
+
+**Inspect**, in the buffer's bar, scans the buffer for formats it knows — file
+systems, compressed data, boot images — and lists where each one starts. Pick a
+row and the hex editor goes there.
+
+It runs on this computer, in a second copy of burnwright, so a corrupt dump
+that trips the scanner can't take the window down with it. It lists what it
+finds; it doesn't unpack anything. And it hasn't met a real dump yet — only
+images built for its tests.
+
+More in [docs/inspect.md](docs/inspect.md).
+
 ## Laptop ECs
 
 There's a second bench, **Laptop EC**, for backing up a laptop's embedded

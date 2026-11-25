@@ -12,6 +12,11 @@ export function formatByteCount(n: number): string {
   return `${formatCount(n)} ${n === 1 ? "byte" : "bytes"}`;
 }
 
+/** An offset into the buffer: `4096` → `"0x00001000"`. */
+export function formatOffset(offset: number): string {
+  return `0x${offset.toString(16).toUpperCase().padStart(8, "0")}`;
+}
+
 const UNITS: readonly [number, string][] = [
   [1024 ** 3, "GiB"],
   [1024 ** 2, "MiB"],

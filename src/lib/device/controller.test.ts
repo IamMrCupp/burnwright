@@ -82,6 +82,162 @@ function setup(options: FakeEngineOptions = {}, settings?: SettingsStore) {
   return { fake, dialogs, closeWindow, controller, state, idle, ready, commands };
 }
 
+describe("what's inside the buffer", () => {
+  const GZIP = [0x1f, 0x8b, 0x08, 0x00];
+  /** 64 erased bytes with a gzip header at 16. */
+  const image = () => {
+    const data = new Uint8Array(64).fill(0xff);
+    data.set(GZIP, 16);
+    return data;
+  };
+
+  async function withFile(options: FakeEngineOptions = {}) {
+    const rig = setup({ files: { "/img.bin": image() }, ...options });
+    rig.dialogs.open.mockResolvedValue("/img.bin");
+    await rig.controller.openFile();
+    return rig;
+  }
+
+  it("does nothing without a buffer", async () => {
+    const { controller, fake, state } = setup();
+    await controller.inspect();
+    expect(state().inspect).toBeNull();
+    expect(fake.calls.some((c) => c.command === "inspectBuffer")).toBe(false);
+  });
+
+  it("scans the buffer and keeps the report", async () => {
+    const { controller, state } = await withFile();
+    const scan = controller.inspect();
+    expect(state().inspect).toEqual({ status: "scanning", bytes: 64 });
+    await scan;
+    expect(state().inspect).toMatchObject({
+      status: "done",
+      stale: false,
+      report: { len: 64, findings: [{ offset: 16, kind: "gzip" }] },
+    });
+  });
+
+  it("scans the edited bytes, not the ones that were loaded", async () => {
+    const { controller, fake, state } = await withFile();
+    const seen: Uint8Array[] = [];
+    fake.scan = (data) => {
+      seen.push(data);
+      return { len: data.length, findings: [] };
+    };
+    const edited = image();
+    edited[0] = 0x00;
+    controller.editBuffer(edited, true);
+    await controller.inspect();
+    expect(seen).toEqual([edited]);
+    expect(state().inspect).toMatchObject({ status: "done", stale: false });
+  });
+
+  it("runs one scan at a time", async () => {
+    const { controller, fake, state } = await withFile();
+    fake.hold();
+    const first = controller.inspect();
+    const second = controller.inspect();
+    fake.release();
+    await Promise.all([first, second]);
+    expect(fake.calls.filter((c) => c.command === "inspectBuffer")).toHaveLength(1);
+    expect(state().inspect).toMatchObject({ status: "done" });
+  });
+
+  it("says a scan that died failed, and doesn't call it an empty report", async () => {
+    const { controller, fake, state } = await withFile();
+    fake.scan = () => {
+      throw {
+        kind: "scan_failed",
+        message: "the scan stopped without a result: signal: 6 (SIGABRT)",
+        device_state: null,
+      };
+    };
+    await controller.inspect();
+    expect(state().inspect).toEqual({
+      status: "failed",
+      message: "the scan stopped without a result: signal: 6 (SIGABRT)",
+    });
+    // And the next one gets its turn.
+    fake.scan = (data) => ({ len: data.length, findings: [] });
+    await controller.inspect();
+    expect(state().inspect).toMatchObject({ status: "done", report: { findings: [] } });
+  });
+
+  it("stops a running scan when asked", async () => {
+    const { controller, fake, state } = await withFile();
+    fake.hold();
+    const scan = controller.inspect();
+    controller.cancelInspect();
+    fake.release();
+    await scan;
+    expect(state().inspect).toEqual({ status: "cancelled" });
+  });
+
+  it("marks the report stale when the buffer was edited while it ran", async () => {
+    const { controller, fake, state } = await withFile();
+    fake.hold();
+    const scan = controller.inspect();
+    const edited = image();
+    edited[40] = 0x00;
+    controller.editBuffer(edited, true);
+    fake.release();
+    await scan;
+    expect(state().inspect).toMatchObject({ status: "done", stale: true });
+  });
+
+  it("marks the report stale when the buffer is edited afterwards", async () => {
+    const { controller, state } = await withFile();
+    await controller.inspect();
+    const edited = image();
+    edited[40] = 0x00;
+    controller.editBuffer(edited, true);
+    expect(state().inspect).toMatchObject({ status: "done", stale: true });
+  });
+
+  it("stops the scan and drops its report when another file is opened", async () => {
+    const { controller, fake, dialogs, state } = await withFile({
+      files: { "/img.bin": image(), "/other.bin": bytes(1, 2, 3) },
+    });
+    fake.hold();
+    const scan = controller.inspect();
+    dialogs.open.mockResolvedValue("/other.bin");
+    const opening = controller.openFile();
+    fake.release();
+    await Promise.all([scan, opening]);
+    expect(state().buffer?.bytes).toEqual(bytes(1, 2, 3));
+    // Not "cancelled", and not the old file's report: nothing.
+    expect(state().inspect).toBeNull();
+  });
+
+  it("puts the report away, and stops a scan that's still running", async () => {
+    const { controller, fake, state } = await withFile();
+    await controller.inspect();
+    controller.closeInspect();
+    expect(state().inspect).toBeNull();
+
+    fake.hold();
+    const scan = controller.inspect();
+    controller.closeInspect();
+    fake.release();
+    await scan;
+    expect(state().inspect).toBeNull();
+  });
+
+  it("scans beside a running operation", async () => {
+    const { controller, fake, state, ready } = await withFile({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    fake.hold();
+    controller.run("blank_check");
+    await soon(() => expect(state().running).not.toBeNull());
+    const scan = controller.inspect();
+    fake.release();
+    await scan;
+    expect(state().inspect).toMatchObject({ status: "done" });
+  });
+});
+
 describe("programmer", () => {
   it("finds the programmer and searches its chip list", async () => {
     const { controller, state } = setup();

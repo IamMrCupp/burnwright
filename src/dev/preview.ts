@@ -3,7 +3,10 @@
 // clicked through with no programmer and no Rust build. `main.tsx` only
 // imports this in development.
 //
-// The chip in the pretend socket is a W25Q32BV@SOIC8 holding a pattern.
+// The chip in the pretend socket is a W25Q32BV@SOIC8 holding a pattern,
+// with the first bytes of a uImage, a gzip stream and a SquashFS planted in
+// it: "Inspect" runs a pretend scan that finds those three by their first
+// bytes and nothing else (`fakeScan`). The real scanner isn't in a browser.
 // Picking MX25L3206E@SOP8 gives a chip ID mismatch; "Open…" loads an image
 // that's a few bytes different from the chip, so Verify shows a diff.
 //
@@ -40,6 +43,11 @@ function pattern(): Uint8Array {
     bytes[i] = i < 4096 ? text[i % text.length] : (i * 31 + (i >> 8)) & 0xff;
   }
   bytes.fill(0xff, SIZE - 65536);
+  // What a router's flash starts like, as far as the pretend scan looks:
+  // a boot image, a compressed kernel, a file system.
+  bytes.set([0x27, 0x05, 0x19, 0x56], 0x10000);
+  bytes.set([0x1f, 0x8b, 0x08, 0x00], 0x10040);
+  bytes.set([0x68, 0x73, 0x71, 0x73], 0x180000);
   return bytes;
 }
 

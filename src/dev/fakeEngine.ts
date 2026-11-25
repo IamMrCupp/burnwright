@@ -17,6 +17,8 @@ import type {
   DeviceInfo,
   Diagnosis,
   EngineError,
+  InspectFinding,
+  InspectReport,
   OperationOptions,
   Programmer,
 } from "../lib/engine";
@@ -92,6 +94,11 @@ export interface FakeEngine extends DeviceEngine {
   failNext(error: EngineError): void;
   /** The algorithm file chosen with `setAlgorithmPath`. */
   algorithmPath: string | null;
+  /**
+   * What a scan of the buffer reports. Assign to change it, or to throw the
+   * way a scan that died does. Default: `fakeScan`.
+   */
+  scan: (bytes: Uint8Array) => InspectReport;
 }
 
 /** Where the bundled T76 minipro looks when no file is chosen. */
@@ -236,6 +243,59 @@ function engineError(
   device_state: EngineError["device_state"] = null,
 ): EngineError {
   return { kind, message, device_state };
+}
+
+/** The formats the pretend scanner knows, by the bytes each starts with. */
+const FAKE_SIGNATURES: readonly {
+  magic: readonly number[];
+  kind: string;
+  description: string;
+  /** How long the pretend finding is; `null` for one the scanner can't size. */
+  size: number | null;
+}[] = [
+  {
+    magic: [0x27, 0x05, 0x19, 0x56],
+    kind: "uimage",
+    description: "uImage firmware image, header size: 64 bytes, OS: Linux, CPU: MIPS32",
+    size: 64,
+  },
+  {
+    magic: [0x1f, 0x8b, 0x08],
+    kind: "gzip",
+    description: "gzip compressed data, operating system: Unix",
+    size: null,
+  },
+  {
+    magic: [0x68, 0x73, 0x71, 0x73],
+    kind: "squashfs",
+    description: "SquashFS file system, little endian, version: 4.0, compression: xz",
+    size: null,
+  },
+];
+
+/**
+ * A pretend scan: finds the few formats in `FAKE_SIGNATURES` by their first
+ * bytes and reports them the way the real scanner words its findings. It
+ * checks nothing past those bytes, which the real one does.
+ */
+export function fakeScan(bytes: Uint8Array): InspectReport {
+  const findings: InspectFinding[] = [];
+  for (let offset = 0; offset < bytes.length; offset++) {
+    const found = FAKE_SIGNATURES.find((signature) =>
+      signature.magic.every((byte, i) => bytes[offset + i] === byte),
+    );
+    if (!found) continue;
+    const fits = found.size !== null && offset + found.size <= bytes.length;
+    findings.push({
+      offset,
+      size: fits ? found.size : null,
+      kind: found.kind,
+      description: found.description,
+      confidence: found.kind === "gzip" ? "medium" : "high",
+    });
+    offset += found.magic.length - 1;
+  }
+  return { len: bytes.length, findings };
 }
 
 export function createFakeEngine(options: FakeEngineOptions = {}): FakeEngine {
@@ -614,6 +674,19 @@ export function createFakeEngine(options: FakeEngineOptions = {}): FakeEngine {
     async saveImage(path, data) {
       fake.calls.push({ command: "saveImage", path });
       fake.saved[path] = Uint8Array.from(data);
+    },
+
+    scan: fakeScan,
+
+    async inspectBuffer(data, opts = {}) {
+      fake.calls.push({ command: "inspectBuffer" });
+      if (held) await held;
+      if (stepMs > 0) await new Promise((resolve) => setTimeout(resolve, stepMs * 4));
+      else await Promise.resolve();
+      if (opts.signal?.aborted) {
+        throw engineError("cancelled", "the scan was cancelled", "unchanged");
+      }
+      return fake.scan(data);
     },
   };
 

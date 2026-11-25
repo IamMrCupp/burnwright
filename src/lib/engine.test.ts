@@ -45,6 +45,74 @@ beforeEach(() => {
   invoke.mockReset();
 });
 
+describe("inspectBuffer", () => {
+  const report = {
+    len: 4,
+    findings: [
+      { offset: 0, size: 4, kind: "gzip", description: "gzip compressed data", confidence: "high" },
+    ],
+  };
+
+  function lastScan(): { body: unknown; opId: string } {
+    const call = invoke.mock.calls.filter(([c]) => c === "inspect_buffer").pop();
+    if (!call) throw new Error("inspect_buffer was not invoked");
+    const { headers } = call[2] as { headers: Record<string, string> };
+    return { body: call[1], opId: headers["burnwright-op-id"] };
+  }
+
+  it("sends the bytes as the body, untouched, with the operation id in a header", async () => {
+    invoke.mockResolvedValue(report);
+    const bytes = Uint8Array.of(0x1f, 0x8b, 0x08, 0x00);
+    await expect(engine.inspectBuffer(bytes)).resolves.toEqual(report);
+    const { body, opId } = lastScan();
+    // The same Uint8Array: Tauri posts it as raw bytes, where an array of
+    // numbers would be four characters a byte.
+    expect(body).toBe(bytes);
+    expect(opId).toMatch(/\S/);
+  });
+
+  it("gives every scan its own id", async () => {
+    invoke.mockResolvedValue(report);
+    await engine.inspectBuffer(new Uint8Array(1));
+    const first = lastScan().opId;
+    await engine.inspectBuffer(new Uint8Array(1));
+    expect(lastScan().opId).not.toBe(first);
+  });
+
+  it("cancels by that id when the signal is aborted", async () => {
+    let finish: (value: unknown) => void = () => {};
+    invoke.mockImplementation((command: string) =>
+      command === "inspect_buffer"
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve(true),
+    );
+    const abort = new AbortController();
+    const scan = engine.inspectBuffer(new Uint8Array(8), { signal: abort.signal });
+    abort.abort();
+    expect(invoke).toHaveBeenLastCalledWith("cancel_operation", { opId: lastScan().opId });
+    finish(report);
+    await scan;
+  });
+
+  it("cancels a scan whose signal was aborted before it started", async () => {
+    invoke.mockResolvedValue(true);
+    const abort = new AbortController();
+    abort.abort();
+    await engine.inspectBuffer(new Uint8Array(8), { signal: abort.signal });
+    const cancels = invoke.mock.calls.filter(([c]) => c === "cancel_operation");
+    expect(cancels).toEqual([["cancel_operation", { opId: lastScan().opId }]]);
+  });
+
+  it("passes the engine's rejection through", async () => {
+    const failed = { kind: "scan_failed", message: "the scan stopped", device_state: null };
+    invoke.mockRejectedValue(failed);
+    await expect(engine.inspectBuffer(new Uint8Array(1))).rejects.toBe(failed);
+    expect(isEngineError(failed)).toBe(true);
+  });
+});
+
 describe("algorithm file", () => {
   it("asks for the state and sets the path by the commands' names", async () => {
     const status = { configured: null, found: null, default_path: "/s/algorithm.xml" };
