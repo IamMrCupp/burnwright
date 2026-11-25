@@ -75,6 +75,7 @@ Nobody's tried this rule on a Linux machine with a real CH341A yet.
 | `/usr/bin/burnwright` | the app |
 | `/usr/bin/burnwright-minipro` | the bundled minipro ([minipro-sidecar.md](minipro-sidecar.md)) |
 | `/usr/lib/burnwright/minipro/` | minipro's chip databases, licences and NOTICE |
+| `/usr/lib/burnwright/LICENSE.txt`, `THIRD-PARTY-NOTICES.txt` | burnwright's licence, and the licences of what's compiled into it ([notices.md](notices.md)) |
 | `/usr/lib/udev/rules.d/60-burnwright-minipro.rules` | the udev rules for XGecu programmers |
 | `/usr/lib/udev/rules.d/60-burnwright-flashrom.rules` | the udev rules for the CH341A |
 | `/usr/share/applications/`, `/usr/share/icons/` | the menu entry and icons |

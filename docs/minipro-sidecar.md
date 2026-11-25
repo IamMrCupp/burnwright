@@ -221,6 +221,10 @@ zlib are compatible. Each bundle's `minipro/` folder carries:
 
 `minipro-t76/` carries the same set for the T76 build.
 
+That's the sidecars. What's compiled into the app itself (the Rust crates and
+the npm packages) is in `THIRD-PARTY-NOTICES.txt`, one folder up:
+[notices.md](notices.md).
+
 Every release also gets `minipro-sidecar-source_<version>.tar.gz` (the `sources`
 job in `release-please.yml`): the minipro source at the pinned commit, the
 libusb and zlib tarballs with their signatures, and the build scripts. That's

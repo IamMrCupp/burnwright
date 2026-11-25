@@ -23,6 +23,9 @@
 #   lzfse are compiled in, and a copy picked up from the build machine would
 #   be missing on the user's.
 #
+#   And each bundle carries burnwright's own licence and the third-party
+#   notices (#156), byte for byte the ones in this checkout.
+#
 # Each sidecar must report its version and database counts, list more than a
 # thousand chips, and say "No programmer found" (CI has no hardware). The
 # databases are passed by their bundled path, with an empty PATH, from an
@@ -77,6 +80,20 @@ check_sidecar() {
   echo "-k: $out"
   grep -q "No programmer found" <<<"$out" || die "$label: -k gave unexpected output"
   echo "$label: OK"
+}
+
+# check_notices <label> <the bundle's resource folder>: burnwright's licence
+# and the notices for what's compiled into it (#156) are in the bundle, and
+# they're the files in this checkout, not older or emptier ones.
+check_notices() {
+  local label="$1" res="$2" pair installed source
+  section "$label: licence and notices in $res"
+  for pair in LICENSE.txt:LICENSE THIRD-PARTY-NOTICES.txt:THIRD-PARTY-NOTICES.txt; do
+    installed="$res/${pair%%:*}" source="$here/../../${pair##*:}"
+    [ -s "$installed" ] || die "$label: no $installed"
+    cmp "$installed" "$source" || die "$label: $installed isn't the ${pair##*:} in this checkout"
+    echo "${pair%%:*}: $(wc -c <"$installed" | tr -d ' ') bytes, same as the checkout's"
+  done
 }
 
 # check_scan_worker <label> <the app's binary>: started as its own scan
@@ -160,6 +177,7 @@ verify_macos() {
     die "burnwright links a library that macOS doesn't ship (Homebrew, @rpath, ...)"
   fi
   check_scan_worker "macOS .app" "$bin"
+  check_notices "macOS .app" "$app/Contents/Resources"
 }
 
 # check_libs <ELF>: every library resolves, and libusb isn't one of them.
@@ -360,6 +378,7 @@ verify_linux() {
   section "the installed app's own dependencies"
   check_app_links /usr/bin/burnwright
   check_scan_worker ".deb (installed)" /usr/bin/burnwright
+  check_notices ".deb (installed)" /usr/lib/burnwright
   check_libs "/usr/bin/$SIDECAR_NAME"
   check_sidecar ".deb (installed)" "/usr/bin/$SIDECAR_NAME" /usr/lib/burnwright/minipro
   check_libs "/usr/bin/$T76_SIDECAR_NAME"
@@ -403,6 +422,7 @@ verify_linux() {
   section "the AppImage app's own dependencies"
   check_app_links "$root/usr/bin/burnwright"
   check_scan_worker "AppImage" "$root/usr/bin/burnwright"
+  check_notices "AppImage" "$root/usr/lib/burnwright"
 }
 
 case "${1:-}" in

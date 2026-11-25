@@ -44,7 +44,9 @@
     ],
     "resources": {
       "binaries/minipro/*": "minipro/",
-      "binaries/minipro-t76/*": "minipro-t76/"
+      "binaries/minipro-t76/*": "minipro-t76/",
+      "../LICENSE": "LICENSE.txt",
+      "../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
     },
     "linux": {
       "deb": {

@@ -11,7 +11,9 @@
 # "No programmer found" (CI has no hardware). Then burnwright.exe itself,
 # started the way it starts itself to scan a dump (--inspect-worker, #153):
 # it has to read a dump from stdin and write its report to stdout, with the
-# same cut-down PATH. Uninstalls afterwards.
+# same cut-down PATH. And the install folder has burnwright's own licence
+# and the third-party notices (#156), the same files as this checkout's.
+# Uninstalls afterwards.
 param([Parameter(Mandatory)][string]$Installer)
 
 $ErrorActionPreference = 'Stop'
@@ -148,6 +150,20 @@ if (-not $json) { Fail "the scan worker wrote nothing" }
 if (-not $json.Contains("`"len`":$len,")) { Fail "the report isn't of all $len bytes" }
 if (-not $json.Contains('"offset":4096,"size":74,"kind":"gzip"')) { Fail "the scan worker didn't find the gzip file at offset 4096" }
 Write-Host "scan worker: OK"
+
+# burnwright's licence and the notices for what's compiled into it (#156):
+# in the install folder, and the files in this checkout, not older ones.
+Section "licence and notices in $dir"
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+foreach ($pair in @(
+    @{ Installed = 'LICENSE.txt'; Source = 'LICENSE' },
+    @{ Installed = 'THIRD-PARTY-NOTICES.txt'; Source = 'THIRD-PARTY-NOTICES.txt' })) {
+  $installed = Join-Path $dir $pair.Installed
+  $source = Join-Path $repo $pair.Source
+  if (-not (Test-Path $installed) -or (Get-Item $installed).Length -eq 0) { Fail "no $installed" }
+  if ((Get-FileHash $installed).Hash -ne (Get-FileHash $source).Hash) { Fail "$installed isn't the $($pair.Source) in this checkout" }
+  Write-Host "$($pair.Installed): $((Get-Item $installed).Length) bytes, same as the checkout's"
+}
 
 Section "uninstall"
 $uninstaller = Join-Path $dir 'uninstall.exe'
