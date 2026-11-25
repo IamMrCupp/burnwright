@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.20.0](https://github.com/IamMrCupp/burnwright/compare/v0.19.0...v0.20.0) (2026-11-25)
+
+
+### Features
+
+* **stream:** burnwright's logo beside its name in the card's credit ([d270298](https://github.com/IamMrCupp/burnwright/commit/d2702980ed303173f9e0abff58d92cbf7169631e))
+
+
+### Bug Fixes
+
+* **stream:** logo test compares every tag and the icon's viewBox, credit sits level with the first line ([9572ded](https://github.com/IamMrCupp/burnwright/commit/9572ded093ef8e646ea3bbb4b3e942df5927f930))
+
 ## [0.19.0](https://github.com/IamMrCupp/burnwright/compare/v0.18.0...v0.19.0) (2026-11-24)
 
 
