@@ -461,6 +461,80 @@
   margin-top: 0.5rem;
 }
 
+/* --- what's inside the buffer ---------------------------------------- */
+
+/* Its own scroll: a dump with hundreds of findings mustn't push the buffer
+   off the screen. */
+.inspect-table {
+  max-height: 14rem;
+  margin-top: 0.5rem;
+  overflow: auto;
+  border: 1px solid var(--bw-border);
+  border-radius: 4px;
+}
+
+.inspect-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.inspect-table th,
+.inspect-table td {
+  padding: 0.25rem 0.6rem;
+  text-align: left;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+
+.inspect-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bw-panel);
+  color: var(--bw-muted);
+  font-weight: 600;
+  box-shadow: inset 0 -1px 0 var(--bw-border);
+}
+
+.inspect-table td.inspect-description {
+  width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.inspect-row {
+  cursor: pointer;
+}
+
+.inspect-row + .inspect-row td {
+  border-top: 1px solid var(--bw-border);
+}
+
+.inspect-row:hover,
+.inspect-row:focus-within {
+  background: var(--bw-accent-soft);
+}
+
+/* A match on little more than its first bytes: there, and not shouted. */
+.inspect-low {
+  color: var(--bw-muted);
+}
+
+.inspect-kind {
+  font-weight: 600;
+}
+
+/* Reads as an address in the row, and is still a button to a keyboard. */
+.inspect-offset {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--bw-accent);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  cursor: pointer;
+}
+
 /* --- log ------------------------------------------------------------- */
 
 .log-lines {

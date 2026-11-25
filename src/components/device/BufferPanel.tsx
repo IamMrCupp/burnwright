@@ -1,8 +1,9 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useRef } from "react";
 import { isSizeMismatch, sizeCheckText, type SizeCheck } from "../../lib/device/chip";
 import { fileName, formatByteCount } from "../../lib/device/format";
-import type { BufferState, DiffState, Unsaved } from "../../lib/device/state";
-import { HexDiffView, HexEditor } from "../hexview";
+import type { BufferState, DiffState, InspectState, Unsaved } from "../../lib/device/state";
+import { HexDiffView, HexEditor, type HexEditorHandle } from "../hexview";
+import { InspectPanel } from "./InspectPanel";
 
 export interface BufferPanelProps {
   buffer: BufferState | null;
@@ -20,11 +21,16 @@ export interface BufferPanelProps {
   fileBusy: boolean;
   /** The chip's contents after a failed verify, to show against the buffer. */
   diff: DiffState | null;
+  /** The scan of the buffer for known formats, once one has been asked for. */
+  inspect: InspectState | null;
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
   onEdit: (bytes: Uint8Array, edited: boolean) => void;
   onCloseDiff: () => void;
+  onInspect: () => void;
+  onCancelInspect: () => void;
+  onCloseInspect: () => void;
 }
 
 function describeSource(buffer: BufferState): string {
@@ -35,7 +41,7 @@ function describeSource(buffer: BufferState): string {
 /**
  * The working image: the hex editor, the file buttons, and how the buffer's
  * size compares with the chip. After a failed verify it also shows the chip
- * against the buffer.
+ * against the buffer, and after Inspect what a scan found in it.
  */
 export const BufferPanel = memo(function BufferPanel({
   buffer,
@@ -46,15 +52,29 @@ export const BufferPanel = memo(function BufferPanel({
   busy,
   fileBusy,
   diff,
+  inspect,
   onOpen,
   onSave,
   onSaveAs,
   onEdit,
   onCloseDiff,
+  onInspect,
+  onCancelInspect,
+  onCloseInspect,
 }: BufferPanelProps) {
   const onChange = useCallback(
     (bytes: Uint8Array, info: { dirty: boolean }) => onEdit(bytes, info.dirty),
     [onEdit],
+  );
+  const editor = useRef<HexEditorHandle>(null);
+  const length = buffer?.bytes.length ?? 0;
+  // A finding's offset is inside the bytes that were scanned. Held to the
+  // buffer as it is now anyway: the cursor has to land on a byte.
+  const onJump = useCallback(
+    (offset: number) => {
+      if (length > 0) editor.current?.goToIndex(Math.min(offset, length - 1));
+    },
+    [length],
   );
   const sizeLine = chip ? sizeCheckText(size, chip) : null;
   const mismatch = isSizeMismatch(size);
@@ -73,6 +93,15 @@ export const BufferPanel = memo(function BufferPanel({
             </button>
             <button type="button" onClick={onSaveAs} disabled={!buffer || busy || fileBusy}>
               Save as…
+            </button>
+            {/* A scan touches no chip, so it doesn't wait for an operation. */}
+            <button
+              type="button"
+              onClick={onInspect}
+              disabled={!buffer || inspect?.status === "scanning"}
+              title="Look for known formats in the buffer: file systems, compressed data, boot images"
+            >
+              Inspect
             </button>
           </div>
         </div>
@@ -112,6 +141,7 @@ export const BufferPanel = memo(function BufferPanel({
               </p>
             )}
             <HexEditor
+              ref={editor}
               data={buffer.original}
               onChange={onChange}
               readOnly={busy}
@@ -148,6 +178,16 @@ export const BufferPanel = memo(function BufferPanel({
             aria-label="Chip bytes that differ from the buffer"
           />
         </section>
+      )}
+
+      {inspect && buffer && (
+        <InspectPanel
+          inspect={inspect}
+          onScan={onInspect}
+          onCancel={onCancelInspect}
+          onClose={onCloseInspect}
+          onJump={onJump}
+        />
       )}
     </>
   );

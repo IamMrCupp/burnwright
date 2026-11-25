@@ -14,6 +14,74 @@ function running(state: DeviceState): DeviceState {
   return reducer(state, { type: "op_started", op: "write", chip: "X", heading: "Write X" });
 }
 
+describe("the scan of the buffer", () => {
+  const report = {
+    len: 4,
+    findings: [
+      {
+        offset: 0,
+        size: 4,
+        kind: "gzip",
+        description: "gzip compressed data",
+        confidence: "high" as const,
+      },
+    ],
+  };
+  const loaded = (bytes: Uint8Array) =>
+    reducer(initialState(), {
+      type: "buffer_loaded",
+      bytes,
+      source: { kind: "file", path: "/a.bin" },
+    });
+
+  it("goes from scanning to a report", () => {
+    let state = loaded(Uint8Array.of(1, 2, 3, 4));
+    expect(state.inspect).toBeNull();
+    state = reducer(state, { type: "inspect_started", bytes: 4 });
+    expect(state.inspect).toEqual({ status: "scanning", bytes: 4 });
+    state = reducer(state, { type: "inspect_done", report, stale: false });
+    expect(state.inspect).toEqual({ status: "done", report, stale: false });
+  });
+
+  it("marks a report stale once the buffer is edited, and keeps it", () => {
+    const bytes = Uint8Array.of(1, 2, 3, 4);
+    let state = loaded(bytes);
+    state = reducer(state, { type: "inspect_done", report, stale: false });
+    // The editor reporting the bytes it was given isn't an edit.
+    state = reducer(state, { type: "buffer_edited", bytes, edited: false });
+    expect(state.inspect).toMatchObject({ stale: false });
+    state = reducer(state, {
+      type: "buffer_edited",
+      bytes: Uint8Array.of(9, 2, 3, 4),
+      edited: true,
+    });
+    expect(state.inspect).toEqual({ status: "done", report, stale: true });
+  });
+
+  it("drops the report when other bytes are loaded", () => {
+    let state = loaded(Uint8Array.of(1, 2, 3, 4));
+    state = reducer(state, { type: "inspect_done", report, stale: false });
+    state = reducer(state, {
+      type: "buffer_loaded",
+      bytes: Uint8Array.of(5),
+      source: { kind: "chip", chip: "X" },
+    });
+    expect(state.inspect).toBeNull();
+  });
+
+  it("keeps a failure apart from a report with nothing in it", () => {
+    let state = loaded(Uint8Array.of(1));
+    state = reducer(state, { type: "inspect_failed", message: "signal: 6" });
+    expect(state.inspect).toEqual({ status: "failed", message: "signal: 6" });
+    state = reducer(state, { type: "inspect_cancelled" });
+    expect(state.inspect).toEqual({ status: "cancelled" });
+    state = reducer(state, { type: "inspect_closed" });
+    expect(state.inspect).toBeNull();
+    // Closing what's already closed changes nothing.
+    expect(reducer(state, { type: "inspect_closed" })).toBe(state);
+  });
+});
+
 describe("reducer", () => {
   it("follows minipro's stages and percentages", () => {
     let state = running(initialState());

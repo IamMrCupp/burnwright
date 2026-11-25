@@ -319,7 +319,13 @@ export type EngineErrorKind =
   /** flashrom isn't installed, or isn't where a setting says it is. */
   | "flashrom_not_found"
   /** The probe is there and no chip answered on it. */
-  | "no_chip";
+  | "no_chip"
+  /**
+   * The scan of the buffer gave no report: its worker process crashed, was
+   * killed or couldn't start. The app and the buffer are untouched. It never
+   * means "nothing found": that's a report with no findings.
+   */
+  | "scan_failed";
 
 /** How a device or chip command rejects (mirrors `commands::CommandError`). */
 export interface EngineError {
@@ -574,6 +580,34 @@ export interface AppInfo {
   minipro_t76: string;
 }
 
+/** How sure the scanner is that a finding is what it says (mirrors `inspect::Confidence`). */
+export type InspectConfidence = "low" | "medium" | "high";
+
+/** One thing found in a dump (mirrors `inspect::Finding`). */
+export interface InspectFinding {
+  /** Where it starts, in bytes from the start of the dump. */
+  offset: number;
+  /** How long it is, when the format says. `null` when the scanner couldn't tell. */
+  size: number | null;
+  /** The format's short name: "gzip", "uimage", "squashfs". */
+  kind: string;
+  /** What the scanner read out of it, as one line. */
+  description: string;
+  confidence: InspectConfidence;
+}
+
+/**
+ * What a scan of one dump found (mirrors `inspect::Report`). Findings come
+ * in offset order, and every one lies inside the `len` bytes scanned.
+ */
+export interface InspectReport {
+  len: number;
+  findings: InspectFinding[];
+}
+
+/** The header `inspect_buffer` reads its operation id from (`inspect_commands::OP_ID_HEADER`). */
+export const INSPECT_OP_ID_HEADER = "burnwright-op-id";
+
 /** Options every device command takes. */
 export interface OperationOptions {
   /** Called for every progress event, in order. */
@@ -687,6 +721,32 @@ function chipOp<T>(
   return deviceOp(command, { ...args, overrides }, options);
 }
 
+/**
+ * Scan a dump for known formats. The bytes go as the request's body, as they
+ * are, so the operation id travels in a header: a body of bytes leaves no
+ * room for named arguments. `cancel_operation` stops it like a device
+ * operation; the promise then rejects with `cancelled`.
+ */
+async function inspectBuffer(
+  data: Uint8Array,
+  options: Pick<OperationOptions, "signal"> = {},
+): Promise<InspectReport> {
+  const { signal } = options;
+  const opId = newOpId();
+  const abort = () => {
+    void cancelOperation(opId);
+  };
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
+  try {
+    return await invoke<InspectReport>("inspect_buffer", data, {
+      headers: { [INSPECT_OP_ID_HEADER]: opId },
+    });
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
+}
+
 /** Bytes to send over IPC. A Uint8Array would serialize as an object. */
 function toByteArray(data: ArrayLike<number>): number[] {
   return Array.isArray(data) ? data : Array.from(data);
@@ -798,6 +858,13 @@ export const engine = {
     format?: ImageFormat,
   ): Promise<void> =>
     invoke("save_image", { path, data, format: format ?? null }),
+  /**
+   * Say what's inside a dump: the known formats in it and where they start.
+   * A dump with nothing known in it resolves with no findings. Rejects with
+   * `scan_failed` when the scan itself died, `busy` while another one runs,
+   * and `cancelled` once `signal` is aborted.
+   */
+  inspectBuffer,
 };
 
 /** The command surface, for code that takes an engine instead of importing this one. */

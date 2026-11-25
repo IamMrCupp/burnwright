@@ -17,6 +17,9 @@
 //   stopped first, and a write or erase asks before that.
 // - The T76's algorithm file is the user's own: the screen only ever holds
 //   its path, and hands that to the engine.
+// - A scan of the buffer touches no chip, so it runs beside an operation.
+//   Its report is of the bytes it was given: a new buffer drops it, and an
+//   edit marks it stale.
 import {
   errorMessage,
   isEngineError,
@@ -81,6 +84,7 @@ export type DeviceEngine = Pick<
   | "erase"
   | "loadImage"
   | "saveImage"
+  | "inspectBuffer"
 >;
 
 /** The system's open and save panels. Each resolves to a path, or `null` when the user backs out. */
@@ -128,6 +132,8 @@ export class DeviceController {
 
   /** Cancels the running operation. */
   private abort: AbortController | null = null;
+  /** Cancels the running scan of the buffer. */
+  private scanAbort: AbortController | null = null;
   /** The window closes as soon as the running operation has stopped. */
   private closeWhenStopped = false;
   /** Chips waiting for a size lookup, and whose list they're from. */
@@ -160,6 +166,12 @@ export class DeviceController {
     const next = reducer(this.state, action);
     if (next === this.state) return;
     this.state = next;
+    // A scan nobody is waiting for any more is stopped: its buffer was
+    // replaced, or its panel closed.
+    if (this.scanAbort && next.inspect?.status !== "scanning") {
+      this.scanAbort.abort();
+      this.scanAbort = null;
+    }
     for (const listener of this.listeners) listener();
   }
 
@@ -829,6 +841,49 @@ export class DeviceController {
 
   closeDiff = (): void => {
     this.dispatch({ type: "diff_closed" });
+  };
+
+  // --- what's inside the buffer ------------------------------------------
+
+  /**
+   * Scan the buffer for known formats. One scan at a time; it runs beside a
+   * device operation, since it touches no chip.
+   */
+  inspect = async (): Promise<void> => {
+    const buffer = this.state.buffer;
+    if (!buffer || this.state.inspect?.status === "scanning") return;
+    const scanned = buffer.bytes;
+    const abort = new AbortController();
+    this.scanAbort = abort;
+    this.dispatch({ type: "inspect_started", bytes: scanned.length });
+    try {
+      const report = await this.engine.inspectBuffer(scanned, { signal: abort.signal });
+      // Dropped while it ran: a new buffer came in, or the panel was closed.
+      if (this.scanAbort !== abort) return;
+      this.dispatch({
+        type: "inspect_done",
+        report,
+        // Edited while it ran: the report is of the bytes as they were.
+        stale: this.state.buffer?.bytes !== scanned,
+      });
+    } catch (err) {
+      if (this.scanAbort !== abort) return;
+      if (isEngineError(err) && err.kind === "cancelled") {
+        this.dispatch({ type: "inspect_cancelled" });
+      } else {
+        this.dispatch({ type: "inspect_failed", message: errorMessage(err) });
+      }
+    }
+  };
+
+  /** Stop the running scan. Its panel then says it was cancelled. */
+  cancelInspect = (): void => {
+    this.scanAbort?.abort();
+  };
+
+  /** Put the report away, stopping the scan if one is running. */
+  closeInspect = (): void => {
+    this.dispatch({ type: "inspect_closed" });
   };
 
   clearLog = (): void => {

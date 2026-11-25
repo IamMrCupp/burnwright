@@ -138,11 +138,15 @@ export function DeviceScreen({ controller, footer, hidePaths = false }: DeviceSc
             busy={busy}
             fileBusy={state.fileBusy !== null}
             diff={state.diff}
+            inspect={state.inspect}
             onOpen={controller.openFile}
             onSave={controller.save}
             onSaveAs={controller.saveAs}
             onEdit={controller.editBuffer}
             onCloseDiff={controller.closeDiff}
+            onInspect={controller.inspect}
+            onCancelInspect={controller.cancelInspect}
+            onCloseInspect={controller.closeInspect}
           />
           <LogPane log={state.log} onClear={controller.clearLog} />
         </main>

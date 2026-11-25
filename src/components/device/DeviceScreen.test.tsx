@@ -626,6 +626,156 @@ describe("buffer files", () => {
   });
 });
 
+describe("what's inside the buffer", () => {
+  const GZIP = [0x1f, 0x8b, 0x08, 0x00];
+  /** 64 erased bytes with a gzip header at 16. */
+  const image = () => {
+    const data = new Uint8Array(64).fill(0xff);
+    data.set(GZIP, 16);
+    return data;
+  };
+  const contents = () => screen.findByRole("region", { name: "Contents" });
+
+  async function withFile(file: Uint8Array = image()) {
+    const rig = setup({ files: { "/img.bin": file } });
+    await openFile(rig.dialogs, "/img.bin");
+    return rig;
+  }
+
+  it("has nothing to inspect until there's a buffer", () => {
+    setup();
+    expect(button("Inspect")).toBeDisabled();
+    expect(screen.queryByRole("region", { name: "Contents" })).toBeNull();
+  });
+
+  it("lists what the scan found, and a row puts the cursor on it", async () => {
+    await withFile();
+    expect(screen.queryByRole("region", { name: "Contents" })).toBeNull();
+    click("Inspect");
+    const panel = await contents();
+    const row = (await within(panel).findByText("gzip")).closest("tr") as HTMLElement;
+    expect(within(panel).getByText(/^1 found in 64 bytes\./)).toBeInTheDocument();
+    expect(row).toHaveTextContent("0x00000010");
+    expect(row).toHaveTextContent("unknown");
+    expect(row).toHaveTextContent("Medium");
+    expect(row).toHaveTextContent("gzip compressed data, operating system: Unix");
+
+    const value = () => document.querySelector(".hexedit-value");
+    expect(value()).toHaveTextContent(/0+ = FF$/);
+    // The button is what a keyboard reaches; a click anywhere on the row
+    // does the same.
+    fireEvent.click(within(row).getByRole("button", { name: "Go to 0x00000010, gzip" }));
+    expect(value()).toHaveTextContent(/0+10 = 1F$/);
+    fireEvent.click(screen.getByRole("grid", { name: "Buffer bytes" }));
+    fireEvent.click(within(row).getByText("Medium"));
+    expect(value()).toHaveTextContent(/0+10 = 1F$/);
+  });
+
+  it("says so when there's nothing it knows in the buffer", async () => {
+    await withFile(new Uint8Array(32).fill(0xff));
+    click("Inspect");
+    const panel = await contents();
+    expect(await within(panel).findByText("Nothing recognised in these 32 bytes.")).toBeInTheDocument();
+    expect(within(panel).queryByRole("table")).toBeNull();
+    expect(within(panel).queryByRole("alert")).toBeNull();
+  });
+
+  it("shows a scan that died as a failure, and scans again when asked", async () => {
+    const { fake } = await withFile();
+    fake.scan = () => {
+      throw {
+        kind: "scan_failed",
+        message: "the scan stopped without a result: signal: 6 (SIGABRT)",
+        device_state: null,
+      };
+    };
+    click("Inspect");
+    const panel = await contents();
+    const alert = await within(panel).findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "The scan stopped without a result: signal: 6 (SIGABRT). That\u2019s the scan failing, not an empty result.",
+    );
+    expect(within(panel).queryByText(/Nothing recognised/)).toBeNull();
+
+    fake.scan = (data) => ({ len: data.length, findings: [] });
+    fireEvent.click(within(panel).getByRole("button", { name: "Scan again" }));
+    expect(await within(panel).findByText(/Nothing recognised/)).toBeInTheDocument();
+    expect(within(panel).queryByRole("alert")).toBeNull();
+  });
+
+  it("can be cancelled while it runs", async () => {
+    const { fake } = await withFile();
+    fake.hold();
+    click("Inspect");
+    const panel = await contents();
+    expect(within(panel).getByRole("status")).toHaveTextContent("Scanning 64 bytes…");
+    expect(button("Inspect")).toBeDisabled();
+    fireEvent.click(within(panel).getByRole("button", { name: "Cancel scan" }));
+    fake.release();
+    expect(await within(panel).findByText("Scan cancelled.")).toBeInTheDocument();
+    expect(button("Inspect")).toBeEnabled();
+  });
+
+  it("warns that the report is old once the buffer is edited", async () => {
+    const { controller } = await withFile();
+    click("Inspect");
+    const panel = await contents();
+    await within(panel).findByText("gzip");
+    expect(within(panel).queryByRole("alert")).toBeNull();
+
+    const edited = image();
+    edited[16] = 0x00;
+    act(() => controller.editBuffer(edited, true));
+    expect(within(panel).getByRole("alert")).toHaveTextContent(
+      "The buffer has been edited since this scan.",
+    );
+    // The old rows stay up to look at.
+    expect(within(panel).getByText("gzip")).toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "Scan again" }));
+    expect(await within(panel).findByText(/Nothing recognised/)).toBeInTheDocument();
+    expect(within(panel).queryByRole("alert")).toBeNull();
+  });
+
+  it("draws the first 500 of a very long report and says how many there were", async () => {
+    const { fake } = await withFile();
+    fake.scan = (data) => ({
+      len: data.length,
+      findings: Array.from({ length: 620 }, (_, i) => ({
+        offset: i % 64,
+        size: null,
+        kind: "gzip",
+        description: `stream ${i}`,
+        confidence: "low" as const,
+      })),
+    });
+    click("Inspect");
+    const panel = await contents();
+    expect(await within(panel).findByText("Showing the first 500 of 620.")).toBeInTheDocument();
+    expect(within(panel).getAllByRole("row")).toHaveLength(501);
+    expect(within(panel).getByText("stream 499")).toBeInTheDocument();
+    expect(within(panel).queryByText("stream 500")).toBeNull();
+  });
+
+  it("closes, and goes away with the buffer it was about", async () => {
+    const { dialogs, fake } = await withFile();
+    click("Inspect");
+    let panel = await contents();
+    await within(panel).findByText("gzip");
+    fireEvent.click(within(panel).getByRole("button", { name: "Close contents" }));
+    expect(screen.queryByRole("region", { name: "Contents" })).toBeNull();
+
+    click("Inspect");
+    panel = await contents();
+    await within(panel).findByText("gzip");
+    fake.saved["/other.bin"] = Uint8Array.of(1, 2, 3);
+    dialogs.open.mockResolvedValue("/other.bin");
+    click("Open…");
+    await screen.findByText("other.bin");
+    expect(screen.queryByRole("region", { name: "Contents" })).toBeNull();
+  });
+});
+
 describe("log pane", () => {
   it("shows each operation's command line and output, and copies it", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);

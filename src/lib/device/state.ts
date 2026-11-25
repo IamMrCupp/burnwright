@@ -10,6 +10,7 @@ import {
   type DeviceInfo,
   type Diagnosis,
   type EngineErrorKind,
+  type InspectReport,
   type Programmer,
   type ProgressEvent,
 } from "../engine";
@@ -187,6 +188,23 @@ export interface DiffState {
   after: "verify" | "write";
 }
 
+/**
+ * A scan of the buffer for known formats, and what came of it. `null` in the
+ * state means nobody has asked for one, or the panel was closed.
+ */
+export type InspectState =
+  /** The scan is running on `bytes` bytes. */
+  | { status: "scanning"; bytes: number }
+  /**
+   * The report. `stale` once the buffer has been edited since: an offset
+   * may no longer hold what its row says.
+   */
+  | { status: "done"; report: InspectReport; stale: boolean }
+  /** The user stopped it. */
+  | { status: "cancelled" }
+  /** The scan gave no report. Not the same as a report with nothing in it. */
+  | { status: "failed"; message: string };
+
 export type LogKind =
   /** The start of an operation. */
   | "heading"
@@ -240,6 +258,7 @@ export interface DeviceState {
   outcome: Outcome | null;
   confirm: Confirm | null;
   diff: DiffState | null;
+  inspect: InspectState | null;
   log: LogLine[];
   nextLogId: number;
 }
@@ -278,6 +297,7 @@ export function initialState(recent: RecentChip[] = []): DeviceState {
     outcome: null,
     confirm: null,
     diff: null,
+    inspect: null,
     log: [],
     nextLogId: 1,
   };
@@ -313,6 +333,11 @@ export type Action =
   | { type: "progress"; event: ProgressEvent }
   | { type: "diff_opened"; diff: DiffState }
   | { type: "diff_closed" }
+  | { type: "inspect_started"; bytes: number }
+  | { type: "inspect_done"; report: InspectReport; stale: boolean }
+  | { type: "inspect_cancelled" }
+  | { type: "inspect_failed"; message: string }
+  | { type: "inspect_closed" }
   | { type: "logged"; kind: LogKind; text: string }
   | { type: "log_cleared" };
 
@@ -467,6 +492,8 @@ export function reducer(state: DeviceState, action: Action): DeviceState {
         },
         fileError: null,
         diff: null,
+        // A scan was of the bytes this replaces.
+        inspect: null,
         // The last outcome, and any retry it offers, was about other bytes.
         outcome: null,
       };
@@ -479,6 +506,12 @@ export function reducer(state: DeviceState, action: Action): DeviceState {
       return {
         ...state,
         buffer: { ...state.buffer, bytes: action.bytes, edited: action.edited },
+        // A report is of the bytes as they were. It stays up, marked: its
+        // offsets are still where to look, they just aren't promises now.
+        inspect:
+          state.inspect?.status === "done" && state.buffer.bytes !== action.bytes
+            ? { ...state.inspect, stale: true }
+            : state.inspect,
         outcome: null,
       };
     case "buffer_saved":
@@ -549,6 +582,20 @@ export function reducer(state: DeviceState, action: Action): DeviceState {
       return { ...state, diff: action.diff };
     case "diff_closed":
       return { ...state, diff: null };
+
+    case "inspect_started":
+      return { ...state, inspect: { status: "scanning", bytes: action.bytes } };
+    case "inspect_done":
+      return {
+        ...state,
+        inspect: { status: "done", report: action.report, stale: action.stale },
+      };
+    case "inspect_cancelled":
+      return { ...state, inspect: { status: "cancelled" } };
+    case "inspect_failed":
+      return { ...state, inspect: { status: "failed", message: action.message } };
+    case "inspect_closed":
+      return state.inspect === null ? state : { ...state, inspect: null };
 
     case "logged":
       return appendLog(state, action.kind, action.text);
