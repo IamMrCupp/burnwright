@@ -24,7 +24,7 @@ up — it layers straight over a camera.
 
 ## What it shows
 
-- **The programmer's model** — "T48" — or "No programmer".
+- **The programmer's model** — "T48".
 - **The chip** that's selected.
 - **The operation in progress** — Read, Verify, Blank check, Erase, Write or
   Check chip — with a progress bar and a percent. When a verify fails and
@@ -86,11 +86,17 @@ What it doesn't cover:
   after it stays readable. The usual case is a temp folder under a Windows
   user name with a space in it.
 
-## When burnwright isn't running
+## When the card shows
 
-The page keeps trying to reconnect, and picks the feed back up on its own
-when burnwright starts. In between it shows nothing at all: a progress bar
-frozen at 40% on stream would pass for a live one.
+Only while burnwright has a programmer connected. Unplug it, or start
+burnwright with none attached, and the card fades out; it comes back when
+**Detect** finds one. So the card can sit in a camera scene for a whole
+stream and only appear while there's chip work going on.
+
+When burnwright isn't running, the page keeps trying to reconnect, and picks
+the feed back up on its own when burnwright starts. In between it shows
+nothing at all: a progress bar frozen at 40% on stream would pass for a live
+one.
 
 ## Who can connect
 
@@ -109,5 +115,5 @@ supported.
 |---|---|
 | The panel says *Port 8790 is in use by something else* | Pick another port in the panel, and update the address in OBS. |
 | The source is blank in OBS | Check the address starts `http://127.0.0.1:` and that the panel says **Stream page: on**. The same address in a normal browser should show the card. |
-| The card shows "No programmer" | burnwright hasn't found one. **Detect** in the app. |
+| The source is blank, the panel says **Stream page: on**, and a programmer is plugged in | burnwright hasn't found it yet. **Detect** in the app. |
 | The bar sweeps instead of filling | The programmer hasn't reported a percent for this stage. It fills once it does. |
