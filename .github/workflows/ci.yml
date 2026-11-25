@@ -41,6 +41,11 @@ jobs:
       # tauri-build won't compile src-tauri without the sidecar it bundles.
       - name: Build minipro sidecar
         uses: ./.github/actions/minipro-sidecar
+      # The tool behind THIRD-PARTY-NOTICES.txt (docs/notices.md). The
+      # version is the one scripts/notices/generate.sh asks for. rust-cache
+      # keeps the binary, so this compiles once per cache.
+      - name: Install cargo-about
+        run: cargo install cargo-about --locked --version 0.9.3 --features cli
       - name: rustfmt
         run: cargo fmt --all --check
       - name: clippy
@@ -53,6 +58,10 @@ jobs:
         run: pnpm lint
       - name: vitest
         run: pnpm test
+      # Every dependency's licence is one about.toml accepts, and the
+      # committed notices list what the lock files have today.
+      - name: Third-party notices
+        run: scripts/notices/generate.sh --check
       # No Apple secrets must mean an unsigned build, not a broken one.
       - name: macOS signing gate
         run: scripts/macos/test-signing-gate.sh
