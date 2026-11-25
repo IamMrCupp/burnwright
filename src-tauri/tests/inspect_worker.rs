@@ -50,11 +50,8 @@ fn the_app_started_as_a_worker_scans_what_its_sent() {
 
 #[test]
 fn the_app_started_as_a_worker_reports_an_empty_dump() {
-    assert_eq!(
-        scan(&[]),
-        Ok(Report {
-            len: 0,
-            findings: vec![]
-        })
-    );
+    let report = scan(&[]).expect("the app scans as a worker");
+    assert_eq!(report.len, 0);
+    assert!(report.findings.is_empty());
+    assert_eq!(report, inspect::scan(&[]));
 }

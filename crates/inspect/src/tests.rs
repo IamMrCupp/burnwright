@@ -94,13 +94,50 @@ fn one_scanner_scans_more_than_one_dump() {
 
 #[test]
 fn an_erased_chip_and_an_empty_buffer_hold_nothing() {
-    let nothing = |len| Report {
-        len,
-        findings: vec![],
-    };
-    assert_eq!(scan(&vec![0xFF; IMAGE_LEN]), nothing(IMAGE_LEN as u64));
-    assert_eq!(scan(&vec![0x00; IMAGE_LEN]), nothing(IMAGE_LEN as u64));
-    assert_eq!(scan(&[]), nothing(0));
+    for fill in [0xFF, 0x00] {
+        assert_eq!(
+            scan(&vec![fill; IMAGE_LEN]),
+            Report {
+                len: IMAGE_LEN as u64,
+                findings: vec![],
+                // And every block says so: one byte value has no entropy.
+                entropy: Entropy {
+                    block: 256,
+                    millibits: vec![0; IMAGE_LEN / 256],
+                },
+            }
+        );
+    }
+    assert_eq!(
+        scan(&[]),
+        Report {
+            len: 0,
+            findings: vec![],
+            entropy: Entropy {
+                block: 256,
+                millibits: vec![],
+            },
+        }
+    );
+}
+
+/// The made-up image is erased flash with a kernel of noise and some text
+/// in it. The entropy has to show all three.
+#[test]
+fn the_report_says_where_the_image_is_empty_packed_and_plain() {
+    let entropy = scan(&image()).entropy;
+    assert_eq!(entropy.block, 256);
+    assert_eq!(entropy.millibits.len(), IMAGE_LEN / 256);
+    let at = |offset: usize| entropy.millibits[offset / 256];
+
+    assert_eq!(at(0), 0, "erased");
+    assert_eq!(at(IMAGE_LEN - 1), 0, "erased");
+    // A whole block inside the pretend kernel.
+    let kernel = at(UIMAGE_AT + UIMAGE_HEADER_LEN + 0x100);
+    assert!(kernel > 7000, "the kernel: {kernel}");
+    // A whole block inside the gzip stream's stored text.
+    let text = at(GZIP_AT + 0x100);
+    assert!((3000..6000).contains(&text), "the text: {text}");
 }
 
 /// The same image end to end, 16 times: 32 findings, each where it was put.
@@ -282,9 +319,14 @@ fn a_report_is_this_json() {
                 confidence: Confidence::Low,
             },
         ],
+        entropy: Entropy {
+            block: 256,
+            millibits: vec![0, 8000, 4217],
+        },
     };
     let json = json!({
         "len": 65536,
+        "entropy": { "block": 256, "millibits": [0, 8000, 4217] },
         "findings": [
             {
                 "offset": 4096,

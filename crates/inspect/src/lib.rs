@@ -1,7 +1,8 @@
 //! burnwright firmware inspection: says what's inside a dump.
 //!
 //! [`scan`] takes the bytes of a dump and returns a [`Report`]: which known
-//! formats sit at which offsets. The types are burnwright's own. The scanner
+//! formats sit at which offsets, and how random each stretch of it looks
+//! ([`entropy`]). The types are burnwright's own. The scanner
 //! underneath is binwalk-ng, and this file is the only one outside the tests
 //! that names it, so swapping the scanner is a change to this crate and to
 //! nothing that uses it (issue #153).
@@ -18,7 +19,10 @@ use binwalk_ng::Binwalk;
 use binwalk_ng::signatures::{CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, SignatureResult};
 use serde::{Deserialize, Serialize};
 
+pub mod entropy;
 pub mod worker;
+
+pub use entropy::Entropy;
 
 #[cfg(test)]
 mod synthetic;
@@ -60,6 +64,9 @@ pub struct Report {
     /// How many bytes were scanned.
     pub len: u64,
     pub findings: Vec<Finding>,
+    /// How random each block of the dump looks: where it's erased, where
+    /// it's compressed or encrypted, and where the two meet.
+    pub entropy: Entropy,
 }
 
 /// Scans `data` for known formats.
@@ -98,6 +105,7 @@ impl Scanner {
         Report {
             len: data.len() as u64,
             findings,
+            entropy: entropy::measure(data),
         }
     }
 }
