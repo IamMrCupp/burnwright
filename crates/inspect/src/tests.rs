@@ -1,0 +1,314 @@
+use std::panic::{AssertUnwindSafe, catch_unwind};
+
+use binwalk_ng::signatures::SignatureResult;
+use serde_json::json;
+
+use super::synthetic::{
+    GZIP_AT, IMAGE_LEN, KERNEL_LEN, UIMAGE_AT, UIMAGE_HEADER_LEN, UIMAGE_NAME, crc32, gzip_stored,
+    gzip_text, image, pseudo_random, uimage,
+};
+use super::*;
+
+/// What [`Report`] promises: offset order, and every finding inside the dump.
+fn broken_promises(report: &Report) -> Vec<String> {
+    let mut broken = Vec::new();
+    for pair in report.findings.windows(2) {
+        if pair[0].offset > pair[1].offset {
+            broken.push(format!("out of order: {:?} before {:?}", pair[0], pair[1]));
+        }
+    }
+    for f in &report.findings {
+        let end = f.offset + f.size.unwrap_or(1);
+        if f.size == Some(0) || end > report.len {
+            broken.push(format!("not inside {} bytes: {f:?}", report.len));
+        }
+    }
+    broken
+}
+
+/// Every magic byte pattern the scanner looks for, with its signature's name.
+fn magics() -> Vec<(String, Vec<u8>)> {
+    binwalk_ng::magic::patterns()
+        .into_iter()
+        .flat_map(|s| {
+            let name = s.name;
+            s.magic.into_iter().map(move |m| (name.clone(), m))
+        })
+        .collect()
+}
+
+fn result(offset: usize, size: usize) -> SignatureResult {
+    SignatureResult {
+        offset,
+        size,
+        id: "a8a5f3c2-0000-4000-8000-000000000000".into(),
+        name: "gzip".into(),
+        description: "gzip compressed data".into(),
+        confidence: 250,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn crc32_matches_the_standard_check_value() {
+    assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+}
+
+#[test]
+fn finds_the_uimage_and_the_gzip_where_they_were_put() {
+    let report = scan(&image());
+    assert_eq!(report.len, IMAGE_LEN as u64);
+    assert_eq!(broken_promises(&report), [] as [String; 0]);
+    assert_eq!(report.findings.len(), 2, "{report:#?}");
+
+    let u = &report.findings[0];
+    assert_eq!(u.offset, UIMAGE_AT as u64, "{u:?}");
+    assert_eq!(u.kind, "uimage", "{u:?}");
+    assert_eq!(u.confidence, Confidence::High, "{u:?}");
+    assert_eq!(
+        u.size,
+        Some((UIMAGE_HEADER_LEN + KERNEL_LEN) as u64),
+        "{u:?}"
+    );
+    assert!(u.description.contains(UIMAGE_NAME), "{u:?}");
+
+    let g = &report.findings[1];
+    assert_eq!(g.offset, GZIP_AT as u64, "{g:?}");
+    assert_eq!(g.kind, "gzip", "{g:?}");
+    assert_eq!(g.confidence, Confidence::High, "{g:?}");
+    assert_eq!(
+        g.size,
+        Some(gzip_stored(&gzip_text()).len() as u64),
+        "{g:?}"
+    );
+}
+
+#[test]
+fn one_scanner_scans_more_than_one_dump() {
+    let scanner = Scanner::new();
+    let first = scanner.scan(&image());
+    assert_eq!(scanner.scan(&[0xFF; 64]).findings, []);
+    assert_eq!(scanner.scan(&image()), first);
+    assert_eq!(scan(&image()), first);
+}
+
+#[test]
+fn an_erased_chip_and_an_empty_buffer_hold_nothing() {
+    let nothing = |len| Report {
+        len,
+        findings: vec![],
+    };
+    assert_eq!(scan(&vec![0xFF; IMAGE_LEN]), nothing(IMAGE_LEN as u64));
+    assert_eq!(scan(&vec![0x00; IMAGE_LEN]), nothing(IMAGE_LEN as u64));
+    assert_eq!(scan(&[]), nothing(0));
+}
+
+/// The same image end to end, 16 times: 32 findings, each where it was put.
+#[test]
+fn a_dump_full_of_findings_reports_them_in_offset_order() {
+    let copies = 16;
+    let report = scan(&image().repeat(copies));
+    assert_eq!(broken_promises(&report), [] as [String; 0]);
+
+    let found: Vec<(u64, &str)> = report
+        .findings
+        .iter()
+        .map(|f| (f.offset, f.kind.as_str()))
+        .collect();
+    let expected: Vec<(u64, &str)> = (0..copies)
+        .flat_map(|n| {
+            let base = n * IMAGE_LEN;
+            [
+                ((base + UIMAGE_AT) as u64, "uimage"),
+                ((base + GZIP_AT) as u64, "gzip"),
+            ]
+        })
+        .collect();
+    assert_eq!(found, expected);
+}
+
+/// A dump that stops early is ordinary on a bench. Cut a small image at
+/// every length: no cut may panic, and no cut may report something that
+/// runs past where the dump stops.
+#[test]
+fn no_cut_of_the_image_panics_or_reports_past_the_end() {
+    let scanner = Scanner::new();
+    let mut image = vec![0xFF; 0x40];
+    image.extend_from_slice(&uimage("cut me", &pseudo_random(0x100, 3)));
+    image.extend_from_slice(&[0xFF; 0x20]);
+    image.extend_from_slice(&gzip_stored(b"cut me too, anywhere you like"));
+    image.extend_from_slice(&[0xFF; 0x20]);
+
+    // Whole, it holds both. Otherwise the cuts below prove nothing.
+    let kinds: Vec<String> = scanner
+        .scan(&image)
+        .findings
+        .into_iter()
+        .map(|f| f.kind)
+        .collect();
+    assert_eq!(kinds, ["uimage", "gzip"]);
+
+    let mut wrong = Vec::new();
+    for n in 0..=image.len() {
+        match catch_unwind(AssertUnwindSafe(|| scanner.scan(&image[..n]))) {
+            Err(_) => wrong.push(format!("cut at {n}: panicked")),
+            Ok(report) => {
+                if report.len != n as u64 {
+                    wrong.push(format!("cut at {n}: len is {}", report.len));
+                }
+                for broken in broken_promises(&report) {
+                    wrong.push(format!("cut at {n}: {broken}"));
+                }
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// Every signature's magic bytes with garbage behind them, in the middle of
+/// a buffer and hard against its end: the parsers' worst inputs.
+#[test]
+fn no_magic_followed_by_garbage_panics_or_reports_past_the_end() {
+    let scanner = Scanner::new();
+    let magics = magics();
+    assert!(magics.len() > 100, "only {} magics", magics.len());
+
+    let mut wrong = Vec::new();
+    let mut check =
+        |what: String, data: &[u8]| match catch_unwind(AssertUnwindSafe(|| scanner.scan(data))) {
+            Err(_) => wrong.push(format!("{what}: panicked")),
+            Ok(report) => {
+                for broken in broken_promises(&report) {
+                    wrong.push(format!("{what}: {broken}"));
+                }
+            }
+        };
+    for (index, (name, magic)) in magics.iter().enumerate() {
+        for seed in 0..8u64 {
+            let garbage = pseudo_random(2048, index as u64 * 31 + seed);
+            // tail = how many bytes follow the magic before the buffer ends
+            for tail in [0usize, 1, 3, 7, 16, 63, 512, 2048] {
+                let mut data = vec![0xFF; 64];
+                data.extend_from_slice(magic);
+                data.extend_from_slice(&garbage[..tail]);
+                check(format!("{name} seed {seed} tail {tail}"), &data);
+                // And at offset 0, where "short" signatures apply.
+                check(format!("{name} seed {seed} tail {tail} at 0"), &data[64..]);
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "{} inputs went wrong: {:#?}",
+        wrong.len(),
+        &wrong[..wrong.len().min(40)]
+    );
+}
+
+#[test]
+fn confidence_follows_binwalks_three_levels() {
+    assert_eq!(confidence(0), Confidence::Low);
+    assert_eq!(confidence(127), Confidence::Low);
+    assert_eq!(confidence(128), Confidence::Medium);
+    assert_eq!(confidence(249), Confidence::Medium);
+    assert_eq!(confidence(250), Confidence::High);
+    assert_eq!(confidence(255), Confidence::High);
+    assert!(Confidence::Low < Confidence::Medium && Confidence::Medium < Confidence::High);
+}
+
+/// binwalk's `id` is a UUID made up for each result. The format's name is
+/// its `name`.
+#[test]
+fn a_finding_takes_its_kind_from_binwalks_name() {
+    assert_eq!(
+        finding(result(0x40, 0x20), 0x100),
+        Some(Finding {
+            offset: 0x40,
+            size: Some(0x20),
+            kind: "gzip".into(),
+            description: "gzip compressed data".into(),
+            confidence: Confidence::High,
+        })
+    );
+}
+
+#[test]
+fn a_size_of_zero_means_the_scanner_couldnt_tell() {
+    assert_eq!(finding(result(0x40, 0), 0x100).unwrap().size, None);
+}
+
+/// binwalk drops these itself today. This is the line it's held to: a row
+/// in the app jumps to `offset` and saves `offset..offset + size`.
+#[test]
+fn a_result_that_isnt_inside_the_dump_is_left_out() {
+    // Ends exactly where the dump does: fine.
+    assert_eq!(finding(result(0xC0, 0x40), 0x100).unwrap().size, Some(0x40));
+    // One byte further isn't.
+    assert_eq!(finding(result(0xC0, 0x41), 0x100), None);
+    // Starts at or past the end, size known or not.
+    assert_eq!(finding(result(0x100, 0), 0x100), None);
+    assert_eq!(finding(result(0x101, 0x10), 0x100), None);
+    assert_eq!(finding(result(0, 0), 0), None);
+    // An offset and a size that overflow when added.
+    assert_eq!(finding(result(0x40, usize::MAX), 0x100), None);
+}
+
+/// The shape the webview is sent. A change here is a change to the
+/// TypeScript that reads it.
+#[test]
+fn a_report_is_this_json() {
+    let report = Report {
+        len: 0x1_0000,
+        findings: vec![
+            Finding {
+                offset: 0x1000,
+                size: Some(0x840),
+                kind: "uimage".into(),
+                description: "uImage firmware image".into(),
+                confidence: Confidence::High,
+            },
+            Finding {
+                offset: 0x4000,
+                size: None,
+                kind: "squashfs".into(),
+                description: "SquashFS file system".into(),
+                confidence: Confidence::Medium,
+            },
+            Finding {
+                offset: 0x8000,
+                size: None,
+                kind: "copyright".into(),
+                description: "Copyright text".into(),
+                confidence: Confidence::Low,
+            },
+        ],
+    };
+    let json = json!({
+        "len": 65536,
+        "findings": [
+            {
+                "offset": 4096,
+                "size": 2112,
+                "kind": "uimage",
+                "description": "uImage firmware image",
+                "confidence": "high",
+            },
+            {
+                "offset": 16384,
+                "size": null,
+                "kind": "squashfs",
+                "description": "SquashFS file system",
+                "confidence": "medium",
+            },
+            {
+                "offset": 32768,
+                "size": null,
+                "kind": "copyright",
+                "description": "Copyright text",
+                "confidence": "low",
+            },
+        ],
+    });
+    assert_eq!(serde_json::to_value(&report).unwrap(), json);
+    assert_eq!(serde_json::from_value::<Report>(json).unwrap(), report);
+}
