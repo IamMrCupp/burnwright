@@ -53,8 +53,9 @@ body {
   transition: opacity 0.2s;
 }
 
-/* burnwright isn't answering: show nothing. A frozen progress bar on stream
-   would pass for a live one. */
+/* burnwright isn't answering, or has no programmer: show nothing. A frozen
+   progress bar on stream would pass for a live one, and "No programmer" over
+   a camera for a whole stream says nothing. */
 .offline .card {
   opacity: 0;
 }
@@ -251,10 +252,12 @@ const TONES = {
 const el = (id) => document.getElementById(id);
 
 function render(status) {
-  document.body.classList.toggle("offline", status === null);
-  if (status === null) return;
+  // Only while a programmer is connected: nothing can run without one.
+  const showing = status !== null && Boolean(status.programmer);
+  document.body.classList.toggle("offline", !showing);
+  if (!showing) return;
 
-  el("programmer").textContent = status.programmer || "No programmer";
+  el("programmer").textContent = status.programmer;
   el("chip").textContent = status.chip || "No chip selected";
   el("chip").classList.toggle("none", !status.chip);
 

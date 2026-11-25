@@ -282,6 +282,17 @@ mod tests {
         assert!(root.contains("viewBox=\"0 0 16 16\""));
     }
 
+    /// With no programmer connected the card hides, the same way it does
+    /// when burnwright isn't answering, rather than saying so on stream.
+    #[test]
+    fn the_card_shows_only_with_a_programmer() {
+        let page = include_str!("page.html");
+        let script = page.split_once("<script>").unwrap().1;
+        assert!(script.contains("status !== null && Boolean(status.programmer)"));
+        assert!(script.contains("toggle(\"offline\", !showing)"));
+        assert!(!script.contains("No programmer"));
+    }
+
     fn free_port() -> u16 {
         let spare = TcpListener::bind("127.0.0.1:0").unwrap();
         spare.local_addr().unwrap().port()
