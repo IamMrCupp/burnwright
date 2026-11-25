@@ -2,6 +2,7 @@
   "name": "burnwright",
   "private": true,
   "version": "0.21.0",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "packageManager": "pnpm@12.6.0",
   "scripts": {
@@ -11,6 +12,7 @@
     "lint": "eslint .",
     "tauri": "tauri",
     "sidecar": "bash scripts/minipro/build-sidecar.sh",
+    "notices": "bash scripts/notices/generate.sh",
     "test": "vitest run",
     "test:watch": "vitest"
   },

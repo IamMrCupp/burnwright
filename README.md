@@ -199,4 +199,11 @@ If it's earned a spot on your bench and you'd like to throw a coffee my way:
 No pressure — it stays open source either way.
 
 ## License
-GPL-3.0-or-later (inherited from libminipro).
+GPL-3.0-or-later. The text is in [LICENSE](LICENSE).
+
+burnwright is built on other people's work.
+[THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) lists every Rust crate and
+npm package compiled into the app, with its licence, and ships inside every
+installer ([docs/notices.md](docs/notices.md)). The bundled minipro, libusb and
+zlib carry their own licences and a source archive
+([docs/minipro-sidecar.md](docs/minipro-sidecar.md#licensing)).

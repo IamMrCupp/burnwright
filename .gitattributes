@@ -5,3 +5,6 @@ crates/engine/fixtures/minipro/*.stderr -text
 # flashrom fixtures carry raw backspaces from its progress redraws.
 crates/engine/fixtures/flashrom/*.stdout -text
 crates/engine/fixtures/flashrom/*.stderr -text
+# Generated, and compared byte for byte with a fresh run and with the copy
+# each installer carries; keep it LF on every checkout.
+THIRD-PARTY-NOTICES.txt text eol=lf
