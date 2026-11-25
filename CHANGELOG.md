@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/IamMrCupp/burnwright/compare/v0.20.0...v0.21.0) (2026-11-25)
+
+
+### Features
+
+* **inspect:** add a crate that scans a dump for known formats, with binwalk-ng behind burnwright's own report types ([444b783](https://github.com/IamMrCupp/burnwright/commit/444b7839ebb89680c4be4710c4226d5507f0348a))
+
 ## [0.20.0](https://github.com/IamMrCupp/burnwright/compare/v0.19.0...v0.20.0) (2026-11-25)
 
 
