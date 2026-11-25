@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "burnwright device engine — drives the minipro and flashrom command-line tools"
+publish = false
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

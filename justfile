@@ -17,6 +17,10 @@ dev:
 sidecar:
     scripts/minipro/build-sidecar.sh
 
+# Rebuild THIRD-PARTY-NOTICES.txt after a dependency is added or removed (see docs/notices.md)
+notices:
+    scripts/notices/generate.sh
+
 # Run Rust and frontend tests
 test:
     cargo test --workspace
@@ -28,6 +32,7 @@ check:
     cargo clippy --workspace --all-targets -- -D warnings
     pnpm exec tsc --noEmit
     pnpm lint
+    scripts/notices/generate.sh --check
 
 # Produce installable bundles for the current OS
 bundle:

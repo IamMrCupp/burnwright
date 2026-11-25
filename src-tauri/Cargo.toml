@@ -6,6 +6,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Cross-platform GUI for XGecu / MiniPRO programmers"
+publish = false
 
 [lib]
 # The `_lib` suffix keeps the lib name distinct from the bin on Windows.
