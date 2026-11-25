@@ -189,5 +189,14 @@ paths in this window** in the same panel: every path in the log and
 everywhere else reads `[hidden]`. More on both in
 [docs/stream-page.md](docs/stream-page.md).
 
+## Support
+
+If it's earned a spot on your bench and you'd like to throw a coffee my way:
+
+- [Ko-fi](https://ko-fi.com/IamMrCupp)
+- [Buy Me a Coffee](https://buymeacoffee.com/IamMrCupp)
+
+No pressure — it stays open source either way.
+
 ## License
 GPL-3.0-or-later (inherited from libminipro).
