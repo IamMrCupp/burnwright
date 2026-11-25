@@ -139,6 +139,7 @@ export function DeviceScreen({ controller, footer, hidePaths = false }: DeviceSc
             fileBusy={state.fileBusy !== null}
             diff={state.diff}
             inspect={state.inspect}
+            coverStrings={hidePaths}
             onOpen={controller.openFile}
             onSave={controller.save}
             onSaveAs={controller.saveAs}

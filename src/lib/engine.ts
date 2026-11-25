@@ -610,6 +610,30 @@ export interface InspectEntropy {
   millibits: number[];
 }
 
+export type InspectEncoding = "ascii" | "utf16le";
+
+/** One string found in a dump (mirrors `inspect::strings::Text`). */
+export interface InspectText {
+  /** Where it starts, in bytes from the start of the dump. */
+  offset: number;
+  /** How many characters it runs for. `text` holds the first 120 at most. */
+  chars: number;
+  /** One byte a character, or two with the low one first. */
+  encoding: InspectEncoding;
+  text: string;
+}
+
+/** The strings in a dump, in offset order (mirrors `inspect::Strings`). */
+export interface InspectStrings {
+  /** The shortest string listed: 4, or more when shorter ones were left out to keep the list to 20,000. */
+  min_chars: number;
+  /** How many strings of 4 characters or more the dump has, listed or not. */
+  total: number;
+  /** `true` when `found` stops at its limit with strings of `min_chars` or more still to come. */
+  cut: boolean;
+  found: InspectText[];
+}
+
 /**
  * What a scan of one dump found (mirrors `inspect::Report`). Findings come
  * in offset order, and every one lies inside the `len` bytes scanned.
@@ -618,6 +642,7 @@ export interface InspectReport {
   len: number;
   findings: InspectFinding[];
   entropy: InspectEntropy;
+  strings: InspectStrings;
 }
 
 /** The header `inspect_buffer` reads its operation id from (`inspect_commands::OP_ID_HEADER`). */

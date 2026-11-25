@@ -68,6 +68,10 @@ both go — a file name is the likeliest place for a customer's name. A
 **Paths hidden** marker sits in the top bar while it's on, so you can check
 before going live.
 
+It also covers the strings list of [Inspect](inspect.md): the count stays,
+the strings don't. They're whatever was on the chip, and that can be a Wi-Fi
+key.
+
 It hides what's drawn, not what's kept. Files open and save as usual, **Copy
 log** copies the masked text while it's on, and turning it off shows the real
 paths again, old log lines included. It's remembered between runs, and it's

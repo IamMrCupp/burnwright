@@ -7,6 +7,7 @@ import {
   createFakeEngine,
   entropyOf,
   fakeChip,
+  stringsOf,
   type FakeChip,
   type FakeEngineOptions,
 } from "../../dev/fakeEngine";
@@ -698,7 +699,12 @@ describe("what's inside the buffer", () => {
     );
     expect(within(panel).queryByText(/Nothing recognised/)).toBeNull();
 
-    fake.scan = (data) => ({ len: data.length, findings: [], entropy: entropyOf(data) });
+    fake.scan = (data) => ({
+      len: data.length,
+      findings: [],
+      entropy: entropyOf(data),
+      strings: stringsOf(data),
+    });
     fireEvent.click(within(panel).getByRole("button", { name: "Scan again" }));
     expect(await within(panel).findByText(/Nothing recognised/)).toBeInTheDocument();
     expect(within(panel).queryByRole("alert")).toBeNull();
@@ -743,6 +749,7 @@ describe("what's inside the buffer", () => {
     fake.scan = (data) => ({
       len: data.length,
       entropy: entropyOf(data),
+      strings: stringsOf(data),
       findings: Array.from({ length: 620 }, (_, i) => ({
         offset: i % 64,
         size: null,
@@ -754,7 +761,8 @@ describe("what's inside the buffer", () => {
     click("Inspect");
     const panel = await contents();
     expect(await within(panel).findByText("Showing the first 500 of 620.")).toBeInTheDocument();
-    expect(within(panel).getAllByRole("row")).toHaveLength(501);
+    const formats = within(panel).getByRole("table", { name: "Formats found" });
+    expect(within(formats).getAllByRole("row")).toHaveLength(501);
     expect(within(panel).getByText("stream 499")).toBeInTheDocument();
     expect(within(panel).queryByText("stream 500")).toBeNull();
   });
@@ -786,6 +794,44 @@ describe("what's inside the buffer", () => {
     expect(value()).toHaveTextContent(/0+100 = 00$/);
     fireEvent.keyDown(strip, { key: "Enter" });
     expect(value()).toHaveTextContent(/0+300 = 00$/);
+  });
+
+  it("lists the buffer's strings, and a row puts the cursor on one", async () => {
+    const data = new Uint8Array(256).fill(0xff);
+    const put = (at: number, text: string) => data.set(new TextEncoder().encode(text), at);
+    put(0x20, "U-Boot 2019.07");
+    put(0x60, "console=ttyS0,115200");
+    put(0xa0, "root=/dev/mtdblock2");
+    await withFile(data);
+    click("Inspect");
+    const panel = await contents();
+    const table = await within(panel).findByRole("table", { name: "Strings" });
+    expect(within(table).getAllByRole("row")).toHaveLength(4);
+    expect(panel).toHaveTextContent("3 strings. Pick one to go to it in the buffer.");
+    // Text isn't a format: the scan still says it knows none of this.
+    expect(within(panel).getByText("Nothing recognised in these 256 bytes.")).toBeInTheDocument();
+
+    const value = () => document.querySelector(".hexedit-value");
+    fireEvent.click(within(table).getByText("console=ttyS0,115200"));
+    expect(value()).toHaveTextContent(/0+60 = 63$/);
+
+    fireEvent.change(within(panel).getByRole("searchbox", { name: "Filter strings" }), {
+      target: { value: "mtd" },
+    });
+    expect(within(table).getAllByRole("row")).toHaveLength(2);
+    fireEvent.click(
+      within(table).getByRole("button", { name: "Go to 0x000000A0, root=/dev/mtdblock2" }),
+    );
+    expect(value()).toHaveTextContent(/0+A0 = 72$/);
+  });
+
+  it("says a buffer with no text in it has none", async () => {
+    await withFile();
+    click("Inspect");
+    const panel = await contents();
+    await within(panel).findByText("gzip");
+    expect(within(panel).getByText("No text of 4 characters or more in these bytes.")).toBeInTheDocument();
+    expect(within(panel).queryByRole("table", { name: "Strings" })).toBeNull();
   });
 
   it("closes, and goes away with the buffer it was about", async () => {
@@ -968,6 +1014,31 @@ describe("with file paths hidden", () => {
 
     show(true);
     expectNoPaths();
+  });
+
+  it("covers the strings a scan found, and shows them when it's turned off", async () => {
+    const dump = new Uint8Array(128).fill(0xff);
+    dump.set(new TextEncoder().encode("wifi_psk=hunter2-hunter2"), 0x10);
+    dump.set(new TextEncoder().encode("/etc/config/wireless"), 0x40);
+    const { show } = setupHidden({ files: { [SECRET]: dump } });
+    click("Open…");
+    await screen.findByRole("grid", { name: "Buffer bytes" });
+    click("Inspect");
+    const panel = await screen.findByRole("region", { name: "Contents" });
+    expect(await within(panel).findByText(/^2 strings, covered while/)).toBeInTheDocument();
+    expect(within(panel).queryByRole("table", { name: "Strings" })).toBeNull();
+    expect(within(panel).queryByRole("searchbox")).toBeNull();
+    expect(panel).not.toHaveTextContent("hunter2");
+    expect(panel).not.toHaveTextContent("wireless");
+
+    show(false);
+    const table = within(panel).getByRole("table", { name: "Strings" });
+    expect(within(table).getByText("wifi_psk=hunter2-hunter2")).toBeInTheDocument();
+    // A path in the chip's own text is the chip's, and is shown as it is.
+    expect(within(table).getByText("/etc/config/wireless")).toBeInTheDocument();
+
+    show(true);
+    expect(panel).not.toHaveTextContent("hunter2");
   });
 
   it("leaves the chip search as typed", async () => {
