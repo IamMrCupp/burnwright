@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.22.0](https://github.com/IamMrCupp/burnwright/compare/v0.21.0...v0.22.0) (2026-11-25)
+
+
+### Features
+
+* **stream:** show the card only while a programmer is connected ([329ce61](https://github.com/IamMrCupp/burnwright/commit/329ce6160076df140e196e03d61cf58bb3f360c9))
+
+
+### Bug Fixes
+
+* **release:** ship burnwright's licence and the third-party notices inside every installer, and fail a bundle without them ([5b77cdb](https://github.com/IamMrCupp/burnwright/commit/5b77cdb3245571221b4fa2d6b6203ad1c4fafc6a))
+
 ## [0.21.0](https://github.com/IamMrCupp/burnwright/compare/v0.20.0...v0.21.0) (2026-11-25)
 
 
