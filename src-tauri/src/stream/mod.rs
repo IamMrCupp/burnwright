@@ -245,16 +245,19 @@ mod tests {
         assert_eq!(script.matches("credit").count(), 2);
     }
 
-    /// The card's logo is the app's small icon, drawn shape for shape, so a
-    /// change to the icon can't leave the stream showing the old one.
+    /// The card's logo is the app's small icon, drawn tag for tag, so a
+    /// change to the icon fails here until the card gets it too.
     #[test]
     fn the_cards_logo_is_the_small_icon() {
         let page = include_str!("page.html");
         let icon = include_str!("../../icons/icon-small.svg");
-        let shapes = |svg: &str| -> Vec<String> {
+        // Every tag inside the root <svg>, in order, without comments or text.
+        let tags = |svg: &str| -> Vec<String> {
             svg.split('<')
-                .filter(|tag| tag.starts_with("rect ") || tag.starts_with("path "))
-                .map(|tag| tag.trim().to_string())
+                .filter_map(|piece| piece.split_once('>').map(|(tag, _)| tag.trim()))
+                .filter(|tag| !tag.starts_with("!--"))
+                .filter(|tag| *tag != "svg" && !tag.starts_with("svg ") && *tag != "/svg")
+                .map(str::to_string)
                 .collect()
         };
         let logo = page
@@ -264,9 +267,19 @@ mod tests {
             .split_once("</svg>")
             .expect("the credit draws the logo")
             .0;
-        let drawn = shapes(icon);
+        let drawn = tags(icon);
         assert!(!drawn.is_empty());
-        assert_eq!(shapes(logo), drawn);
+        assert_eq!(tags(logo), drawn);
+        // The root tag isn't compared above: the page's has no xmlns and adds
+        // aria-hidden. The drawing area has to match, though.
+        let root = icon
+            .split_once("<svg ")
+            .unwrap()
+            .1
+            .split_once('>')
+            .unwrap()
+            .0;
+        assert!(root.contains("viewBox=\"0 0 16 16\""));
     }
 
     fn free_port() -> u16 {

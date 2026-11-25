@@ -85,7 +85,9 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  align-self: center;
+  /* Level with the programmer's first line, which is about as tall as the
+     logo, even when a long name wraps. */
+  align-self: flex-start;
   font-size: 11px;
   letter-spacing: 0.08em;
   color: var(--bw-muted);
