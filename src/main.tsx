@@ -7,6 +7,7 @@ import { linkAppearanceMenu } from "./lib/appearanceMenu";
 import { DeviceController } from "./lib/device/controller";
 import {
   guardWindowClose,
+  openNotices,
   setWindowTheme,
   tauriAppearanceMenu,
   tauriDeps,
@@ -52,7 +53,7 @@ async function setup(): Promise<Omit<AppProps, "appearance">> {
   // release build never takes this branch or ships it.
   if (import.meta.env.DEV && (!isTauri() || import.meta.env.VITE_FAKE_ENGINE)) {
     const { previewSetup } = await import("./dev/preview");
-    const { deps, ecDeps, streamBackend, loadAppInfo } = previewSetup();
+    const { deps, ecDeps, streamBackend, loadAppInfo, openNotices } = previewSetup();
     const controller = new DeviceController(deps);
     return {
       controller,
@@ -63,6 +64,7 @@ async function setup(): Promise<Omit<AppProps, "appearance">> {
           : { backend: streamBackend, device: controller },
       ),
       loadAppInfo,
+      openNotices,
     };
   }
   const controller = new DeviceController(tauriDeps());
@@ -72,6 +74,7 @@ async function setup(): Promise<Omit<AppProps, "appearance">> {
     ec: new EcController(tauriEcDeps()),
     stream: new StreamController(tauriStreamDeps(controller)),
     loadAppInfo: engine.appInfo,
+    openNotices,
   };
 }
 

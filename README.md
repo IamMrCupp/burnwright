@@ -204,6 +204,7 @@ GPL-3.0-or-later. The text is in [LICENSE](LICENSE).
 burnwright is built on other people's work.
 [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) lists every Rust crate and
 npm package compiled into the app, with its licence, and ships inside every
-installer ([docs/notices.md](docs/notices.md)). The bundled minipro, libusb and
+installer; **Licences** in the app's footer opens it
+([docs/notices.md](docs/notices.md)). The bundled minipro, libusb and
 zlib carry their own licences and a source archive
 ([docs/minipro-sidecar.md](docs/minipro-sidecar.md#licensing)).

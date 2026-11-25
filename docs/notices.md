@@ -20,6 +20,9 @@ Every installer carries two files in its resource folder:
 | AppImage | `usr/lib/burnwright/` |
 | Windows (NSIS) | the install folder |
 
+In the app, **Licences** at the end of the version line opens
+`THIRD-PARTY-NOTICES.txt` in whatever your system reads a text file with.
+
 The bundled minipro, libusb and zlib are separate programs with their own
 licences, `NOTICE.txt` and source archive, in the `minipro/` folders beside
 those files: [minipro-sidecar.md](minipro-sidecar.md#licensing).

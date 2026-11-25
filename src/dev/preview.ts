@@ -100,6 +100,7 @@ export function previewSetup(): {
   ecDeps: EcDeps;
   streamBackend: StreamBackend;
   loadAppInfo: () => Promise<AppInfo>;
+  openNotices: () => Promise<void>;
 } {
   const params = new URLSearchParams(window.location.search);
   const onChip = pattern();
@@ -139,5 +140,13 @@ export function previewSetup(): {
       minipro: "fake",
       minipro_t76: "fake",
     }),
+    // A browser has no installed copy to open: show the one in the repo.
+    openNotices: async () => {
+      window.open(
+        "https://github.com/IamMrCupp/burnwright/blob/main/THIRD-PARTY-NOTICES.txt",
+        "_blank",
+        "noopener",
+      );
+    },
   };
 }
