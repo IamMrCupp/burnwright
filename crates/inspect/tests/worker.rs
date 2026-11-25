@@ -112,7 +112,7 @@ fn fake_worker(mode: &str) -> ! {
         }
         // Reads nothing and reports on nothing, with a clean exit.
         "deaf" => {
-            print!(r#"{{"len":0,"findings":[]}}"#);
+            print!(r#"{{"len":0,"findings":[],"entropy":{{"block":256,"millibits":[]}}}}"#);
             io::stdout().flush().unwrap();
             std::process::exit(0);
         }
@@ -163,18 +163,22 @@ fn a_worker_scans_what_its_sent() {
     assert_eq!(gzip.size, Some(GZIP.len() as u64));
     assert_eq!(gzip.kind, "gzip");
     assert_eq!(gzip.confidence, Confidence::High);
+    // A megabyte and a bit, in 2 KiB blocks: all erased but the one the
+    // gzip file starts.
+    assert_eq!(report.entropy.block, 2048);
+    assert_eq!(report.entropy.millibits.len(), 513);
+    assert_eq!(report.entropy.millibits[0], 0);
+    assert!(report.entropy.millibits[512] > 0);
     // The same answer as a scan in this process, description and all.
     assert_eq!(report, inspect::scan(&data));
 }
 
 fn an_empty_dump_is_an_empty_report() {
-    assert_eq!(
-        worker().scan(&[], never),
-        Ok(Report {
-            len: 0,
-            findings: vec![]
-        })
-    );
+    let report = worker().scan(&[], never).unwrap();
+    assert_eq!(report.len, 0);
+    assert!(report.findings.is_empty());
+    assert!(report.entropy.millibits.is_empty());
+    assert_eq!(report, inspect::scan(&[]));
 }
 
 /// 16 MiB in, and a report of 4,096 findings out: both far past what a pipe

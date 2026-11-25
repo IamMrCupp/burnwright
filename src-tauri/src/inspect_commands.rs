@@ -297,10 +297,20 @@ mod tests {
             description.as_str().is_some_and(|d| d.contains("gzip")),
             "{report}"
         );
+        // Its entropy, a block of 256 bytes at a time: every byte value
+        // once, then erased flash, then the gzip file and more erased flash.
+        let millibits = report["entropy"]["millibits"].clone();
+        let blocks = millibits.as_array().expect("an array of blocks");
+        assert_eq!(blocks.len(), 32, "{report}");
+        assert_eq!(blocks[0], 8000);
+        assert_eq!(blocks[1], 0);
+        assert!(blocks[16].as_u64().is_some_and(|m| m > 1000), "{report}");
+        assert_eq!(blocks[31], 0);
         assert_eq!(
             report,
             json!({
                 "len": 0x2000,
+                "entropy": { "block": 256, "millibits": millibits },
                 "findings": [{
                     "offset": 0x1000,
                     "size": GZIP.len(),
@@ -334,7 +344,11 @@ mod tests {
         let ipc = Ipc::scanning();
         assert_eq!(
             ipc.inspect("scan-1", &[0xFF; 4096]).unwrap(),
-            json!({ "len": 4096, "findings": [] })
+            json!({
+                "len": 4096,
+                "findings": [],
+                "entropy": { "block": 256, "millibits": vec![0; 16] },
+            })
         );
     }
 
