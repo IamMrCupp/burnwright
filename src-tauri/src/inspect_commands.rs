@@ -306,11 +306,28 @@ mod tests {
         assert_eq!(blocks[1], 0);
         assert!(blocks[16].as_u64().is_some_and(|m| m > 1000), "{report}");
         assert_eq!(blocks[31], 0);
+        // Its text: the printable stretch of the 256 byte values, which is
+        // one long string, and the line the gzip file holds.
+        let printable: String = (0x20..=0x7Eu8).map(char::from).collect();
         assert_eq!(
             report,
             json!({
                 "len": 0x2000,
                 "entropy": { "block": 256, "millibits": millibits },
+                "strings": {
+                    "min_chars": 4,
+                    "total": 2,
+                    "cut": false,
+                    "found": [
+                        { "offset": 0x20, "chars": 95, "encoding": "ascii", "text": printable },
+                        {
+                            "offset": 0x100F,
+                            "chars": 50,
+                            "encoding": "ascii",
+                            "text": "burnwright test: nothing here is anyone's firmware",
+                        },
+                    ],
+                },
                 "findings": [{
                     "offset": 0x1000,
                     "size": GZIP.len(),
@@ -348,6 +365,7 @@ mod tests {
                 "len": 4096,
                 "findings": [],
                 "entropy": { "block": 256, "millibits": vec![0; 16] },
+                "strings": { "min_chars": 4, "total": 0, "cut": false, "found": [] },
             })
         );
     }
