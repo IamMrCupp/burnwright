@@ -1,5 +1,6 @@
 mod appearance_menu;
 mod commands;
+mod inspect_commands;
 mod ops;
 mod session_commands;
 mod stream;
@@ -80,6 +81,8 @@ pub fn run() {
         .manage(engine::ChipCatalog::new())
         // The page OBS loads as a Browser source. Off until the user turns it on.
         .manage(stream::StreamServer::new())
+        // Scans of a dump run in this program, started again as a worker.
+        .manage(inspect_commands::ScanRunner::this_app())
         .setup(|app| {
             // Without a path to our own binary there's no sidecar to find;
             // the locator then falls back to PATH.
@@ -114,6 +117,7 @@ pub fn run() {
             commands::set_algorithm_path,
             commands::load_image,
             commands::save_image,
+            inspect_commands::inspect_buffer,
             commands::app_info,
             session_commands::flashrom_status,
             session_commands::set_flashrom_path,
