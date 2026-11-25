@@ -51,6 +51,7 @@ describe("inspectBuffer", () => {
     findings: [
       { offset: 0, size: 4, kind: "gzip", description: "gzip compressed data", confidence: "high" },
     ],
+    entropy: { block: 256, millibits: [2000] },
   };
 
   function lastScan(): { body: unknown; opId: string } {

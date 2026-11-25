@@ -535,6 +535,51 @@
   cursor: pointer;
 }
 
+/* How random each stretch of the buffer looks. One unit of the drawing is a
+   block, so it stretches to whatever width the panel has. */
+.entropy {
+  margin-top: 0.5rem;
+}
+
+.entropy-strip {
+  height: 3rem;
+  overflow: hidden;
+  border: 1px solid var(--bw-border);
+  border-radius: 4px;
+  background: var(--bw-hex-bg);
+  cursor: crosshair;
+}
+
+.entropy-strip svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.entropy-area {
+  fill: var(--bw-accent);
+}
+
+/* The block being read out. A hairline whatever the strip's width. */
+.entropy-marker {
+  stroke: var(--bw-fg);
+  stroke-width: 1px;
+}
+
+.entropy-caption {
+  display: flex;
+  gap: 1rem;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 0.3rem;
+}
+
+.entropy-readout {
+  color: var(--bw-fg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+
 /* --- log ------------------------------------------------------------- */
 
 .log-lines {

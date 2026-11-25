@@ -5,6 +5,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 
 import {
   createFakeEngine,
+  entropyOf,
   fakeChip,
   type FakeChip,
   type FakeEngineOptions,
@@ -697,7 +698,7 @@ describe("what's inside the buffer", () => {
     );
     expect(within(panel).queryByText(/Nothing recognised/)).toBeNull();
 
-    fake.scan = (data) => ({ len: data.length, findings: [] });
+    fake.scan = (data) => ({ len: data.length, findings: [], entropy: entropyOf(data) });
     fireEvent.click(within(panel).getByRole("button", { name: "Scan again" }));
     expect(await within(panel).findByText(/Nothing recognised/)).toBeInTheDocument();
     expect(within(panel).queryByRole("alert")).toBeNull();
@@ -741,6 +742,7 @@ describe("what's inside the buffer", () => {
     const { fake } = await withFile();
     fake.scan = (data) => ({
       len: data.length,
+      entropy: entropyOf(data),
       findings: Array.from({ length: 620 }, (_, i) => ({
         offset: i % 64,
         size: null,
@@ -755,6 +757,35 @@ describe("what's inside the buffer", () => {
     expect(within(panel).getAllByRole("row")).toHaveLength(501);
     expect(within(panel).getByText("stream 499")).toBeInTheDocument();
     expect(within(panel).queryByText("stream 500")).toBeNull();
+  });
+
+  it("draws the buffer's entropy, and a point on the strip puts the cursor there", async () => {
+    // Four blocks of 256: erased, every byte value once, erased, two values.
+    const data = new Uint8Array(1024).fill(0xff);
+    for (let i = 0; i < 256; i++) data[256 + i] = i;
+    for (let i = 0; i < 256; i++) data[768 + i] = i % 2;
+    await withFile(data);
+    click("Inspect");
+    const panel = await contents();
+    const strip = await within(panel).findByRole("slider", { name: "Entropy across the buffer" });
+    expect(strip).toHaveAttribute("aria-valuemax", "3");
+    expect(panel).toHaveTextContent("Entropy of each 256 bytes, from 0 to 8 bits a byte.");
+    expect(panel).toHaveTextContent("50% of the buffer is flat, the way erased flash reads.");
+    // Still says there's no format it knows: the strip isn't a finding.
+    expect(within(panel).getByText("Nothing recognised in these 1,024 bytes.")).toBeInTheDocument();
+
+    const value = () => document.querySelector(".hexedit-value");
+    strip.getBoundingClientRect = () => ({ left: 100, width: 400 }) as DOMRect;
+    fireEvent.click(strip, { clientX: 100 + 400 * 0.3 });
+    expect(value()).toHaveTextContent(/0+100 = 00$/);
+    expect(within(panel).getByText("0x00000100, 8.00 bits a byte")).toBeInTheDocument();
+
+    fireEvent.keyDown(strip, { key: "End" });
+    expect(strip).toHaveAttribute("aria-valuetext", "0x00000300, 1.00 bits a byte");
+    // Stepping along it reads blocks out; only Enter moves the cursor.
+    expect(value()).toHaveTextContent(/0+100 = 00$/);
+    fireEvent.keyDown(strip, { key: "Enter" });
+    expect(value()).toHaveTextContent(/0+300 = 00$/);
   });
 
   it("closes, and goes away with the buffer it was about", async () => {

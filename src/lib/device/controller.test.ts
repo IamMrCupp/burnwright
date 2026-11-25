@@ -122,7 +122,7 @@ describe("what's inside the buffer", () => {
     const seen: Uint8Array[] = [];
     fake.scan = (data) => {
       seen.push(data);
-      return { len: data.length, findings: [] };
+      return { len: data.length, findings: [], entropy: { block: 256, millibits: [] } };
     };
     const edited = image();
     edited[0] = 0x00;
@@ -158,7 +158,11 @@ describe("what's inside the buffer", () => {
       message: "the scan stopped without a result: signal: 6 (SIGABRT)",
     });
     // And the next one gets its turn.
-    fake.scan = (data) => ({ len: data.length, findings: [] });
+    fake.scan = (data) => ({
+      len: data.length,
+      findings: [],
+      entropy: { block: 256, millibits: [] },
+    });
     await controller.inspect();
     expect(state().inspect).toMatchObject({ status: "done", report: { findings: [] } });
   });

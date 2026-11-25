@@ -3,7 +3,9 @@
 You read a flash chip off a router, a camera or a board nobody has a schematic
 for, and you're looking at four megabytes of hex. **Inspect** scans the buffer
 for formats it knows — file systems, compressed data, boot images — and lists
-where each one starts. Pick a row and the hex editor goes there.
+where each one starts. Pick a row and the hex editor goes there. Above the
+list, a strip shows how random each stretch of the buffer looks, which is the
+part that still says something when no format is recognised.
 
 It follows the **Programmer** bench. A Laptop EC backup goes straight to a file;
 open that file on the Programmer bench to inspect it.
@@ -27,6 +29,46 @@ Click a row, or tab to its offset and press Enter, and the hex editor's cursor
 lands on that byte.
 
 A long report is cut off at 500 rows, with a line saying how many there were.
+
+## The entropy strip
+
+Across the top of the panel, the whole buffer from first byte to last. The
+height at each point is that stretch's entropy, from 0 to 8 bits a byte:
+
+| It looks like | It probably is |
+|---|---|
+| Nothing drawn | One byte value repeated. Erased flash (`FF`), or padding. |
+| Somewhere in between | Text, tables, machine code. |
+| At or near the top | Compressed or encrypted data. |
+
+So an unpacked bootloader, a compressed kernel and the empty space after it
+show up as three different heights before you've read a byte. **The edges are
+the useful part**: where the height changes is usually where one thing ends
+and the next starts.
+
+- **Point at it** and the line under it gives that block's offset and entropy.
+- **Click** and the hex editor's cursor goes to the start of that block.
+- **From the keyboard:** tab to the strip, step with the arrow keys (Page Up
+  and Page Down take bigger steps, Home and End go to the ends), and Enter
+  goes to the block.
+
+The line under it also says how much of the buffer is flat — in blocks that
+are one value repeated.
+
+The buffer is cut into at most 1,024 blocks, each a power of two and at least
+256 bytes: 256-byte blocks up to 256 KiB, 4 KiB blocks for a 4 MiB chip. Two
+things follow from that:
+
+- **A small block can't reach the top.** 256 bytes of pure noise measure about
+  7.2 bits, not 8 — there aren't enough bytes in the block for every value to
+  turn up evenly. At 4 KiB the same noise reads 7.95. On a small chip, "near
+  the top" is the test, not "at the top".
+- **A block is one number.** A 100-byte string inside 4 KiB of noise doesn't
+  show.
+
+It's the same kind of evidence as a low-confidence row: high entropy says
+"packed", not which of compressed and encrypted, and plenty of ordinary data
+sits in the middle.
 
 ## What the other states mean
 
@@ -65,8 +107,10 @@ time.
   [an issue](https://github.com/IamMrCupp/burnwright/issues).
 - **No extraction.** It says a SquashFS starts at `0x180000`; it doesn't unpack
   it.
-- **No entropy view and no strings list** yet. Both are on
+- **No strings list** yet. It's on
   [#153](https://github.com/IamMrCupp/burnwright/issues/153).
+- **The strip doesn't mark where the findings are.** The list and the strip
+  are two views of the same bytes; lining them up is by offset.
 - **It's a list of things worth looking at, not a verdict.** A format the
   scanner doesn't know isn't listed, and a low-confidence row can be a
   coincidence.
@@ -75,4 +119,7 @@ time.
 
 There's no scanner in a browser. The preview's Inspect is a stand-in that
 finds three formats by their first bytes in a made-up image, so the panel can
-be worked on. What it reports says nothing about the real scanner.
+be worked on. What it lists says nothing about the real scanner.
+
+The entropy strip is the exception: the preview does the same sum the scanner
+does, so the strip there is the strip the app would draw for those bytes.

@@ -26,6 +26,7 @@ describe("the scan of the buffer", () => {
         confidence: "high" as const,
       },
     ],
+    entropy: { block: 256, millibits: [2000] },
   };
   const loaded = (bytes: Uint8Array) =>
     reducer(initialState(), {
