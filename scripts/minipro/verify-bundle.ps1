@@ -8,7 +8,10 @@
 # from the install folder with
 # PATH cut down to System32: no MSYS2 or other DLLs may be needed. Same checks
 # as verify-bundle.sh: version and database counts, a full -l listing, and
-# "No programmer found" (CI has no hardware). Uninstalls afterwards.
+# "No programmer found" (CI has no hardware). Then burnwright.exe itself,
+# started the way it starts itself to scan a dump (--inspect-worker, #153):
+# it has to read a dump from stdin and write its report to stdout, with the
+# same cut-down PATH. Uninstalls afterwards.
 param([Parameter(Mandatory)][string]$Installer)
 
 $ErrorActionPreference = 'Stop'
@@ -99,6 +102,53 @@ foreach ($variant in @(
   }
 }
 
+# The app as its own scan worker. burnwright.exe is a GUI program with no
+# console, so this is also the check that it reads and writes plain pipes,
+# which is how the app talks to it. The dump is made here: 4 KiB of erased
+# flash, then a 74-byte gzip file holding one line of text (the bytes
+# crates/inspect's tests use).
+$app = Join-Path $dir 'burnwright.exe'
+Section "run $app --inspect-worker"
+$image = [IO.MemoryStream]::new()
+$erased = [byte[]]::new(4096)
+[Array]::Fill($erased, [byte]0xFF)
+$image.Write($erased, 0, $erased.Length)
+$gzip = [Convert]::FromHexString('1f8b0800000000600003013300ccff6275726e77726967687420746573743a206e6f7468696e67206865726520697320616e796f6e652773206669726d776172650a68f5184b33000000')
+$image.Write($gzip, 0, $gzip.Length)
+$dump = $image.ToArray()
+$len = $dump.Length
+
+# .NET's own process class, not Start-Process: the bytes go down a pipe
+# untouched, where PowerShell's redirection may treat them as text.
+$start = [Diagnostics.ProcessStartInfo]::new($app, '--inspect-worker')
+$start.UseShellExecute = $false
+$start.CreateNoWindow = $true
+$start.WorkingDirectory = $work
+$start.RedirectStandardInput = $true
+$start.RedirectStandardOutput = $true
+$start.RedirectStandardError = $true
+$w = [Diagnostics.Process]::Start($start)
+$stdout = $w.StandardOutput.ReadToEndAsync()
+$stderr = $w.StandardError.ReadToEndAsync()
+$w.StandardInput.BaseStream.Write($dump, 0, $dump.Length)
+$w.StandardInput.Close()
+# A binary that missed the argument would open a window and stay: give it
+# two minutes, not the rest of the job.
+if (-not $w.WaitForExit(120000)) {
+  $w.Kill()
+  Fail "the scan worker was still running after two minutes"
+}
+if ($w.ExitCode -ne 0) {
+  Write-Host $stderr.Result
+  Fail "the scan worker exited $($w.ExitCode)"
+}
+$json = $stdout.Result
+Write-Host $json
+if (-not $json) { Fail "the scan worker wrote nothing" }
+if (-not $json.Contains("`"len`":$len,")) { Fail "the report isn't of all $len bytes" }
+if (-not $json.Contains('"offset":4096,"size":74,"kind":"gzip"')) { Fail "the scan worker didn't find the gzip file at offset 4096" }
+Write-Host "scan worker: OK"
+
 Section "uninstall"
 $uninstaller = Join-Path $dir 'uninstall.exe'
 if (Test-Path $uninstaller) {
@@ -106,4 +156,4 @@ if (Test-Path $uninstaller) {
   Write-Host "uninstaller exited $($u.ExitCode)"
 }
 
-Write-Host "`nNSIS install: OK`nAll sidecar checks passed."
+Write-Host "`nNSIS install: OK`nAll bundle checks passed."

@@ -12,11 +12,13 @@
 //! is an ordinary day on a bench. The tests cut an image at every length and
 //! put garbage behind every signature's magic bytes without a panic. That
 //! covers the cases someone thought of. Release builds abort on a panic, so
-//! the app is meant to run a scan in a child process, not in its own.
+//! the app runs a scan in a child process, not in its own: see [`worker`].
 
 use binwalk_ng::Binwalk;
 use binwalk_ng::signatures::{CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, SignatureResult};
 use serde::{Deserialize, Serialize};
+
+pub mod worker;
 
 #[cfg(test)]
 mod synthetic;

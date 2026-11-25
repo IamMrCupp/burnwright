@@ -449,6 +449,7 @@ name = "burnwright"
 version = "0.21.0"
 dependencies = [
  "engine",
+ "inspect",
  "serde",
  "serde_json",
  "tauri",
@@ -2134,6 +2135,7 @@ dependencies = [
  "liblzma",
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

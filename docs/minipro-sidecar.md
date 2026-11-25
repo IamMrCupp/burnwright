@@ -256,6 +256,12 @@ After bundling, `scripts/minipro/verify-bundle.sh` (macOS and Linux) and
 - **Windows:** silently install the NSIS installer per-user, then run the sidecar
   from the install folder with `PATH` cut down to System32.
 
+The same scripts check the app's own binary, since they already have it
+installed: started with `--inspect-worker`, the way it starts itself to scan a
+dump, it has to read one from stdin and write its report to stdout. On macOS
+its `otool -L` gets the sidecars' rule, and on Linux its direct dependencies
+may not name a compression library; the scanner compiles those in.
+
 Each run passes the bundled databases by path, from an empty working directory
 with no `PATH`. It must print the version and database counts, list over a
 thousand chips with `-q tl866ii -l`, and report `No programmer found` for `-k`.

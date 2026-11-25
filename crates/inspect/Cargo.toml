@@ -20,6 +20,13 @@ binwalk-ng = { version = "=4.0.0", default-features = false }
 # the crate carries and links it in (#153).
 liblzma = { version = "0.4.8", features = ["static"] }
 serde = { version = "1", features = ["derive"] }
-
-[dev-dependencies]
+# The worker's report crosses a pipe as JSON.
 serde_json = "1"
+thiserror = "2"
+
+# Runs scans in a worker process. The worker is the test binary itself, and
+# it's started with the worker's own argument, which libtest would reject, so
+# this target brings its own small runner (the one `engine`'s tests use).
+[[test]]
+name = "worker"
+harness = false

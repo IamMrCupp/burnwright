@@ -1,5 +1,6 @@
 //! Device-operation bookkeeping for the command layer: one operation at a
-//! time on each probe, cancel by operation id, the configured minipro and
+//! time on each probe (and one scan of a dump, which holds no probe), cancel
+//! by operation id, the configured minipro and
 //! flashrom paths, the bundled minipros, the programmer the last detect
 //! found, the user's own algorithm file for a T76, where backups go, and the
 //! chip sessions the frontend has open.
@@ -60,6 +61,9 @@ enum Claim {
     Spi(SpiMaster),
     /// One serial port.
     Serial(String),
+    /// No device at all: the scan of a dump (`inspect_commands`). One at a
+    /// time, beside whatever the programmers are doing.
+    Scan,
 }
 
 impl Claim {
@@ -133,7 +137,21 @@ impl DeviceOps {
         id: String,
         probe: &Probe,
     ) -> Result<(OpGuard<'_>, CancelHandle), EngineError> {
-        let claim = Claim::of(probe);
+        self.begin_claim(id, Claim::of(probe))
+    }
+
+    /// Start scan `id` of a dump. Fails with [`EngineError::Busy`] while
+    /// another scan runs. A scan holds no probe, so it runs beside any
+    /// device operation, and `cancel` reaches it by id like one.
+    pub fn begin_scan(&self, id: String) -> Result<(OpGuard<'_>, CancelHandle), EngineError> {
+        self.begin_claim(id, Claim::Scan)
+    }
+
+    fn begin_claim(
+        &self,
+        id: String,
+        claim: Claim,
+    ) -> Result<(OpGuard<'_>, CancelHandle), EngineError> {
         let mut inner = self.lock();
         if inner.active.iter().any(|a| a.claim == claim) {
             return Err(EngineError::Busy);
@@ -414,6 +432,27 @@ mod tests {
         );
         drop(programmer);
         assert!(ops.begin("e".into(), &xgecu(None)).is_ok());
+    }
+
+    #[test]
+    fn one_scan_at_a_time_beside_the_device_operations() {
+        let ops = DeviceOps::default();
+        let (_programmer, _) = ops.begin("a".into(), &xgecu(None)).unwrap();
+        let (scan, handle) = ops.begin_scan("b".into()).unwrap();
+        assert_eq!(ops.begin_scan("c".into()).unwrap_err(), EngineError::Busy);
+        // A scan is cancelled by id, like anything else.
+        assert!(ops.cancel("b"));
+        assert!(handle.is_cancelled());
+        drop(scan);
+        assert!(ops.begin_scan("d".into()).is_ok());
+    }
+
+    #[test]
+    fn a_cancel_that_beats_its_scan_starts_it_cancelled() {
+        let ops = DeviceOps::default();
+        assert!(!ops.cancel("early"));
+        let (_scan, handle) = ops.begin_scan("early".into()).unwrap();
+        assert!(handle.is_cancelled());
     }
 
     #[test]

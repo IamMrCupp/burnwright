@@ -65,8 +65,9 @@ pub struct CommandError {
     /// `unusable_algorithms`, `unsupported_programmer`, `busy`, `cancelled`
     /// or `not_implemented`. The backup layer (`engine::Bench`) adds
     /// `unsupported`, `backup_required`, `backup_failed`,
-    /// `inconsistent_reads` and `target_changed`, and the flashrom backend
-    /// `flashrom`, `flashrom_not_found` and `no_chip`.
+    /// `inconsistent_reads` and `target_changed`, the flashrom backend
+    /// `flashrom`, `flashrom_not_found` and `no_chip`, and the scan of a dump
+    /// (`inspect_commands`) `scan_failed`.
     pub kind: &'static str,
     /// Human-readable message.
     pub message: String,
