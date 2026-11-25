@@ -112,7 +112,9 @@ fn fake_worker(mode: &str) -> ! {
         }
         // Reads nothing and reports on nothing, with a clean exit.
         "deaf" => {
-            print!(r#"{{"len":0,"findings":[],"entropy":{{"block":256,"millibits":[]}}}}"#);
+            print!(
+                r#"{{"len":0,"findings":[],"entropy":{{"block":256,"millibits":[]}},"strings":{{"min_chars":4,"total":0,"cut":false,"found":[]}}}}"#
+            );
             io::stdout().flush().unwrap();
             std::process::exit(0);
         }
@@ -169,6 +171,14 @@ fn a_worker_scans_what_its_sent() {
     assert_eq!(report.entropy.millibits.len(), 513);
     assert_eq!(report.entropy.millibits[0], 0);
     assert!(report.entropy.millibits[512] > 0);
+    // The one line of text in it, where the gzip file keeps it.
+    assert_eq!(report.strings.total, 1);
+    let text = &report.strings.found[0];
+    assert_eq!(text.offset, MIB as u64 + 15);
+    assert_eq!(
+        text.text,
+        "burnwright test: nothing here is anyone's firmware"
+    );
     // The same answer as a scan in this process, description and all.
     assert_eq!(report, inspect::scan(&data));
 }
@@ -178,6 +188,7 @@ fn an_empty_dump_is_an_empty_report() {
     assert_eq!(report.len, 0);
     assert!(report.findings.is_empty());
     assert!(report.entropy.millibits.is_empty());
+    assert!(report.strings.found.is_empty());
     assert_eq!(report, inspect::scan(&[]));
 }
 

@@ -105,6 +105,7 @@ fn an_erased_chip_and_an_empty_buffer_hold_nothing() {
                     block: 256,
                     millibits: vec![0; IMAGE_LEN / 256],
                 },
+                strings: Strings::default(),
             }
         );
     }
@@ -117,8 +118,44 @@ fn an_erased_chip_and_an_empty_buffer_hold_nothing() {
                 block: 256,
                 millibits: vec![],
             },
+            strings: Strings::default(),
         }
     );
+}
+
+/// The made-up image has a name in its uImage header and twenty lines of
+/// text in its gzip stream. Its kernel is noise, which throws up a few short
+/// runs by chance; nothing in it runs to fifteen characters.
+#[test]
+fn the_report_lists_the_text_in_the_image() {
+    let report = scan(&image());
+    let strings = &report.strings;
+    assert_eq!(strings.min_chars, 4);
+    assert!(!strings.cut);
+    assert_eq!(strings.total, strings.found.len() as u64);
+    assert!(
+        strings
+            .found
+            .windows(2)
+            .all(|pair| pair[0].offset <= pair[1].offset)
+    );
+    for text in &strings.found {
+        let end = text.offset + text.chars * text.encoding.width();
+        assert!(end <= report.len, "{text:?}");
+    }
+
+    let long: Vec<(u64, &str)> = strings
+        .found
+        .iter()
+        .filter(|text| text.chars >= 15)
+        .map(|text| (text.offset, text.text.as_str()))
+        .collect();
+    // The name is 32 bytes into the uImage header; the text starts after
+    // gzip's 10-byte header and the stored block's 5.
+    let line = "burnwright test: nothing here is anyone's firmware";
+    let mut expected = vec![((UIMAGE_AT + 32) as u64, UIMAGE_NAME)];
+    expected.extend((0..20).map(|i| ((GZIP_AT + 15 + i * (line.len() + 1)) as u64, line)));
+    assert_eq!(long, expected);
 }
 
 /// The made-up image is erased flash with a kernel of noise and some text
@@ -323,10 +360,38 @@ fn a_report_is_this_json() {
             block: 256,
             millibits: vec![0, 8000, 4217],
         },
+        strings: Strings {
+            min_chars: 6,
+            total: 31,
+            cut: false,
+            found: vec![
+                strings::Text {
+                    offset: 0x1020,
+                    chars: 15,
+                    encoding: strings::Encoding::Ascii,
+                    text: "burnwright test".into(),
+                },
+                strings::Text {
+                    offset: 0x9000,
+                    chars: 300,
+                    encoding: strings::Encoding::Utf16le,
+                    text: "Setup".into(),
+                },
+            ],
+        },
     };
     let json = json!({
         "len": 65536,
         "entropy": { "block": 256, "millibits": [0, 8000, 4217] },
+        "strings": {
+            "min_chars": 6,
+            "total": 31,
+            "cut": false,
+            "found": [
+                { "offset": 4128, "chars": 15, "encoding": "ascii", "text": "burnwright test" },
+                { "offset": 36864, "chars": 300, "encoding": "utf16le", "text": "Setup" },
+            ],
+        },
         "findings": [
             {
                 "offset": 4096,
