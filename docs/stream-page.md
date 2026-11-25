@@ -88,10 +88,16 @@ What it doesn't cover:
 
 ## When the card shows
 
-Only while burnwright has a programmer connected. Unplug it, or start
-burnwright with none attached, and the card fades out; it comes back when
-**Detect** finds one. So the card can sit in a camera scene for a whole
-stream and only appear while there's chip work going on.
+Only while burnwright knows of a programmer. It finds out at startup, on
+**Detect**, and when an operation finds the programmer gone; nothing watches
+USB in between. So with none found the card fades out, and it comes back when
+**Detect** finds one. Pressing **Detect** hides it for the moment the search
+takes. That lets the card sit in a camera scene for a whole stream and stay
+out of the way while no programmer is plugged in.
+
+An operation that fails because the programmer went away mid-job, such as a
+knocked cable, hides the card rather than showing the error: the failure and
+the missing programmer arrive together.
 
 When burnwright isn't running, the page keeps trying to reconnect, and picks
 the feed back up on its own when burnwright starts. In between it shows
@@ -114,6 +120,6 @@ supported.
 | Symptom | Fix |
 |---|---|
 | The panel says *Port 8790 is in use by something else* | Pick another port in the panel, and update the address in OBS. |
-| The source is blank in OBS | Check the address starts `http://127.0.0.1:` and that the panel says **Stream page: on**. The same address in a normal browser should show the card. |
+| The source is blank in OBS | Check the address starts `http://127.0.0.1:` and that the panel says **Stream page: on**. The same address in a normal browser should show the card while a programmer is detected, and nothing while none is. |
 | The source is blank, the panel says **Stream page: on**, and a programmer is plugged in | burnwright hasn't found it yet. **Detect** in the app. |
 | The bar sweeps instead of filling | The programmer hasn't reported a percent for this stage. It fills once it does. |
