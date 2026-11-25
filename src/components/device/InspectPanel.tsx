@@ -8,6 +8,7 @@ import {
 } from "../../lib/device/format";
 import type { InspectState } from "../../lib/device/state";
 import type { InspectConfidence } from "../../lib/engine";
+import { EntropyStrip } from "./EntropyStrip";
 
 /**
  * How many findings are drawn. A dump can hold thousands, and nobody reads a
@@ -32,8 +33,9 @@ export interface InspectPanelProps {
 }
 
 /**
- * What a scan found in the buffer: the known formats in it and where each
- * starts. A row puts the hex editor's cursor on its offset.
+ * What a scan found in the buffer: how random each stretch of it looks, then
+ * the known formats in it and where each starts. A row puts the hex editor's
+ * cursor on its offset, and so does a point on the strip.
  */
 export const InspectPanel = memo(function InspectPanel({
   inspect,
@@ -110,6 +112,7 @@ function Report({
           hold what its row says. Scan again to be sure.
         </p>
       )}
+      <EntropyStrip entropy={report.entropy} len={report.len} onJump={onJump} />
       {total === 0 ? (
         <>
           <p role="status">Nothing recognised in these {formatByteCount(report.len)}.</p>

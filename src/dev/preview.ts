@@ -43,6 +43,10 @@ function pattern(): Uint8Array {
     bytes[i] = i < 4096 ? text[i % text.length] : (i * 31 + (i >> 8)) & 0xff;
   }
   bytes.fill(0xff, SIZE - 65536);
+  // Never written between the kernel and the file system, and a stretch of
+  // text further in: the entropy strip gets a floor, a middle and a ceiling.
+  bytes.fill(0xff, 0x140000, 0x180000);
+  for (let i = 0x300000; i < 0x320000; i++) bytes[i] = text[i % text.length];
   // What a router's flash starts like, as far as the pretend scan looks:
   // a boot image, a compressed kernel, a file system.
   bytes.set([0x27, 0x05, 0x19, 0x56], 0x10000);

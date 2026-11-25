@@ -597,12 +597,27 @@ export interface InspectFinding {
 }
 
 /**
+ * How random each stretch of a dump looks (mirrors `inspect::Entropy`): the
+ * dump cut into at most 1,024 blocks, each with its Shannon entropy.
+ */
+export interface InspectEntropy {
+  /** How many bytes each value covers. The last covers what's left, which may be fewer. */
+  block: number;
+  /**
+   * Each block's entropy in thousandths of a bit per byte: 0 for one value
+   * repeated, 8000 when every byte value turns up equally often.
+   */
+  millibits: number[];
+}
+
+/**
  * What a scan of one dump found (mirrors `inspect::Report`). Findings come
  * in offset order, and every one lies inside the `len` bytes scanned.
  */
 export interface InspectReport {
   len: number;
   findings: InspectFinding[];
+  entropy: InspectEntropy;
 }
 
 /** The header `inspect_buffer` reads its operation id from (`inspect_commands::OP_ID_HEADER`). */

@@ -17,6 +17,7 @@ import type {
   DeviceInfo,
   Diagnosis,
   EngineError,
+  InspectEntropy,
   InspectFinding,
   InspectReport,
   OperationOptions,
@@ -295,7 +296,33 @@ export function fakeScan(bytes: Uint8Array): InspectReport {
     });
     offset += found.magic.length - 1;
   }
-  return { len: bytes.length, findings };
+  return { len: bytes.length, findings, entropy: entropyOf(bytes) };
+}
+
+/**
+ * Each block's entropy, by the sum the real scanner does
+ * (`inspect::entropy`): at most 1,024 blocks of at least 256 bytes, a power
+ * of two each, in thousandths of a bit. The findings here are pretend; this
+ * isn't, so the strip in the preview is the strip the app would draw.
+ */
+export function entropyOf(bytes: Uint8Array): InspectEntropy {
+  let block = 256;
+  while (block * 1024 < bytes.length) block *= 2;
+  const millibits: number[] = [];
+  const counts = new Uint32Array(256);
+  for (let start = 0; start < bytes.length; start += block) {
+    const end = Math.min(start + block, bytes.length);
+    counts.fill(0);
+    for (let i = start; i < end; i++) counts[bytes[i]]++;
+    let bits = 0;
+    for (const count of counts) {
+      if (count === 0) continue;
+      const p = count / (end - start);
+      bits -= p * Math.log2(p);
+    }
+    millibits.push(Math.min(8000, Math.max(0, Math.round(bits * 1000))));
+  }
+  return { block, millibits };
 }
 
 export function createFakeEngine(options: FakeEngineOptions = {}): FakeEngine {

@@ -167,7 +167,9 @@ running some other minipro.
 
 **Inspect**, in the buffer's bar, scans the buffer for formats it knows — file
 systems, compressed data, boot images — and lists where each one starts. Pick a
-row and the hex editor goes there.
+row and the hex editor goes there. A strip above the list shows how random each
+stretch of the buffer looks: flat where it's erased, at the top where it's
+compressed or encrypted.
 
 It runs on this computer, in a second copy of burnwright, so a corrupt dump
 that trips the scanner can't take the window down with it. It lists what it
