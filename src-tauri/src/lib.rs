@@ -119,6 +119,7 @@ pub fn run() {
             commands::save_image,
             inspect_commands::inspect_buffer,
             commands::app_info,
+            commands::open_notices,
             session_commands::flashrom_status,
             session_commands::set_flashrom_path,
             session_commands::list_probes,

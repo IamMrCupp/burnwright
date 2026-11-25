@@ -87,6 +87,14 @@ export function setWindowTheme(theme: Theme | null): void {
     .catch(() => {});
 }
 
+/**
+ * Open the third-party notices this copy of burnwright was installed with
+ * (docs/notices.md) in the system's own text viewer.
+ */
+export function openNotices(): Promise<void> {
+  return invoke<void>("open_notices");
+}
+
 /** The themes folder in burnwright's config directory (src-tauri/src/themes.rs). */
 export function tauriThemes(): ThemeSource {
   return {

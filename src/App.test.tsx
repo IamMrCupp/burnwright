@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
@@ -11,7 +11,7 @@ import { DeviceController } from "./lib/device/controller";
 import { EcController } from "./lib/ec/controller";
 import { StreamController } from "./lib/stream/controller";
 
-function setup() {
+function setup(openNotices?: () => Promise<void>) {
   const dialogs = {
     open: async () => null,
     save: async () => null,
@@ -41,12 +41,50 @@ function setup() {
       appearance={appearance}
       stream={stream}
       loadAppInfo={async () => ({ version: "1.2.3", minipro: "0.7.4", minipro_t76: "0.7.4+abc" })}
+      openNotices={openNotices}
     />,
   );
   return { bench, configure };
 }
 
 const mode = (name: string) => screen.getByRole("button", { name });
+
+describe("the licences button", () => {
+  it("opens the notices this copy was installed with", async () => {
+    const openNotices = vi.fn(async () => {});
+    setup(openNotices);
+    await screen.findByText(/burnwright v1\.2\.3/);
+    fireEvent.click(screen.getByRole("button", { name: "Licences" }));
+    expect(openNotices).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("is on both benches", async () => {
+    setup(async () => {});
+    expect(screen.getByRole("button", { name: "Licences" })).toBeInTheDocument();
+    fireEvent.click(mode("Laptop EC"));
+    expect(screen.getByRole("button", { name: "Licences" })).toBeInTheDocument();
+  });
+
+  it("says why when the file can't be opened, and clears that on the next try", async () => {
+    const openNotices = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce("this copy of burnwright has no THIRD-PARTY-NOTICES.txt")
+      .mockResolvedValue(undefined);
+    setup(openNotices);
+    fireEvent.click(screen.getByRole("button", { name: "Licences" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn\u2019t open the licences: this copy of burnwright has no THIRD-PARTY-NOTICES.txt",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Licences" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("isn't drawn where there's nothing to open", () => {
+    setup();
+    expect(screen.queryByRole("button", { name: "Licences" })).toBeNull();
+  });
+});
 
 describe("the bench switch", () => {
   it("starts on the programmer and leaves the EC's hardware alone", async () => {

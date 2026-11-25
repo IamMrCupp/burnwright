@@ -7,7 +7,7 @@ import { StreamControl } from "./components/stream";
 import type { DeviceController } from "./lib/device/controller";
 import type { EcController } from "./lib/ec/controller";
 import type { StreamController } from "./lib/stream/controller";
-import type { AppInfo } from "./lib/engine";
+import { errorMessage, type AppInfo } from "./lib/engine";
 import "./App.css";
 
 export interface AppProps {
@@ -20,6 +20,11 @@ export interface AppProps {
   stream: StreamController;
   /** burnwright's and the bundled minipros' versions, for the footer. */
   loadAppInfo: () => Promise<AppInfo>;
+  /**
+   * Opens the third-party notices this copy was installed with. Without it
+   * the footer has no Licences button.
+   */
+  openNotices?: () => Promise<void>;
 }
 
 /** Which bench is on screen: the programmer's socket, or a laptop's EC. */
@@ -36,8 +41,9 @@ const MODES: readonly { id: Mode; label: string }[] = [
  * controller, so switching away and back loses nothing, and an operation
  * running on one carries on while the other is shown.
  */
-function App({ controller, ec, appearance, stream, loadAppInfo }: AppProps) {
+function App({ controller, ec, appearance, stream, loadAppInfo, openNotices }: AppProps) {
   const [info, setInfo] = useState<AppInfo | null>(null);
+  const [noticesError, setNoticesError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("programmer");
   // The window is on a stream: both benches draw their paths hidden.
   const hidePaths = useSyncExternalStore(
@@ -53,12 +59,34 @@ function App({ controller, ec, appearance, stream, loadAppInfo }: AppProps) {
     void controller.detect();
   }, [controller]);
 
+  const showNotices = openNotices
+    ? () => {
+        setNoticesError(null);
+        openNotices().catch((err: unknown) => setNoticesError(errorMessage(err)));
+      }
+    : null;
+
   const footer = (
     <>
       <AppearancePicker controller={appearance} />
       {info
         ? `burnwright v${info.version} · minipro ${info.minipro} · T76 build ${info.minipro_t76}`
         : "burnwright"}
+      {showNotices && (
+        <button
+          type="button"
+          className="button-quiet app-licences"
+          title="burnwright is GPL-3.0-or-later. This opens the licences of everything built into it."
+          onClick={showNotices}
+        >
+          Licences
+        </button>
+      )}
+      {noticesError && (
+        <p className="notice notice-error" role="alert">
+          Couldn&rsquo;t open the licences: {noticesError}
+        </p>
+      )}
     </>
   );
 

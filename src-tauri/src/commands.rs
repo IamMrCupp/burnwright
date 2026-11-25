@@ -612,6 +612,38 @@ pub fn app_info() -> AppInfo {
     app_info_value()
 }
 
+/// The third-party notices as every installer names them (`docs/notices.md`).
+const NOTICES_FILE: &str = "THIRD-PARTY-NOTICES.txt";
+
+/// The notices in this copy's resource folder, where the installer put them.
+fn notices_in(resource_dir: &std::path::Path) -> Result<PathBuf, String> {
+    let path = resource_dir.join(NOTICES_FILE);
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(format!(
+            "this copy of burnwright has no {NOTICES_FILE} (looked for {})",
+            path.display()
+        ))
+    }
+}
+
+/// Open the third-party notices, the licences of everything compiled into
+/// burnwright, in whatever the system reads a text file with.
+#[tauri::command]
+pub fn open_notices(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    use tauri_plugin_opener::OpenerExt;
+    let dir = app
+        .path()
+        .resource_dir()
+        .map_err(|e| format!("there's no resource folder to find the notices in ({e})"))?;
+    let path = notices_in(&dir)?;
+    app.opener()
+        .open_path(path.to_string_lossy(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 /// Where theme files go: `themes` in burnwright's config directory.
 fn themes_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
@@ -1258,6 +1290,40 @@ mod tests {
         let diagnosis = tauri::async_runtime::block_on(diagnose_programmer());
         assert_eq!(diagnosis.os, engine::diagnose::HostOs::current());
         assert_eq!(diagnosis.probe_error, None);
+    }
+
+    #[test]
+    fn the_notices_are_found_in_the_resource_folder_or_said_to_be_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = notices_in(dir.path()).unwrap_err();
+        assert!(err.contains("THIRD-PARTY-NOTICES.txt"), "{err}");
+        assert!(err.contains(&dir.path().display().to_string()), "{err}");
+
+        // A folder of that name isn't the file.
+        std::fs::create_dir(dir.path().join(NOTICES_FILE)).unwrap();
+        assert!(notices_in(dir.path()).is_err());
+        std::fs::remove_dir(dir.path().join(NOTICES_FILE)).unwrap();
+
+        std::fs::write(dir.path().join(NOTICES_FILE), "notices").unwrap();
+        assert_eq!(
+            notices_in(dir.path()),
+            Ok(dir.path().join("THIRD-PARTY-NOTICES.txt"))
+        );
+    }
+
+    /// The name the command looks for is the name the bundle is given it
+    /// under, and the file it's made from is in the repo.
+    #[test]
+    fn the_bundle_carries_the_notices_under_the_name_the_command_opens() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let resources = conf["bundle"]["resources"].as_object().unwrap();
+        let (source, _) = resources
+            .iter()
+            .find(|(_, target)| target.as_str() == Some(NOTICES_FILE))
+            .expect("tauri.conf.json bundles the notices");
+        let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(source);
+        assert!(source.is_file(), "{} isn't there", source.display());
     }
 
     #[test]
