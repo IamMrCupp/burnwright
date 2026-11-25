@@ -1,0 +1,25 @@
+[package]
+name = "inspect"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "burnwright firmware inspection — says what's inside a dump"
+publish = false
+
+[dependencies]
+# The scanner. Pinned exactly: the fork's API broke at 4.0.0 and is moving
+# again on its main branch, so a bump is a decision, not a `cargo update`.
+# No default features: `entropy-plot` pulls in plotters, which nothing here
+# wants.
+binwalk-ng = { version = "=4.0.0", default-features = false }
+# Not used by name. binwalk-ng's xz dependency links whatever liblzma
+# pkg-config finds on the build machine, and an app built against Homebrew's
+# copy doesn't start on a Mac without it. `static` builds xz from the source
+# the crate carries and links it in (#153).
+liblzma = { version = "0.4.8", features = ["static"] }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
