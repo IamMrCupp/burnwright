@@ -11,6 +11,7 @@
 * **app:** save something a scan found as a file of its own, from its row in the Inspect panel ([5706042](https://github.com/IamMrCupp/burnwright/commit/57060427345ce1e5776dff1b79d6410aafe457ed))
 * **inspect:** find the strings in a dump, ASCII and UTF-16LE, and carry them in the report ([ce9749b](https://github.com/IamMrCupp/burnwright/commit/ce9749b6e341cee41712af523312dcbbc9f7dde2))
 * **inspect:** measure a dump's entropy block by block and carry it in the report ([ac95418](https://github.com/IamMrCupp/burnwright/commit/ac95418c464b2afbed0b86aab46c2c53bfffe4be))
+* **ui:** add Inspect to the buffer, which lists the formats a scan finds and puts the hex editor on the one you pick ([9570ce1](https://github.com/IamMrCupp/burnwright/commit/9570ce19e949fd43946f1d662e8ee9a19dc06469))
 
 ## [0.22.0](https://github.com/IamMrCupp/burnwright/compare/v0.21.0...v0.22.0) (2026-11-25)
 
