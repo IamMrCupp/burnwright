@@ -4,8 +4,9 @@ You read a flash chip off a router, a camera or a board nobody has a schematic
 for, and you're looking at four megabytes of hex. **Inspect** scans the buffer
 for formats it knows — file systems, compressed data, boot images — and lists
 where each one starts. Pick a row and the hex editor goes there. Above the
-list, a strip shows how random each stretch of the buffer looks, which is the
-part that still says something when no format is recognised.
+list, a strip shows how random each stretch of the buffer looks, and under it
+is the text in the dump. Those two still say something when no format is
+recognised.
 
 It follows the **Programmer** bench. A Laptop EC backup goes straight to a file;
 open that file on the Programmer bench to inspect it.
@@ -70,6 +71,49 @@ It's the same kind of evidence as a low-confidence row: high entropy says
 "packed", not which of compressed and encrypted, and plenty of ordinary data
 sits in the middle.
 
+## Strings
+
+Under the formats, the text in the buffer: every run of four or more
+printable characters, with where it starts and how long it is. It's what
+`strings` prints. A U-Boot banner, the kernel's boot arguments, a URL or a
+config key says more about a dump than its first screen of hex does.
+
+- **Click a row**, or tab to its offset and press Enter, and the hex editor's
+  cursor lands on the string's first byte.
+- **Filter** narrows the list to the strings with that text in them, whatever
+  its case. It's plain text, not a pattern, and it looks through every string
+  in the list, not only the ones drawn.
+- **`UTF-16`** marks a string stored two bytes a character, the way Windows
+  and UEFI firmware write them. Both kinds are in the one list, in offset
+  order.
+
+A few things it does to stay readable:
+
+- **500 rows are drawn at a time.** The line under the list says how many
+  there are; the filter is how you get at the rest.
+- **A string is shown up to 120 characters**, with `…` after it when it's
+  longer. The Length column is the real length.
+- **The list holds 20,000 strings.** Compressed data throws up short runs of
+  printable bytes by chance — a 64 MiB dump of noise has over 800,000 — so
+  when there are more than fit, the shortest are left out first and the panel
+  says what the new minimum is. A real string is long more often than a run
+  of chance is. Past 16 characters it stops raising the bar and cuts the list
+  off instead, and says that too.
+
+What it doesn't find:
+
+- **Anything that isn't ASCII.** Accented, Cyrillic or CJK text, in any
+  encoding, isn't listed. A line break ends a string; a tab doesn't.
+- **Text inside something compressed.** The strings in a SquashFS are in the
+  SquashFS. This reads the bytes as they sit on the chip.
+
+**Strings are whatever was on the chip**, and that includes Wi-Fi keys, admin
+passwords and serial numbers. Nothing leaves the machine, but the list puts
+all of them on one screen. With **Stream page** → **Hide file paths in this
+window** on, the panel says how many strings there are and draws none of
+them. The hex view isn't covered: it shows the bytes it's on, as it always
+has.
+
 ## What the other states mean
 
 - **"Nothing recognised"** — the scan ran and found no format it knows. That's
@@ -107,8 +151,6 @@ time.
   [an issue](https://github.com/IamMrCupp/burnwright/issues).
 - **No extraction.** It says a SquashFS starts at `0x180000`; it doesn't unpack
   it.
-- **No strings list** yet. It's on
-  [#153](https://github.com/IamMrCupp/burnwright/issues/153).
 - **The strip doesn't mark where the findings are.** The list and the strip
   are two views of the same bytes; lining them up is by offset.
 - **It's a list of things worth looking at, not a verdict.** A format the
@@ -121,5 +163,6 @@ There's no scanner in a browser. The preview's Inspect is a stand-in that
 finds three formats by their first bytes in a made-up image, so the panel can
 be worked on. What it lists says nothing about the real scanner.
 
-The entropy strip is the exception: the preview does the same sum the scanner
-does, so the strip there is the strip the app would draw for those bytes.
+The entropy strip and the strings list are the exceptions: the preview does
+the same sum and the same search the scanner does, so what it draws there is
+what the app would draw for those bytes.

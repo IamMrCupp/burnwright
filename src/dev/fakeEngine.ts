@@ -20,6 +20,8 @@ import type {
   InspectEntropy,
   InspectFinding,
   InspectReport,
+  InspectStrings,
+  InspectText,
   OperationOptions,
   Programmer,
 } from "../lib/engine";
@@ -296,7 +298,7 @@ export function fakeScan(bytes: Uint8Array): InspectReport {
     });
     offset += found.magic.length - 1;
   }
-  return { len: bytes.length, findings, entropy: entropyOf(bytes) };
+  return { len: bytes.length, findings, entropy: entropyOf(bytes), strings: stringsOf(bytes) };
 }
 
 /**
@@ -323,6 +325,72 @@ export function entropyOf(bytes: Uint8Array): InspectEntropy {
     millibits.push(Math.min(8000, Math.max(0, Math.round(bits * 1000))));
   }
   return { block, millibits };
+}
+
+/** What counts as a character: printable ASCII, space included, and tab. */
+function printable(byte: number): boolean {
+  return (byte >= 0x20 && byte <= 0x7e) || byte === 0x09;
+}
+
+/**
+ * The strings in `bytes`, by the search the real scanner does
+ * (`inspect::strings`): runs of four or more printable characters, one byte
+ * each or two with a zero after, in offset order. At most `limit` are
+ * listed; past that the shortest go first, up to 16 characters, and then the
+ * list is cut. Like the entropy, this part of the preview isn't pretend.
+ */
+export function stringsOf(bytes: Uint8Array, limit = 20_000): InspectStrings {
+  const runs: { offset: number; chars: number; wide: boolean }[] = [];
+  for (let at = 0; at < bytes.length; ) {
+    if (!printable(bytes[at])) {
+      at++;
+      continue;
+    }
+    const start = at;
+    while (at < bytes.length && printable(bytes[at])) at++;
+    if (at - start >= 4) runs.push({ offset: start, chars: at - start, wide: false });
+  }
+  const wide = (at: number) => at + 1 < bytes.length && printable(bytes[at]) && bytes[at + 1] === 0;
+  for (let at = 0; at + 1 < bytes.length; ) {
+    if (!wide(at)) {
+      at++;
+      continue;
+    }
+    const start = at;
+    while (wide(at)) at += 2;
+    if ((at - start) / 2 >= 4) runs.push({ offset: start, chars: (at - start) / 2, wide: true });
+  }
+  // One list in offset order; where both kinds start on a byte, the
+  // one-byte string comes first.
+  runs.sort((a, b) => a.offset - b.offset || Number(a.wide) - Number(b.wide));
+
+  let minChars = 4;
+  let cut = false;
+  let found: InspectText[] = [];
+  for (const run of runs) {
+    if (run.chars < minChars) continue;
+    while (found.length >= limit && minChars < 16) {
+      minChars++;
+      found = found.filter((text) => text.chars >= minChars);
+    }
+    if (run.chars < minChars) continue;
+    if (found.length >= limit) {
+      cut = true;
+      continue;
+    }
+    const step = run.wide ? 2 : 1;
+    let text = "";
+    for (let i = 0; i < Math.min(run.chars, 120); i++) {
+      text += String.fromCharCode(bytes[run.offset + i * step]);
+    }
+    found.push({
+      offset: run.offset,
+      chars: run.chars,
+      encoding: run.wide ? "utf16le" : "ascii",
+      text,
+    });
+  }
+  return { min_chars: minChars, total: runs.length, cut, found };
 }
 
 export function createFakeEngine(options: FakeEngineOptions = {}): FakeEngine {

@@ -23,6 +23,8 @@ export interface BufferPanelProps {
   diff: DiffState | null;
   /** The scan of the buffer for known formats, once one has been asked for. */
   inspect: InspectState | null;
+  /** Keep the strings a scan found off the screen: the window is on a live stream. */
+  coverStrings?: boolean;
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
@@ -53,6 +55,7 @@ export const BufferPanel = memo(function BufferPanel({
   fileBusy,
   diff,
   inspect,
+  coverStrings = false,
   onOpen,
   onSave,
   onSaveAs,
@@ -187,6 +190,7 @@ export const BufferPanel = memo(function BufferPanel({
           onCancel={onCancelInspect}
           onClose={onCloseInspect}
           onJump={onJump}
+          coverStrings={coverStrings}
         />
       )}
     </>

@@ -580,6 +580,57 @@
   white-space: nowrap;
 }
 
+/* The text in the buffer, under what the scan recognised. */
+.strings {
+  margin-top: 0.9rem;
+}
+
+.strings-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.strings-filter {
+  flex: 0 1 16rem;
+  min-width: 8rem;
+}
+
+/* There's more to read here than in the list of formats. */
+.strings-table {
+  max-height: 20rem;
+}
+
+.strings-text {
+  width: 100%;
+}
+
+/* A string's spaces and tabs are part of it. */
+.inspect-table td.strings-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.strings-text code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.strings-wide {
+  margin-right: 0.5rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--bw-border);
+  border-radius: 3px;
+  color: var(--bw-muted);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.strings-more {
+  color: var(--bw-muted);
+}
+
 /* --- log ------------------------------------------------------------- */
 
 .log-lines {

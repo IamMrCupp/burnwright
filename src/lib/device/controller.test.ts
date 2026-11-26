@@ -122,7 +122,12 @@ describe("what's inside the buffer", () => {
     const seen: Uint8Array[] = [];
     fake.scan = (data) => {
       seen.push(data);
-      return { len: data.length, findings: [], entropy: { block: 256, millibits: [] } };
+      return {
+        len: data.length,
+        findings: [],
+        entropy: { block: 256, millibits: [] },
+        strings: { min_chars: 4, total: 0, cut: false, found: [] },
+      };
     };
     const edited = image();
     edited[0] = 0x00;
@@ -162,6 +167,7 @@ describe("what's inside the buffer", () => {
       len: data.length,
       findings: [],
       entropy: { block: 256, millibits: [] },
+      strings: { min_chars: 4, total: 0, cut: false, found: [] },
     });
     await controller.inspect();
     expect(state().inspect).toMatchObject({ status: "done", report: { findings: [] } });

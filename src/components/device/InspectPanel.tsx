@@ -9,6 +9,7 @@ import {
 import type { InspectState } from "../../lib/device/state";
 import type { InspectConfidence } from "../../lib/engine";
 import { EntropyStrip } from "./EntropyStrip";
+import { StringsList } from "./StringsList";
 
 /**
  * How many findings are drawn. A dump can hold thousands, and nobody reads a
@@ -30,12 +31,14 @@ export interface InspectPanelProps {
   onClose: () => void;
   /** Put the hex editor's cursor on this offset. */
   onJump: (offset: number) => void;
+  /** Count the strings and draw none: the window is on a live stream. */
+  coverStrings?: boolean;
 }
 
 /**
- * What a scan found in the buffer: how random each stretch of it looks, then
- * the known formats in it and where each starts. A row puts the hex editor's
- * cursor on its offset, and so does a point on the strip.
+ * What a scan found in the buffer: how random each stretch of it looks, the
+ * known formats in it and where each starts, and the text in it. A row puts
+ * the hex editor's cursor on its offset, and so does a point on the strip.
  */
 export const InspectPanel = memo(function InspectPanel({
   inspect,
@@ -43,6 +46,7 @@ export const InspectPanel = memo(function InspectPanel({
   onCancel,
   onClose,
   onJump,
+  coverStrings = false,
 }: InspectPanelProps) {
   const scanning = inspect.status === "scanning";
   return (
@@ -64,7 +68,7 @@ export const InspectPanel = memo(function InspectPanel({
           </button>
         </div>
       </div>
-      <Body inspect={inspect} onJump={onJump} />
+      <Body inspect={inspect} onJump={onJump} coverStrings={coverStrings} />
     </section>
   );
 });
@@ -72,7 +76,8 @@ export const InspectPanel = memo(function InspectPanel({
 function Body({
   inspect,
   onJump,
-}: Pick<InspectPanelProps, "inspect" | "onJump">) {
+  coverStrings,
+}: Pick<InspectPanelProps, "inspect" | "onJump"> & { coverStrings: boolean }) {
   switch (inspect.status) {
     case "scanning":
       return <p role="status">Scanning {formatByteCount(inspect.bytes)}…</p>;
@@ -90,16 +95,18 @@ function Body({
         </p>
       );
     case "done":
-      return <Report inspect={inspect} onJump={onJump} />;
+      return <Report inspect={inspect} onJump={onJump} coverStrings={coverStrings} />;
   }
 }
 
 function Report({
   inspect,
   onJump,
+  coverStrings,
 }: {
   inspect: Extract<InspectState, { status: "done" }>;
   onJump: (offset: number) => void;
+  coverStrings: boolean;
 }) {
   const { report, stale } = inspect;
   const total = report.findings.length;
@@ -129,7 +136,7 @@ function Report({
             to it in the buffer.
           </p>
           <div className="inspect-table">
-            <table>
+            <table aria-label="Formats found">
               <thead>
                 <tr>
                   <th scope="col">Offset</th>
@@ -177,6 +184,7 @@ function Report({
           )}
         </>
       )}
+      <StringsList strings={report.strings} covered={coverStrings} onJump={onJump} />
     </>
   );
 }

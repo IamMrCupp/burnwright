@@ -7,6 +7,9 @@
 // with the first bytes of a uImage, a gzip stream and a SquashFS planted in
 // it: "Inspect" runs a pretend scan that finds those three by their first
 // bytes and nothing else (`fakeScan`). The real scanner isn't in a browser.
+// The entropy strip and the strings list are worked out from the bytes the
+// way the scanner does it, so the image also holds what a router's flash
+// would: a boot banner, boot arguments, a UTF-16 string, a stretch of log.
 // Picking MX25L3206E@SOP8 gives a chip ID mismatch; "Open…" loads an image
 // that's a few bytes different from the chip, so Verify shows a diff.
 //
@@ -46,7 +49,26 @@ function pattern(): Uint8Array {
   // Never written between the kernel and the file system, and a stretch of
   // text further in: the entropy strip gets a floor, a middle and a ceiling.
   bytes.fill(0xff, 0x140000, 0x180000);
-  for (let i = 0x300000; i < 0x320000; i++) bytes[i] = text[i % text.length];
+  const ascii = (at: number, line: string) => bytes.set(new TextEncoder().encode(line), at);
+  for (let at = 0x300000, n = 0; at < 0x320000; at += 48, n++) {
+    ascii(at, `[${String(n).padStart(8, " ")}.000000] preview: log line ${n}`.padEnd(47, ".") + "\n");
+  }
+  // The strings worth finding in it, a zero byte either side of each.
+  const planted: [number, string][] = [
+    [0x8000, "U-Boot 2019.07 (Jan 01 2020 - 00:00:00 +0000)\0"],
+    [0x8040, "bootargs=console=ttyS0,115200 root=/dev/mtdblock2 rootfstype=squashfs\0"],
+    [0x80a0, "bootcmd=bootm 0x9f010000\0"],
+    [0x10020, "Linux-5.4.171\0"],
+    [0x2f0000, "wifi_ssid=preview-network\0"],
+    [0x2f0020, "wifi_psk=not-a-real-password\0"],
+    [0x2f0040, "admin_user=admin\0"],
+    [0x2f0060, "http://192.168.1.1/cgi-bin/luci\0"],
+  ];
+  for (const [at, line] of planted) ascii(at - 1, `\0${line}`);
+  // What Windows and UEFI write: two bytes a character.
+  const wide = "Preview Setup Utility";
+  bytes.set([0, 0], 0x2f00fe);
+  for (let i = 0; i <= wide.length; i++) bytes.set([wide.charCodeAt(i) || 0, 0], 0x2f0100 + i * 2);
   // What a router's flash starts like, as far as the pretend scan looks:
   // a boot image, a compressed kernel, a file system.
   bytes.set([0x27, 0x05, 0x19, 0x56], 0x10000);

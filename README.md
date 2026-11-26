@@ -169,7 +169,8 @@ running some other minipro.
 systems, compressed data, boot images — and lists where each one starts. Pick a
 row and the hex editor goes there. A strip above the list shows how random each
 stretch of the buffer looks: flat where it's erased, at the top where it's
-compressed or encrypted.
+compressed or encrypted. Under it, the text in the dump — version banners,
+boot arguments, URLs — with a filter box.
 
 It runs on this computer, in a second copy of burnwright, so a corrupt dump
 that trips the scanner can't take the window down with it. It lists what it
