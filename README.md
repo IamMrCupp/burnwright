@@ -1,17 +1,26 @@
 # burnwright
 
-Open-source, cross-platform GUI for XGecu / MiniPRO universal programmers
-(T48, T56, T76, TL866II+), built on the [minipro](https://gitlab.com/DavidGriffith/minipro) engine.
+Open-source desktop app for XGecu / MiniPRO universal programmers (T48, T56,
+T76, TL866II+, TL866A/CS), built on the [minipro](https://gitlab.com/DavidGriffith/minipro) engine.
+Read, write, verify and erase a chip with a hex editor on the image, see
+what's inside a dump, and back up a laptop's embedded controller.
 macOS · Linux · Windows. No closed-source vendor software required.
 
-> **Status: early, but it runs.** There's a real screen now: pick a chip, then
-> read, verify, blank-check, erase or write it, with a hex editor for the image
-> and a log of every minipro command. It's tested against a fake minipro — it
-> hasn't read or written a real chip yet, so treat a write as unproven until it
-> has. Main (code) memory only for now: no EEPROM data memory, no fuses. The
-> installers also explain why they can't find a programmer (USB permissions,
-> out-of-date firmware, a T76 on a USB 3 link). The T76 runs on its own bundled
-> minipro build, which hasn't been through the app on a real T76 yet.
+> **Status: early, and short on real chips.** The screen is all there: pick a
+> chip, then read, verify, blank-check, erase or write it, with a hex editor
+> for the image and a log of every minipro command. Main (code) memory only
+> for now: no EEPROM data memory, no fuses. When it can't find a programmer it
+> says why (USB permissions, out-of-date firmware, a T76 on a USB 3 link).
+>
+> What's been on real hardware: a T48 and a T76 on macOS — found, identified,
+> and run through chip checks and reads with an empty socket. The installers
+> start on macOS and on Ubuntu 26.04. **No chip has been read or written
+> through burnwright yet**, so treat a write as unproven until one has. No
+> programmer's been tried on Linux or Windows, and Windows is covered by CI
+> only. The T76 needs your own `algorithm.xml` ([below](#t76-the-algorithm-file)).
+>
+> Inspect and the Laptop EC bench are newer still. Neither has met a real dump
+> or a real board.
 
 ## Help test it
 
