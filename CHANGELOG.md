@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.23.0](https://github.com/IamMrCupp/burnwright/compare/v0.22.0...v0.23.0) (2026-11-26)
+
+
+### Features
+
+* **app:** add a Licences button to the footer that opens the third-party notices the app was installed with ([42477bd](https://github.com/IamMrCupp/burnwright/commit/42477bd613712b67092fb929453201b120290f29))
+* **app:** draw the buffer's entropy as a strip across the Inspect panel, and go to a block from it ([0790910](https://github.com/IamMrCupp/burnwright/commit/0790910441cae4c087d38480052d58df0c82e720))
+* **app:** list the strings a scan found in the Inspect panel, with a filter, and cover them while paths are hidden ([1e544c5](https://github.com/IamMrCupp/burnwright/commit/1e544c579ab1bc3850b3a2255725581c47b9cd03))
+* **app:** save something a scan found as a file of its own, from its row in the Inspect panel ([5706042](https://github.com/IamMrCupp/burnwright/commit/57060427345ce1e5776dff1b79d6410aafe457ed))
+* **inspect:** find the strings in a dump, ASCII and UTF-16LE, and carry them in the report ([ce9749b](https://github.com/IamMrCupp/burnwright/commit/ce9749b6e341cee41712af523312dcbbc9f7dde2))
+* **inspect:** measure a dump's entropy block by block and carry it in the report ([ac95418](https://github.com/IamMrCupp/burnwright/commit/ac95418c464b2afbed0b86aab46c2c53bfffe4be))
+
 ## [0.22.0](https://github.com/IamMrCupp/burnwright/compare/v0.21.0...v0.22.0) (2026-11-25)
 
 
