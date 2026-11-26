@@ -535,6 +535,12 @@
   cursor: pointer;
 }
 
+/* One of a row's own, and small enough not to make the row taller. */
+.inspect-save-button {
+  padding: 0 0.5em;
+  font-size: 0.9em;
+}
+
 /* How random each stretch of the buffer looks. One unit of the drawing is a
    block, so it stretches to whatever width the panel has. */
 .entropy {

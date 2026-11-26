@@ -174,7 +174,7 @@ boot arguments, URLs — with a filter box.
 
 It runs on this computer, in a second copy of burnwright, so a corrupt dump
 that trips the scanner can't take the window down with it. It lists what it
-finds; it doesn't unpack anything. And it hasn't met a real dump yet — only
+finds and will save one as a file of its own; it doesn't unpack anything. And it hasn't met a real dump yet — only
 images built for its tests.
 
 More in [docs/inspect.md](docs/inspect.md).

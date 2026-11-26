@@ -148,6 +148,7 @@ export function DeviceScreen({ controller, footer, hidePaths = false }: DeviceSc
             onInspect={controller.inspect}
             onCancelInspect={controller.cancelInspect}
             onCloseInspect={controller.closeInspect}
+            onSaveRegion={controller.saveRegion}
           />
           <LogPane log={state.log} onClear={controller.clearLog} />
         </main>

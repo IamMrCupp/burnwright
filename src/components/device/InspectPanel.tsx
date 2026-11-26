@@ -7,7 +7,7 @@ import {
   sentence,
 } from "../../lib/device/format";
 import type { InspectState } from "../../lib/device/state";
-import type { InspectConfidence } from "../../lib/engine";
+import type { InspectConfidence, InspectFinding } from "../../lib/engine";
 import { EntropyStrip } from "./EntropyStrip";
 import { StringsList } from "./StringsList";
 
@@ -33,12 +33,17 @@ export interface InspectPanelProps {
   onJump: (offset: number) => void;
   /** Count the strings and draw none: the window is on a live stream. */
   coverStrings?: boolean;
+  /** Save `size` bytes from `offset` to a file the user picks. `kind` names the file. */
+  onSaveRegion: (offset: number, size: number, kind: string) => void;
+  /** Why nothing can be saved right now, or `null` when it can. */
+  saveBlocked?: string | null;
 }
 
 /**
  * What a scan found in the buffer: how random each stretch of it looks, the
  * known formats in it and where each starts, and the text in it. A row puts
- * the hex editor's cursor on its offset, and so does a point on the strip.
+ * the hex editor's cursor on its offset, and so does a point on the strip. A
+ * format that says how long it is can be saved as a file of its own.
  */
 export const InspectPanel = memo(function InspectPanel({
   inspect,
@@ -47,6 +52,8 @@ export const InspectPanel = memo(function InspectPanel({
   onClose,
   onJump,
   coverStrings = false,
+  onSaveRegion,
+  saveBlocked = null,
 }: InspectPanelProps) {
   const scanning = inspect.status === "scanning";
   return (
@@ -68,16 +75,23 @@ export const InspectPanel = memo(function InspectPanel({
           </button>
         </div>
       </div>
-      <Body inspect={inspect} onJump={onJump} coverStrings={coverStrings} />
+      <Body
+        inspect={inspect}
+        onJump={onJump}
+        coverStrings={coverStrings}
+        onSaveRegion={onSaveRegion}
+        saveBlocked={saveBlocked}
+      />
     </section>
   );
 });
 
-function Body({
-  inspect,
-  onJump,
-  coverStrings,
-}: Pick<InspectPanelProps, "inspect" | "onJump"> & { coverStrings: boolean }) {
+type ReportProps = Pick<InspectPanelProps, "onJump" | "onSaveRegion"> & {
+  coverStrings: boolean;
+  saveBlocked: string | null;
+};
+
+function Body({ inspect, ...rest }: ReportProps & { inspect: InspectState }) {
   switch (inspect.status) {
     case "scanning":
       return <p role="status">Scanning {formatByteCount(inspect.bytes)}…</p>;
@@ -95,7 +109,7 @@ function Body({
         </p>
       );
     case "done":
-      return <Report inspect={inspect} onJump={onJump} coverStrings={coverStrings} />;
+      return <Report inspect={inspect} {...rest} />;
   }
 }
 
@@ -103,14 +117,21 @@ function Report({
   inspect,
   onJump,
   coverStrings,
-}: {
-  inspect: Extract<InspectState, { status: "done" }>;
-  onJump: (offset: number) => void;
-  coverStrings: boolean;
-}) {
+  onSaveRegion,
+  saveBlocked,
+}: ReportProps & { inspect: Extract<InspectState, { status: "done" }> }) {
   const { report, stale } = inspect;
   const total = report.findings.length;
-  const rows = total > INSPECT_ROW_LIMIT ? report.findings.slice(0, INSPECT_ROW_LIMIT) : report.findings;
+  const rows =
+    total > INSPECT_ROW_LIMIT ? report.findings.slice(0, INSPECT_ROW_LIMIT) : report.findings;
+  // Only what the scan gave an end to, and only inside what was scanned.
+  const sized = (finding: InspectFinding): finding is InspectFinding & { size: number } =>
+    finding.size !== null && finding.size > 0 && finding.offset + finding.size <= report.len;
+  const anySized = rows.some(sized);
+  // An edit can have moved or overwritten what a row describes.
+  const blocked = stale
+    ? "The buffer has been edited since this scan. Scan again first."
+    : saveBlocked;
   return (
     <>
       {stale && (
@@ -134,6 +155,7 @@ function Report({
           <p className="hint" role="status">
             {formatCount(total)} found in {formatByteCount(report.len)}. Pick one to go
             to it in the buffer.
+            {anySized && <> Save… writes one out as a file of its own.</>}
           </p>
           <div className="inspect-table">
             <table aria-label="Formats found">
@@ -144,6 +166,7 @@ function Report({
                   <th scope="col">Type</th>
                   <th scope="col">Confidence</th>
                   <th scope="col">What it is</th>
+                  {anySized && <th scope="col">File</th>}
                 </tr>
               </thead>
               <tbody>
@@ -172,6 +195,26 @@ function Report({
                     <td className="inspect-kind">{finding.kind}</td>
                     <td>{CONFIDENCE[finding.confidence]}</td>
                     <td className="inspect-description">{finding.description}</td>
+                    {anySized && (
+                      <td className="inspect-save">
+                        {sized(finding) && (
+                          <button
+                            type="button"
+                            className="inspect-save-button"
+                            disabled={blocked !== null}
+                            title={blocked ?? `Save these ${formatByteCount(finding.size)} to a file`}
+                            aria-label={`Save the ${finding.kind} at ${formatOffset(finding.offset)} as…`}
+                            onClick={(event) => {
+                              // The row's own click goes to the offset.
+                              event.stopPropagation();
+                              onSaveRegion(finding.offset, finding.size, finding.kind);
+                            }}
+                          >
+                            Save…
+                          </button>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
