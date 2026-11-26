@@ -20,6 +20,8 @@
 // - A scan of the buffer touches no chip, so it runs beside an operation.
 //   Its report is of the bytes it was given: a new buffer drops it, and an
 //   edit marks it stale.
+// - Saving part of the buffer is a file of its own: the buffer's file and
+//   its unsaved mark stay as they were.
 import {
   errorMessage,
   isEngineError,
@@ -32,7 +34,7 @@ import {
   type ProgressEvent,
 } from "../engine";
 import { isSizeMismatch } from "./chip";
-import { fileName, formatByteCount } from "./format";
+import { fileName, formatByteCount, formatOffset, regionFileName } from "./format";
 import {
   blankOutcome,
   checkOutcome,
@@ -90,8 +92,12 @@ export type DeviceEngine = Pick<
 /** The system's open and save panels. Each resolves to a path, or `null` when the user backs out. */
 export interface FileDialogs {
   open(): Promise<string | null>;
-  /** `suggested` is a file name or path to start from. */
-  save(suggested: string): Promise<string | null>;
+  /**
+   * `suggested` is a file name or path to start from. `what` is `"region"`
+   * when it's part of the buffer being saved, which only ever goes out as
+   * raw bytes.
+   */
+  save(suggested: string, what?: "region"): Promise<string | null>;
   /** Pick the user's own `algorithm.xml` for a T76. */
   openAlgorithms(): Promise<string | null>;
 }
@@ -528,6 +534,63 @@ export class DeviceController {
       this.dispatch({ type: "file_finished" });
     }
   }
+
+  /**
+   * Save `size` bytes of the buffer, from `offset`, to a file the user
+   * picks: something a scan found, as a file their own tools can open.
+   * `kind` is what the scan called it, and only names the file. The bytes
+   * go out raw whatever the file is called, and they're the ones in the
+   * buffer when this is asked for. The buffer's own file isn't touched.
+   */
+  saveRegion = async (offset: number, size: number, kind: string): Promise<void> => {
+    const buffer = this.state.buffer;
+    if (!buffer || this.state.running || this.state.fileBusy) return;
+    const length = buffer.bytes.length;
+    const fits =
+      Number.isInteger(offset) &&
+      Number.isInteger(size) &&
+      offset >= 0 &&
+      size > 0 &&
+      offset + size <= length;
+    if (!fits) {
+      this.fileFailed(
+        `Couldn't save that region: ${formatByteCount(size)} from ${formatOffset(offset)} runs past the end of the buffer's ${formatByteCount(length)}.`,
+      );
+      return;
+    }
+    const region = buffer.bytes.slice(offset, offset + size);
+    this.dispatch({ type: "file_started", what: "saving" });
+    try {
+      const chip = this.state.chip.selected?.name ?? "image";
+      const name = regionFileName(buffer.path ?? chip, offset, kind);
+      // Next to the buffer's own file, when it has one.
+      const folder = buffer.path
+        ? buffer.path.slice(0, buffer.path.length - fileName(buffer.path).length)
+        : "";
+      let path: string | null;
+      try {
+        path = await this.dialogs.save(`${folder}${name}`, "region");
+        pathMasker.remember(path);
+      } catch (err) {
+        this.fileFailed(`Couldn't show the save dialog: ${errorMessage(err)}`);
+        return;
+      }
+      if (!path) return;
+      try {
+        await this.engine.saveImage(path, Array.from(region), "bin");
+        this.dispatch({ type: "region_saved" });
+        this.dispatch({
+          type: "logged",
+          kind: "note",
+          text: `Saved ${formatByteCount(size)} from ${formatOffset(offset)} (${kind}) to ${path}.`,
+        });
+      } catch (err) {
+        this.fileFailed(`Couldn't save ${fileName(path)}: ${errorMessage(err)}`);
+      }
+    } finally {
+      this.dispatch({ type: "file_finished" });
+    }
+  };
 
   private fileFailed(message: string): void {
     this.dispatch({ type: "file_failed", message });

@@ -321,6 +321,8 @@ export type Action =
   | { type: "buffer_loaded"; bytes: Uint8Array; source: BufferSource }
   | { type: "buffer_edited"; bytes: Uint8Array; edited: boolean }
   | { type: "buffer_saved"; path: string; bytes: Uint8Array }
+  /** Part of the buffer went to a file of its own. The buffer's file is as it was. */
+  | { type: "region_saved" }
   | { type: "file_failed"; message: string }
   | { type: "file_started"; what: FileBusy }
   | { type: "file_finished" }
@@ -523,6 +525,8 @@ export function reducer(state: DeviceState, action: Action): DeviceState {
         buffer: { ...state.buffer, saved: action.bytes, path: action.path },
         fileError: null,
       };
+    case "region_saved":
+      return state.fileError === null ? state : { ...state, fileError: null };
     case "file_failed":
       return { ...state, fileError: action.message };
     case "file_started":

@@ -33,6 +33,8 @@ export interface BufferPanelProps {
   onInspect: () => void;
   onCancelInspect: () => void;
   onCloseInspect: () => void;
+  /** Save part of the buffer, something a scan found, to a file the user picks. */
+  onSaveRegion: (offset: number, size: number, kind: string) => void;
 }
 
 function describeSource(buffer: BufferState): string {
@@ -64,6 +66,7 @@ export const BufferPanel = memo(function BufferPanel({
   onInspect,
   onCancelInspect,
   onCloseInspect,
+  onSaveRegion,
 }: BufferPanelProps) {
   const onChange = useCallback(
     (bytes: Uint8Array, info: { dirty: boolean }) => onEdit(bytes, info.dirty),
@@ -191,6 +194,14 @@ export const BufferPanel = memo(function BufferPanel({
           onClose={onCloseInspect}
           onJump={onJump}
           coverStrings={coverStrings}
+          onSaveRegion={onSaveRegion}
+          saveBlocked={
+            busy
+              ? "Wait for the running operation to finish."
+              : fileBusy
+                ? "A file is being opened or saved."
+                : null
+          }
         />
       )}
     </>

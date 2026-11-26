@@ -926,6 +926,94 @@ describe("buffer", () => {
     expect(state().buffer?.path).toBe("/b.hex");
   });
 
+  it("saves part of the buffer as a file of its own, raw, next to the buffer's file", async () => {
+    const { controller, state, dialogs, fake } = setup({ files: { "/dumps/router.bin": ramp(64) } });
+    dialogs.open.mockResolvedValue("/dumps/router.bin");
+    await controller.openFile();
+    dialogs.save.mockResolvedValue("/dumps/kernel.gz");
+    await controller.saveRegion(16, 8, "gzip");
+    expect(dialogs.save).toHaveBeenCalledExactlyOnceWith("/dumps/router-0x10-gzip.bin", "region");
+    expect(fake.saved["/dumps/kernel.gz"]).toEqual(ramp(8, 16));
+    expect(last(fake.calls)).toEqual({ command: "saveImage", path: "/dumps/kernel.gz", format: "bin" });
+    expect(last(state().log)).toMatchObject({
+      kind: "note",
+      text: "Saved 8 bytes from 0x00000010 (gzip) to /dumps/kernel.gz.",
+    });
+    // The buffer is still router.bin, and still saved.
+    expect(state().buffer?.path).toBe("/dumps/router.bin");
+    expect(unsavedBuffer(state().buffer)).toBeNull();
+    expect(state().fileBusy).toBeNull();
+  });
+
+  it("names a region after the chip when the buffer has no file", async () => {
+    const { controller, dialogs, ready, idle } = setup({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+    await controller.saveRegion(4, 4, "uimage");
+    expect(dialogs.save).toHaveBeenCalledExactlyOnceWith("EEPROM16-0x4-uimage.bin", "region");
+  });
+
+  it("leaves a chip read unsaved after part of it is saved", async () => {
+    const { controller, state, dialogs, ready, idle, fake } = setup({
+      socket: socketWith("EEPROM16", ramp(16)),
+    });
+    await ready("EEPROM16");
+    controller.run("read");
+    await idle();
+    dialogs.save.mockResolvedValue("/out/part.bin");
+    await controller.saveRegion(0, 16, "uimage");
+    expect(fake.saved["/out/part.bin"]).toEqual(ramp(16));
+    expect(state().buffer?.path).toBeNull();
+    expect(unsavedBuffer(state().buffer)).toBe("read");
+  });
+
+  it("saves nothing when the region's save panel is backed out of", async () => {
+    const { controller, state, dialogs, fake } = setup({ files: { "/a.bin": ramp(32) } });
+    dialogs.open.mockResolvedValue("/a.bin");
+    await controller.openFile();
+    await controller.saveRegion(0, 8, "gzip");
+    expect(dialogs.save).toHaveBeenCalledOnce();
+    expect(fake.saved).toEqual({});
+    expect(state().fileError).toBeNull();
+    expect(state().fileBusy).toBeNull();
+  });
+
+  it("refuses a region that runs past the end of the buffer", async () => {
+    const { controller, state, dialogs, fake } = setup({ files: { "/a.bin": ramp(32) } });
+    dialogs.open.mockResolvedValue("/a.bin");
+    await controller.openFile();
+    for (const [offset, size] of [[24, 9], [32, 1], [0, 0], [-1, 4], [0, 1.5]]) {
+      await controller.saveRegion(offset, size, "gzip");
+    }
+    expect(dialogs.save).not.toHaveBeenCalled();
+    expect(fake.saved).toEqual({});
+    expect(state().fileError).toMatch(/^Couldn't save that region: /);
+    // Right up to the last byte is fine.
+    dialogs.save.mockResolvedValue("/tail.bin");
+    await controller.saveRegion(24, 8, "gzip");
+    expect(fake.saved["/tail.bin"]).toEqual(ramp(8, 24));
+    expect(state().fileError).toBeNull();
+  });
+
+  it("says so when a region can't be written, and the buffer is as it was", async () => {
+    const { controller, state, dialogs, fake } = setup({ files: { "/a.bin": ramp(32) } });
+    dialogs.open.mockResolvedValue("/a.bin");
+    await controller.openFile();
+    dialogs.save.mockResolvedValue("/readonly/part.bin");
+    fake.saveImage = async () => {
+      throw new Error("/readonly/part.bin: Permission denied (os error 13)");
+    };
+    await controller.saveRegion(0, 8, "gzip");
+    expect(state().fileError).toBe(
+      "Couldn't save part.bin: /readonly/part.bin: Permission denied (os error 13)",
+    );
+    expect(state().buffer?.path).toBe("/a.bin");
+    expect(state().fileBusy).toBeNull();
+  });
+
   it("counts edits undone after a save as unsaved again", async () => {
     const { controller, state, dialogs } = setup({ files: { "/a.bin": ramp(4) } });
     dialogs.open.mockResolvedValue("/a.bin");
@@ -1736,6 +1824,7 @@ describe("files and operations keep out of each other's way", () => {
     await controller.openFile();
     await controller.save();
     await controller.saveAs();
+    await controller.saveRegion(0, 4, "gzip");
     expect(dialogs.open).not.toHaveBeenCalled();
     expect(dialogs.save).not.toHaveBeenCalled();
     expect(fake.saved).toEqual({});
@@ -1744,6 +1833,20 @@ describe("files and operations keep out of each other's way", () => {
     // The read is what it says it is: from the chip, with no file's name on it.
     expect(state().buffer?.source).toEqual({ kind: "chip", chip: "EEPROM16" });
     expect(state().buffer?.path).toBeNull();
+  });
+
+  it("saves the region's bytes as they were when it was asked for", async () => {
+    const { controller, dialogs, fake } = setup({ files: { "/a.bin": ramp(32) } });
+    dialogs.open.mockResolvedValue("/a.bin");
+    await controller.openFile();
+    const where = deferred<string | null>();
+    dialogs.save.mockReturnValue(where.promise);
+    const saving = controller.saveRegion(8, 4, "gzip");
+    // An edit made while the panel is up isn't what the row described.
+    controller.editBuffer(new Uint8Array(32), true);
+    where.resolve("/part.bin");
+    await saving;
+    expect(fake.saved["/part.bin"]).toEqual(ramp(4, 8));
   });
 
   it("starts no operation while the buffer is being saved, and saves the bytes as they are then", async () => {

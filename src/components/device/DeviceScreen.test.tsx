@@ -834,6 +834,93 @@ describe("what's inside the buffer", () => {
     expect(within(panel).queryByRole("table", { name: "Strings" })).toBeNull();
   });
 
+  describe("saving what it found", () => {
+    const UIMAGE = [0x27, 0x05, 0x19, 0x56];
+    /** 128 bytes counting up, with a uImage header at 16 and a gzip stream at 100. */
+    const dump = () => {
+      const data = Uint8Array.from({ length: 128 }, (_, i) => 0x80 + i);
+      data.set(UIMAGE, 16);
+      data.set(GZIP, 100);
+      return data;
+    };
+    const saveButton = (panel: HTMLElement) =>
+      within(panel).findByRole("button", { name: "Save the uimage at 0x00000010 as…" });
+
+    it("saves a format that says how long it is, as a file of its own", async () => {
+      const { fake, dialogs, controller } = await withFile(dump());
+      click("Inspect");
+      const panel = await contents();
+      const save = await saveButton(panel);
+      expect(save).toHaveAttribute("title", "Save these 64 bytes to a file");
+      expect(panel).toHaveTextContent("Save… writes one out as a file of its own.");
+      // The gzip stream doesn't say where it ends: nothing to save.
+      expect(within(panel).getAllByRole("button", { name: /^Save the / })).toHaveLength(1);
+
+      dialogs.save.mockResolvedValue("/out/header.bin");
+      fireEvent.click(save);
+      await waitFor(() => expect(fake.saved["/out/header.bin"]).toEqual(dump().slice(16, 80)));
+      expect(dialogs.save).toHaveBeenCalledExactlyOnceWith("/img-0x10-uimage.bin", "region");
+      expect(
+        await within(screen.getByRole("log")).findByText(
+          "Saved 64 bytes from 0x00000010 (uimage) to /out/header.bin.",
+        ),
+      ).toBeInTheDocument();
+      // The button isn't the row: the cursor stays where it was.
+      expect(document.querySelector(".hexedit-value")).toHaveTextContent(/0+ = 80$/);
+      // And the buffer is still the file it was opened from.
+      expect(controller.getState().buffer?.path).toBe("/img.bin");
+      const buffer = screen.getByRole("region", { name: "Buffer" });
+      expect(within(buffer).getByText("img.bin")).toBeInTheDocument();
+    });
+
+    it("has no File column when nothing found says how long it is", async () => {
+      await withFile();
+      click("Inspect");
+      const panel = await contents();
+      await within(panel).findByText("gzip");
+      expect(within(panel).queryByRole("columnheader", { name: "File" })).toBeNull();
+      expect(within(panel).queryByRole("button", { name: /^Save the / })).toBeNull();
+      expect(panel).not.toHaveTextContent("Save… writes");
+    });
+
+    it("won't save from a report the buffer has moved on from", async () => {
+      const { controller, dialogs } = await withFile(dump());
+      click("Inspect");
+      const panel = await contents();
+      const save = await saveButton(panel);
+      expect(save).toBeEnabled();
+
+      const edited = dump();
+      edited[20] = 0x00;
+      act(() => controller.editBuffer(edited, true));
+      expect(save).toBeDisabled();
+      expect(save).toHaveAttribute(
+        "title",
+        "The buffer has been edited since this scan. Scan again first.",
+      );
+      fireEvent.click(save);
+      expect(dialogs.save).not.toHaveBeenCalled();
+
+      fireEvent.click(within(panel).getByRole("button", { name: "Scan again" }));
+      await waitFor(async () => expect(await saveButton(panel)).toBeEnabled());
+    });
+
+    it("says why when the file can't be written", async () => {
+      const { fake, dialogs } = await withFile(dump());
+      click("Inspect");
+      const panel = await contents();
+      dialogs.save.mockResolvedValue("/readonly/header.bin");
+      fake.saveImage = async () => {
+        throw new Error("/readonly/header.bin: Permission denied (os error 13)");
+      };
+      fireEvent.click(await saveButton(panel));
+      const buffer = screen.getByRole("region", { name: "Buffer" });
+      expect(await within(buffer).findByRole("alert")).toHaveTextContent(
+        "Couldn't save header.bin: /readonly/header.bin: Permission denied (os error 13)",
+      );
+    });
+  });
+
   it("closes, and goes away with the buffer it was about", async () => {
     const { dialogs, fake } = await withFile();
     click("Inspect");
@@ -1039,6 +1126,24 @@ describe("with file paths hidden", () => {
 
     show(true);
     expect(panel).not.toHaveTextContent("hunter2");
+  });
+
+  it("hides where part of the buffer was saved to", async () => {
+    const dump = new Uint8Array(128).fill(0xff);
+    dump.set([0x27, 0x05, 0x19, 0x56], 0);
+    const { dialogs } = setupHidden({ files: { [SECRET]: dump } });
+    click("Open…");
+    await screen.findByRole("grid", { name: "Buffer bytes" });
+    click("Inspect");
+    const panel = await screen.findByRole("region", { name: "Contents" });
+    dialogs.save.mockResolvedValue("/home/me/customers/Jane Doe/header.bin");
+    fireEvent.click(await within(panel).findByRole("button", { name: /^Save the uimage/ }));
+    expect(
+      await within(screen.getByRole("log")).findByText(
+        "Saved 64 bytes from 0x00000000 (uimage) to [hidden].bin.",
+      ),
+    ).toBeInTheDocument();
+    expectNoPaths();
   });
 
   it("leaves the chip search as typed", async () => {

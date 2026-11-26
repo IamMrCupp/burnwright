@@ -25,11 +25,35 @@ The **What's inside** panel lists what turned up:
 | Type | The format's short name: `uimage`, `gzip`, `squashfs`. |
 | Confidence | How sure the scanner is. Low means it matched on little more than the first bytes. |
 | What it is | What the scanner read out of the header. |
+| File | **Save…**, on a row with a size. See below. |
 
 Click a row, or tab to its offset and press Enter, and the hex editor's cursor
 lands on that byte.
 
 A long report is cut off at 500 rows, with a line saying how many there were.
+
+## Saving one as a file
+
+A row whose format says how long it is has **Save…**. It writes those bytes —
+from the row's offset, for the row's size — to a file you pick, so your own
+tools can open it: `unsquashfs` on a SquashFS, `gunzip` on a kernel.
+
+- **The bytes go out raw**, whatever you call the file. No Intel HEX here: a
+  HEX file of the middle of an image would start at address 0 and be about
+  nothing.
+- **The name it suggests** is the buffer's file, the offset and the type:
+  `router-0x180000-squashfs.bin`, next to `router.bin`.
+- **The buffer isn't touched.** It keeps its own file and its own "not saved"
+  mark; the log says what went where.
+- **No size, no button.** A gzip stream doesn't say where it ends, so the
+  scanner can't either. Go to it and select by hand.
+- **After an edit the buttons are off** until you **Scan again**. The row
+  describes the bytes as they were, and it would be a different file now.
+- It waits for a running operation, the way Save does.
+
+The size is the scanner's reading of the header. A header that lies, or a
+dump that was cut short, gives a file that's the wrong length. It never runs
+past the end of the buffer.
 
 ## The entropy strip
 
@@ -149,8 +173,8 @@ time.
   its tests: a uImage, a gzip stream, erased flash, cut-off and garbage input.
   If it says something odd about yours, that's worth
   [an issue](https://github.com/IamMrCupp/burnwright/issues).
-- **No extraction.** It says a SquashFS starts at `0x180000`; it doesn't unpack
-  it.
+- **No extraction.** It says a SquashFS starts at `0x180000` and will save it
+  as a file; it doesn't unpack it.
 - **The strip doesn't mark where the findings are.** The list and the strip
   are two views of the same bytes; lining them up is by offset.
 - **It's a list of things worth looking at, not a verdict.** A format the

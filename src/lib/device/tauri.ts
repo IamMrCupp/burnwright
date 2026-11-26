@@ -28,14 +28,22 @@ const dialogs: FileDialogs = {
       directory: false,
       filters: IMAGE_FILTERS,
     }),
-  save: (suggested) =>
+  save: (suggested, what) =>
     save({
-      title: "Save the buffer",
+      title: what === "region" ? "Save this part of the buffer" : "Save the buffer",
       defaultPath: suggested,
-      filters: [
-        { name: "Raw binary", extensions: ["bin"] },
-        { name: "Intel HEX", extensions: ["hex"] },
-      ],
+      // Part of the buffer only goes out raw: an Intel HEX of the middle of
+      // an image would start at address 0 and be about nothing.
+      filters:
+        what === "region"
+          ? [
+              { name: "Raw binary", extensions: ["bin"] },
+              { name: "All files", extensions: ["*"] },
+            ]
+          : [
+              { name: "Raw binary", extensions: ["bin"] },
+              { name: "Intel HEX", extensions: ["hex"] },
+            ],
     }),
   openAlgorithms: () =>
     open({

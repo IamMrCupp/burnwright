@@ -78,6 +78,8 @@ export interface FakeCall {
   options?: Pick<OperationOptions, "ignoreChipId" | "ignoreSize">;
   pinCheck?: boolean;
   path?: string;
+  /** The format `saveImage` was told to write, when it was told. */
+  format?: string;
 }
 
 export interface FakeEngine extends DeviceEngine {
@@ -271,8 +273,9 @@ const FAKE_SIGNATURES: readonly {
   {
     magic: [0x68, 0x73, 0x71, 0x73],
     kind: "squashfs",
-    description: "SquashFS file system, little endian, version: 4.0, compression: xz",
-    size: null,
+    description:
+      "SquashFS file system, little endian, version: 4.0, compression: xz, image size: 1048576 bytes",
+    size: 0x100000,
   },
 ];
 
@@ -766,8 +769,8 @@ export function createFakeEngine(options: FakeEngineOptions = {}): FakeEngine {
       return Array.from(file);
     },
 
-    async saveImage(path, data) {
-      fake.calls.push({ command: "saveImage", path });
+    async saveImage(path, data, format) {
+      fake.calls.push({ command: "saveImage", path, ...(format ? { format } : {}) });
       fake.saved[path] = Uint8Array.from(data);
     },
 
