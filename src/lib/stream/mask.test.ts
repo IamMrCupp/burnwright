@@ -67,6 +67,26 @@ describe("maskPaths", () => {
     expect(maskPaths(`Opened ${path}: 16 bytes.`)).toContain("Doe");
     expect(maskPaths(`Opened ${path}: 16 bytes.`, [path])).toBe("Opened [hidden].bin: 16 bytes.");
   });
+
+  it("hides a path inside a known folder as one path, not the folder and then the rest", () => {
+    const folder = "/Users/me/Library/Application Support/burnwright";
+    expect(
+      maskPaths(
+        `${folder}/minipro/bin/minipro -p X --infoic ${folder}/minipro/share/infoic.xml -r ${folder}/a.bin`,
+        [folder],
+      ),
+    ).toBe("[hidden] -p X --infoic [hidden].xml -r [hidden].bin");
+  });
+
+  it("keeps the punctuation after a known path, and runs on past one that ends mid-name", () => {
+    const folder = "/Users/me/Jane Doe MacBook";
+    expect(maskPaths(`Saved to ${folder}/other.bin.`, [folder])).toBe("Saved to [hidden].bin.");
+    expect(maskPaths(`(in ${folder})`, [folder])).toBe("(in [hidden])");
+    const file = "/Users/me/dumps/bios.bin";
+    expect(maskPaths(`Kept ${file}.bak, then ${file}: done`, [file])).toBe(
+      "Kept [hidden].bak, then [hidden].bin: done",
+    );
+  });
 });
 
 describe("PathMasker", () => {
@@ -174,6 +194,10 @@ describe("PathMasker", () => {
     const masked = masker.mask(failed);
     expect(masked.fileError).toBe("Couldn't open bios dump.bin: no such file: [hidden].bin");
     expect(masked.log[0].text).toBe("Looked in [hidden] for it");
+    // Another file in that folder is one path, not the folder and the rest.
+    expect(masker.mask("Opened /Users/me/Jane Doe MacBook/old.bin: 4 bytes")).toBe(
+      "Opened [hidden].bin: 4 bytes",
+    );
     // Nothing to remember in these.
     masker.remember(null);
     masker.remember("image.bin");
