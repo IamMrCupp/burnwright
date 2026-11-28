@@ -19,6 +19,8 @@ export {
 } from "./format";
 export { HexEditor } from "./HexEditor";
 export type { HexEditorHandle, HexEditorProps } from "./HexEditor";
+export { createEditorMemory } from "./editor";
+export type { EditorMemory } from "./editor";
 export {
   canRedo,
   canUndo,

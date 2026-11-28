@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { AppearancePicker } from "./components/appearance";
 import { DeviceScreen } from "./components/device";
 import { EcScreen } from "./components/ec";
+import { createEditorMemory } from "./components/hexview";
 import type { AppearanceController } from "./lib/appearance";
 import { StreamControl } from "./components/stream";
 import type { DeviceController } from "./lib/device/controller";
@@ -38,13 +39,17 @@ const MODES: readonly { id: Mode; label: string }[] = [
 /**
  * The app: a switch between the two benches, and the one that's chosen. It
  * looks for a programmer as it opens. Each bench keeps its state in its
- * controller, so switching away and back loses nothing, and an operation
- * running on one carries on while the other is shown.
+ * controller, and what the hex editor is in the middle of is kept here, so
+ * switching away and back loses nothing, and an operation running on one
+ * carries on while the other is shown.
  */
 function App({ controller, ec, appearance, stream, loadAppInfo, openNotices }: AppProps) {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [noticesError, setNoticesError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>("programmer");
+  // The programmer's screen is taken down while the EC's is up. Its hex
+  // editor's edits, undo history and cursor wait here until it's back.
+  const [editorMemory] = useState(createEditorMemory);
   // The window is on a stream: both benches draw their paths hidden.
   const hidePaths = useSyncExternalStore(
     stream.subscribe,
@@ -109,7 +114,12 @@ function App({ controller, ec, appearance, stream, loadAppInfo, openNotices }: A
       </header>
       <div className="app-bench">
         {mode === "programmer" ? (
-          <DeviceScreen controller={controller} footer={footer} hidePaths={hidePaths} />
+          <DeviceScreen
+            controller={controller}
+            footer={footer}
+            hidePaths={hidePaths}
+            editorMemory={editorMemory}
+          />
         ) : (
           <EcScreen controller={ec} footer={footer} hidePaths={hidePaths} />
         )}

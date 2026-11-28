@@ -11,13 +11,14 @@ import { DeviceController } from "./lib/device/controller";
 import { EcController } from "./lib/ec/controller";
 import { StreamController } from "./lib/stream/controller";
 
-function setup(openNotices?: () => Promise<void>) {
+function setup(openNotices?: () => Promise<void>, files?: Record<string, Uint8Array>) {
   const dialogs = {
-    open: async () => null,
+    open: vi.fn<() => Promise<string | null>>(async () => null),
     save: async () => null,
     openAlgorithms: async () => null,
   };
-  const controller = new DeviceController({ engine: createFakeEngine(), dialogs });
+  const engine = createFakeEngine({ files });
+  const controller = new DeviceController({ engine, dialogs });
   const bench = createFakeBench();
   const ec = new EcController({ bench });
   const appearance = new AppearanceController({
@@ -44,7 +45,7 @@ function setup(openNotices?: () => Promise<void>) {
       openNotices={openNotices}
     />,
   );
-  return { bench, configure };
+  return { bench, configure, dialogs, engine };
 }
 
 const mode = (name: string) => screen.getByRole("button", { name });
@@ -113,6 +114,38 @@ describe("the bench switch", () => {
     fireEvent.click(mode("Laptop EC"));
     await screen.findByText("CH341A connected");
     expect(bench.calls).toEqual(["list_probes"]);
+  });
+
+  it("keeps an unsaved edit, its undo and the cursor across a trip to the EC bench", async () => {
+    const { dialogs, engine } = setup(undefined, {
+      "/image.bin": Uint8Array.from({ length: 64 }, (_, i) => i),
+    });
+    const cell = (index: number) =>
+      document.querySelector<HTMLElement>(`.hv-byte[data-index="${index}"]`)!;
+    dialogs.open.mockResolvedValue("/image.bin");
+    fireEvent.click(screen.getByRole("button", { name: "Open…" }));
+    const grid = await screen.findByRole("grid", { name: "Buffer bytes" });
+    fireEvent.mouseDown(cell(5), { button: 0 });
+    fireEvent.keyDown(grid, { key: "A" });
+    fireEvent.keyDown(grid, { key: "B" });
+    fireEvent.mouseDown(cell(9), { button: 0 });
+    expect(screen.getByText("Edited, not saved")).toBeInTheDocument();
+
+    fireEvent.click(mode("Laptop EC"));
+    expect(screen.queryByRole("grid", { name: "Buffer bytes" })).toBeNull();
+    fireEvent.click(mode("Programmer"));
+
+    // The editor shows the edit, not the file's byte, and can still undo it.
+    expect(cell(5)).toHaveTextContent("AB");
+    expect(screen.getByText("1 byte edited")).toBeInTheDocument();
+    expect(cell(9)).toHaveClass("hv-cursor");
+    expect(screen.getByText("Edited, not saved")).toBeInTheDocument();
+    // What's on screen is what gets saved.
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(engine.saved["/image.bin"]?.[5]).toBe(0xab));
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(cell(5)).toHaveTextContent("05");
+    expect(screen.getByText("Unmodified")).toBeInTheDocument();
   });
 
   it("keeps the Appearance choice in reach on both benches", () => {
