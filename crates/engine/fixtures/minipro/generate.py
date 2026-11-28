@@ -116,6 +116,22 @@ fixtures = {
     "tl866ii_pins_ok_read_id.stderr": TL866 + "Pin test passed.\n" + CHIP,
     "tl866ii_pins_bad.stderr": TL866 + "Bad contact on pin:3\nBad contact on pin:17\n",
     "t48_pins_unsupported_read_id.stderr": T48 + "Pin test is not supported.\n" + CHIP,
+    # minipro -a 8, a W25Q32 in the socket (spi_autodetect_and_exit in main.c:
+    # the ID, then list_devices prints the names on stdout and the count here)
+    "t48_spi_autodetect.stderr": T48 + "Autodetecting device (ID:0xEF4016)\n"
+        + "23 device(s) found.\n",
+    # minipro -a 8, nothing answering: the ID reads back as all ones
+    "t48_spi_autodetect_nothing.stderr": T48 + "Autodetecting device (ID:0xFFFFFF)\n"
+        + "0 device(s) found.\n",
+    # minipro -a 8: its stdout for 0xEF4016, the 8-pin entries with that
+    # chip_id in vendor/minipro/infoic.xml's INFOIC2PLUS database, in file order
+    "t48_spi_autodetect_8.stdout": "S25FL032K@SOIC8\n"
+        + "".join(n + "\n" for n in (
+            "W25Q32@MLP8,W25Q32BV,W25Q32BV@WSON8,W25Q32BV@SOIC8,W25Q32FV,W25Q32FV@WSON8,"
+            "W25Q32FV@SOIC8,W25Q32JV,W25Q32JV@WSON8,W25Q32JV@SOIC8,W25Q32V@MLP8,"
+            "W25Q32(OTP)@MLP8,W25Q32BV(OTP),W25Q32BV(OTP)@WSON8,W25Q32BV(OTP)@SOIC8,"
+            "W25Q32FV(OTP),W25Q32FV(OTP)@WSON8,W25Q32FV(OTP)@SOIC8,W25Q32JV(OTP),"
+            "W25Q32JV(OTP)@WSON8,W25Q32JV(OTP)@SOIC8,W25Q32V(OTP)@MLP8").split(",")),
     # minipro -p W25Q32BV@SOIC8 -m -  (verify_page_file, match)
     "t48_verify_ok.stderr": T48 + CHIP + read_pass("Code", 4, 1.12) + "Verification OK\n",
     # minipro -p W25Q32BV@SOIC8 -b, chip not blank (verify_page_file)

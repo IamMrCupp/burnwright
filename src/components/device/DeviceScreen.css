@@ -261,6 +261,51 @@
   font-size: 0.85em;
 }
 
+.chip-auto-bar {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+.chip-auto {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--bw-border);
+  border-radius: 6px;
+}
+
+.chip-auto h3 {
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--bw-muted);
+}
+
+.chip-auto p {
+  margin: 0.3rem 0;
+}
+
+.chip-auto-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: 14rem;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.chip-auto-list button {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
+}
+
 .chip-recent {
   margin-top: 0.5rem;
 }

@@ -13,6 +13,7 @@
 //! | verify         | `-p <part> -c <kind> -m -`           | stdin         |
 //! | blank check    | `-p <part> -b`                       |               |
 //! | erase          | `-p <part> -E`                       |               |
+//! | SPI auto-detect| `-a 8` or `-a 16`                    | stdout        |
 //! | list chips     | `-q <programmer> -l`                 | stdout        |
 //! | chip info      | `-q <programmer> -d <name>`          |               |
 //!
@@ -34,7 +35,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::chips::{self, ChipInfo, ChipList, Programmer};
+use crate::chips::{self, ChipEntry, ChipInfo, ChipList, Programmer};
 use crate::image::TextEncoding;
 use crate::locate::MiniproBinary;
 use crate::process::{DeviceState, ProcessError, ProcessOutput};
@@ -81,6 +82,48 @@ pub struct ChipCheck {
     pub chip_id: Option<ChipId>,
     /// The pin test, if one was asked for.
     pub pins: Option<PinCheck>,
+}
+
+/// The socket layout for [`Engine::detect_spi`]: an 8-pin or a 16-pin
+/// 25-series SPI flash (minipro `-a 8` / `-a 16`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SpiPins {
+    Eight,
+    Sixteen,
+}
+
+impl SpiPins {
+    /// From a pin count. Only 8 and 16 are SPI flash layouts minipro knows.
+    pub fn from_count(pins: u8) -> Option<Self> {
+        match pins {
+            8 => Some(Self::Eight),
+            16 => Some(Self::Sixteen),
+            _ => None,
+        }
+    }
+
+    fn as_minipro_arg(self) -> &'static str {
+        match self {
+            Self::Eight => "8",
+            Self::Sixteen => "16",
+        }
+    }
+}
+
+/// What [`Engine::detect_spi`] found.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpiDetect {
+    /// The programmer that ran the detect.
+    pub device: DeviceInfo,
+    /// The JEDEC ID the chip answered with, as six hex digits (`"0xEF4016"`).
+    /// `"0xFFFFFF"` or `"0x000000"` usually means nothing answered. `None`
+    /// if minipro didn't print one.
+    pub id: Option<String>,
+    /// Every part in minipro's list for this programmer that answers with
+    /// `id` in this many pins. Often several: parts that share an ID differ
+    /// in package and voltage, and only the marking on the chip settles it.
+    pub chips: Vec<ChipEntry>,
 }
 
 /// The [`Engine`] backed by the minipro CLI.
@@ -345,6 +388,22 @@ impl Engine for MiniproEngine {
         let args = op_args(part, &["-E"], false, ctx)?;
         self.run(Operation::Erase, args, None, ctx)?;
         Ok(())
+    }
+
+    fn detect_spi(&self, pins: SpiPins, ctx: &OpContext) -> EngineResult<SpiDetect> {
+        let args = vec!["-a".into(), pins.as_minipro_arg().into()];
+        let output = self.run(Operation::Other, args, None, ctx)?;
+        let system = parse_system_info(&output.stderr)
+            .ok_or_else(|| EngineError::Minipro("minipro didn't report the programmer".into()))?;
+        let id = parse_detected_id(&stderr_lines(&output.stderr));
+        // The list's own rules for a name; only the T76's allows spaces.
+        let list = Programmer::from_model(&system.model).unwrap_or(Programmer::Tl866ii);
+        let chips = ChipList::parse(list, &output.stdout).chips().to_vec();
+        Ok(SpiDetect {
+            device: system.into_device(None),
+            id,
+            chips,
+        })
     }
 
     fn list_chips(&self, programmer: Programmer, ctx: &OpContext) -> EngineResult<ChipList> {
@@ -739,6 +798,24 @@ fn parse_chip_id(lines: &[String]) -> Option<ChipId> {
             return Some(ChipId::NoChipId);
         }
         None
+    })
+}
+
+/// The ID from `"Autodetecting device (ID:0xEF4016)"`
+/// (`spi_autodetect_and_exit()` in `main.c`), as six hex digits. minipro
+/// prints it with `%04X`, so a zero ID comes out as `0x0000`; SPI IDs are
+/// three bytes, so they're all written out the same width here.
+fn parse_detected_id(lines: &[String]) -> Option<String> {
+    lines.iter().find_map(|line| {
+        let rest = line.strip_prefix("Autodetecting device (ID:")?;
+        let hex = rest.trim_end().strip_suffix(')')?;
+        let digits = hex.strip_prefix("0x").or_else(|| hex.strip_prefix("0X"))?;
+        let id = u32::from_str_radix(digits, 16).ok()?;
+        Some(if id <= 0xFF_FFFF {
+            format!("0x{id:06X}")
+        } else {
+            format!("0x{id:X}")
+        })
     })
 }
 
@@ -1256,6 +1333,36 @@ mod tests {
         assert!(is_not_blank("This device is not blank."));
         assert!(is_not_blank("Fuse bits aren't in their default value!"));
         assert!(!is_not_blank("Code memory section is blank."));
+    }
+
+    #[test]
+    fn detected_id_is_six_hex_digits() {
+        let lines = |l: &str| vec!["Found T48 01.1.32 (0x120)".to_string(), l.to_string()];
+        assert_eq!(
+            parse_detected_id(&lines("Autodetecting device (ID:0xEF4016)")),
+            Some("0xEF4016".into())
+        );
+        assert_eq!(
+            parse_detected_id(&lines("Autodetecting device (ID:0x0000)")),
+            Some("0x000000".into())
+        );
+        assert_eq!(
+            parse_detected_id(&lines("Autodetecting device (ID:0xFFFFFF)")),
+            Some("0xFFFFFF".into())
+        );
+        assert_eq!(parse_detected_id(&lines("Chip ID: 0xEF4016  OK")), None);
+        assert_eq!(
+            parse_detected_id(&lines("Autodetecting device (ID:zz)")),
+            None
+        );
+    }
+
+    #[test]
+    fn spi_pins_come_from_a_count() {
+        assert_eq!(SpiPins::from_count(8), Some(SpiPins::Eight));
+        assert_eq!(SpiPins::from_count(16), Some(SpiPins::Sixteen));
+        assert_eq!(SpiPins::from_count(28), None);
+        assert_eq!(SpiPins::Sixteen.as_minipro_arg(), "16");
     }
 
     #[test]

@@ -46,7 +46,7 @@ pub use chips::{
     ChipCatalog, ChipDetail, ChipEntry, ChipInfo, ChipKind, ChipList, ChipMemory, ChipSearch,
     ChipSocket, MemoryUnit, Programmer,
 };
-pub use cli::{ChipCheck, ChipId, MiniproEngine, PinCheck};
+pub use cli::{ChipCheck, ChipId, MiniproEngine, PinCheck, SpiDetect, SpiPins};
 pub use flashrom::{
     FLASHROM_ENV, FlashromBackend, FlashromBinary, FlashromLocateError, FlashromLocator,
     FlashromSource, KB9012_PART,
@@ -398,6 +398,10 @@ pub trait Engine {
     fn blank_check(&self, part: &str, ctx: &OpContext) -> EngineResult<bool>;
     /// Erase `part` (minipro `-E`).
     fn erase(&self, part: &str, ctx: &OpContext) -> EngineResult<()>;
+    /// Read the JEDEC ID of the 25-series SPI flash in the socket and list
+    /// every part that answers with it (minipro `-a 8` / `-a 16`). Needs no
+    /// part, and reads nothing but the ID.
+    fn detect_spi(&self, pins: SpiPins, ctx: &OpContext) -> EngineResult<SpiDetect>;
     /// Every chip minipro lists for `programmer` (minipro `-q … -l`).
     /// Reads the chip database only: no programmer has to be connected, and
     /// one that is connected isn't touched. Runs minipro every time; go
@@ -462,6 +466,9 @@ impl Engine for StubEngine {
     }
     fn erase(&self, _part: &str, _ctx: &OpContext) -> EngineResult<()> {
         Self::todo("erase")
+    }
+    fn detect_spi(&self, _pins: SpiPins, _ctx: &OpContext) -> EngineResult<SpiDetect> {
+        Self::todo("detect_spi")
     }
     fn list_chips(&self, _programmer: Programmer, _ctx: &OpContext) -> EngineResult<ChipList> {
         Self::todo("list_chips")

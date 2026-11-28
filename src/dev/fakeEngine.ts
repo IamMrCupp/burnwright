@@ -24,6 +24,7 @@ import type {
   InspectText,
   OperationOptions,
   Programmer,
+  SpiDetect,
 } from "../lib/engine";
 import type { DeviceEngine } from "../lib/device/controller";
 
@@ -80,6 +81,8 @@ export interface FakeCall {
   path?: string;
   /** The format `saveImage` was told to write, when it was told. */
   format?: string;
+  /** The pin count `detectSpi` was asked for. */
+  pins?: number;
 }
 
 export interface FakeEngine extends DeviceEngine {
@@ -117,6 +120,14 @@ const T48: DeviceInfo = {
   firmware_expected: null,
   support_warning: "T48 support is not yet complete!",
 };
+
+/** The pins a part sits in: its DIP count, or the number in its package name ("SOIC8"). */
+function pinCount(info: ChipInfo): number | null {
+  const digits = info.package?.match(/(\d+)$/);
+  if (digits) return Number(digits[1]);
+  const socket = info.socket;
+  return socket?.kind === "dip" ? socket.pins : null;
+}
 
 /** A database entry for a memory chip of `bytes` bytes; `extra` overrides any field. */
 export function fakeChip(
@@ -709,6 +720,39 @@ export function createFakeEngine(options: FakeEngineOptions = {}): FakeEngine {
         };
       }
       return { device, chip_id: { status: "match", id: selected.id }, pins };
+    },
+
+    async detectSpi(pins, opts = {}): Promise<SpiDetect> {
+      fake.calls.push({ command: "detectSpi", pins });
+      opts.onProgress?.({ type: "command", line: `minipro -a ${pins}` });
+      if (nextFailure) {
+        const failure = nextFailure;
+        nextFailure = null;
+        opts.onProgress?.({ type: "error", message: failure.message });
+        throw failure;
+      }
+      const programmer = fake.programmer;
+      if (!programmer) {
+        opts.onProgress?.({ type: "error", message: "No programmer found." });
+        throw engineError("no_programmer", "no programmer detected");
+      }
+      opts.onProgress?.({
+        type: "info",
+        message: `Found ${programmer.programmer} ${programmer.firmware ?? ""}`.trim(),
+      });
+      loadAlgorithm(programmer, opts);
+      await step("operation", false, opts.signal);
+      // A 25-series flash answers in a layout of its own pin count; anything
+      // else, or nothing, reads back as all ones.
+      const inSocket = fake.socket ? find(fake.socket.chip) : undefined;
+      const id =
+        inSocket?.id && pinCount(inSocket.info) === pins ? inSocket.id : "0xFFFFFF";
+      opts.onProgress?.({ type: "info", message: `Autodetecting device (ID:${id})` });
+      const found = chips
+        .filter((c) => c.id === id && pinCount(c.info) === pins)
+        .map(entryOf);
+      opts.onProgress?.({ type: "info", message: `${found.length} device(s) found.` });
+      return { device: { ...programmer, chip: null }, id, chips: found };
     },
 
     async read(part, kind, opts = {}) {

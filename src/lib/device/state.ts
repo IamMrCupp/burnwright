@@ -13,6 +13,7 @@ import {
   type InspectReport,
   type Programmer,
   type ProgressEvent,
+  type SpiPins,
 } from "../engine";
 import { checkSize, chipListOf, type SizeCheck } from "./chip";
 
@@ -96,11 +97,35 @@ export interface SearchState {
   error: string | null;
 }
 
+/** Auto: the ID a 25-series SPI flash answered with, and the parts that answer with it. */
+export type AutoDetectState =
+  | { status: "running"; pins: SpiPins }
+  | { status: "done"; pins: SpiPins; id: string | null; chips: ChipEntry[] }
+  | { status: "failed"; pins: SpiPins; message: string };
+
+/** IDs a socket reads back when nothing answers: no chip, the wrong way round, or a bad contact. */
+export const NO_ANSWER_IDS: readonly string[] = ["0xFFFFFF", "0x000000"];
+
+/** What Auto found, in a sentence: for the log, and over the list in the Chip panel. */
+export function autoSummary(id: string | null, count: number): string {
+  if (id === null) return "minipro didn't say what ID the chip answered with.";
+  if (NO_ANSWER_IDS.includes(id)) {
+    return `Nothing answered: the ID reads ${id}. Check the chip is in the socket or adapter the right way round, and that it's a 25-series SPI flash.`;
+  }
+  if (count === 0) {
+    return `The chip answers ${id}, and nothing in minipro's list does. Look it up by the marking on the chip instead.`;
+  }
+  if (count === 1) return `The chip answers ${id}. One part in minipro's list does.`;
+  return `The chip answers ${id}. ${count} parts in minipro's list do: pick the one marked on the chip.`;
+}
+
 export interface ChipState {
   /** What's typed in the search box. */
   query: string;
   search: SearchState;
   selected: ChipRef | null;
+  /** The last Auto, until a part is picked from it or it's closed. */
+  auto: AutoDetectState | null;
   /** Every `chipInfo` answer so far, by `lookupKey`. */
   lookups: Record<string, ChipLookup>;
   recent: RecentChip[];
@@ -287,6 +312,7 @@ export function initialState(recent: RecentChip[] = []): DeviceState {
       query: "",
       search: IDLE_SEARCH,
       selected: null,
+      auto: null,
       lookups: {},
       recent,
     },
@@ -318,6 +344,10 @@ export type Action =
   | { type: "lookup"; key: string; lookup: ChipLookup }
   | { type: "chip_selected"; chip: ChipRef; programmer: Programmer }
   | { type: "chip_cleared" }
+  | { type: "auto_started"; pins: SpiPins }
+  | { type: "auto_done"; pins: SpiPins; id: string | null; chips: ChipEntry[] }
+  | { type: "auto_failed"; pins: SpiPins; message: string }
+  | { type: "auto_closed" }
   | { type: "buffer_loaded"; bytes: Uint8Array; source: BufferSource }
   | { type: "buffer_edited"; bytes: Uint8Array; edited: boolean }
   | { type: "buffer_saved"; path: string; bytes: Uint8Array }
@@ -466,6 +496,8 @@ export function reducer(state: DeviceState, action: Action): DeviceState {
           query: "",
           search: IDLE_SEARCH,
           selected: chip,
+          // A part picked from Auto's list, or any other way, settles it.
+          auto: null,
           recent,
         },
         // Both were about the chip that was selected before.
@@ -473,6 +505,26 @@ export function reducer(state: DeviceState, action: Action): DeviceState {
         diff: null,
       };
     }
+    case "auto_started":
+      return { ...state, chip: { ...state.chip, auto: { status: "running", pins: action.pins } } };
+    case "auto_done":
+      return {
+        ...state,
+        chip: {
+          ...state.chip,
+          auto: { status: "done", pins: action.pins, id: action.id, chips: action.chips },
+        },
+      };
+    case "auto_failed":
+      return {
+        ...state,
+        chip: {
+          ...state.chip,
+          auto: { status: "failed", pins: action.pins, message: action.message },
+        },
+      };
+    case "auto_closed":
+      return state.chip.auto === null ? state : { ...state, chip: { ...state.chip, auto: null } };
     case "chip_cleared":
       return {
         ...state,
@@ -754,8 +806,18 @@ export interface Availability {
 const READY: Availability = { enabled: true, reason: null };
 const no = (reason: string): Availability => ({ enabled: false, reason });
 
+/** Whether Auto can run: a programmer to ask, and nothing else using it. */
+export function autoAvailability(state: DeviceState): Availability {
+  if (state.running) return no("An operation is running.");
+  if (state.chip.auto?.status === "running") return no("Auto is reading the chip's ID.");
+  if (state.programmer.status === "detecting") return no("Looking for a programmer.");
+  if (state.programmer.status !== "found") return no("Detect a programmer first.");
+  return READY;
+}
+
 export function operationAvailability(state: DeviceState, op: OpKind): Availability {
   if (state.running) return no("Another operation is running.");
+  if (state.chip.auto?.status === "running") return no("Auto is reading the chip's ID.");
   if (state.fileBusy === "opening") return no("A file is being opened.");
   if (state.fileBusy === "saving") return no("The buffer is being saved.");
   if (state.fileBusy === "choosing_algorithms") {

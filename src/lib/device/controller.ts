@@ -32,6 +32,7 @@ import {
   type OperationOptions,
   type Programmer,
   type ProgressEvent,
+  type SpiPins,
 } from "../engine";
 import { isSizeMismatch } from "./chip";
 import { fileName, formatByteCount, formatOffset, regionFileName } from "./format";
@@ -50,6 +51,8 @@ import type { RecentStore } from "./recent";
 import type { SettingsStore } from "./settings";
 import {
   activeProgrammer,
+  autoAvailability,
+  autoSummary,
   bufferSizeCheck,
   initialState,
   lookupKey,
@@ -79,6 +82,7 @@ export type DeviceEngine = Pick<
   | "searchChips"
   | "chipInfo"
   | "checkChip"
+  | "detectSpi"
   | "read"
   | "write"
   | "verify"
@@ -427,6 +431,39 @@ export class DeviceController {
     });
     this.recent?.save(this.state.chip.recent);
     void this.lookUp(programmer, chip.name, true);
+  };
+
+  /**
+   * Auto: read the ID of the 25-series SPI flash in the socket and list the
+   * parts that answer with it, for the user to pick from. Touches nothing
+   * but the ID.
+   */
+  autoDetect = async (pins: SpiPins): Promise<void> => {
+    if (!autoAvailability(this.state).enabled) return;
+    this.dispatch({ type: "auto_started", pins });
+    this.dispatch({ type: "logged", kind: "heading", text: `Auto (${pins}-pin SPI flash)` });
+    try {
+      const found = await this.engine.detectSpi(pins, { onProgress: this.onProgress });
+      this.dispatch({ type: "auto_done", pins, id: found.id, chips: found.chips });
+      this.dispatch({ type: "logged", kind: "note", text: autoSummary(found.id, found.chips.length) });
+    } catch (err) {
+      const message = plainMessage(err);
+      this.dispatch({ type: "auto_failed", pins, message });
+      this.dispatch({ type: "logged", kind: "error", text: `Auto failed: ${message}` });
+      if (
+        isEngineError(err) &&
+        (err.kind === "missing_algorithms" || err.kind === "unusable_algorithms")
+      ) {
+        await this.refreshAlgorithms();
+      }
+      if (isNoProgrammer(err)) await this.reportNoProgrammer();
+    }
+  };
+
+  /** Put Auto's answer away without picking from it. */
+  closeAuto = (): void => {
+    if (this.state.chip.auto?.status === "running") return;
+    this.dispatch({ type: "auto_closed" });
   };
 
   clearChip = (): void => {

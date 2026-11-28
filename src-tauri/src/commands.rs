@@ -48,7 +48,7 @@ use engine::{
     AlgorithmFile, AlgorithmSearch, Bench, ChipCatalog, ChipCheck, ChipInfo, ChipList, ChipSearch,
     DeviceInfo, DeviceState, Engine, EngineError, EngineResult, ImageFormat, MemoryKind,
     MiniproBackend, MiniproBuild, MiniproEngine, MiniproRoutes, MiniproSource, OpContext,
-    Overrides, Probe, Programmer, ProgressEvent, Session,
+    Overrides, Probe, Programmer, ProgressEvent, Session, SpiDetect, SpiPins,
 };
 use serde::Serialize;
 use tauri::State;
@@ -258,6 +258,30 @@ pub async fn check_chip(
         Overrides::default(),
         channel_sink(on_progress),
         move |e, ctx| e.check_chip(&part, pin_check, ctx),
+    )
+    .await
+}
+
+/// Read the ID of the 25-series SPI flash in the socket and list the parts
+/// that answer with it (`-a 8` / `-a 16`). `pins` is 8 or 16.
+#[tauri::command]
+pub async fn detect_spi(
+    ops: State<'_, DeviceOps>,
+    pins: u8,
+    op_id: String,
+    on_progress: Channel<ProgressEvent>,
+) -> CommandResult<SpiDetect> {
+    let pins = SpiPins::from_count(pins).ok_or_else(|| {
+        EngineError::InvalidInput(format!(
+            "{pins} pins: minipro detects 8- and 16-pin SPI flash only"
+        ))
+    })?;
+    run_op(
+        &ops,
+        op_id,
+        Overrides::default(),
+        channel_sink(on_progress),
+        move |e, ctx| e.detect_spi(pins, ctx),
     )
     .await
 }
