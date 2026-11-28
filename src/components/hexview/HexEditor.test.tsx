@@ -2,6 +2,7 @@ import { act, createRef } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { HexEditor, type HexEditorHandle } from "./HexEditor";
+import { createEditorMemory } from "./editor";
 
 const ascii = (s: string) => Uint8Array.from(s, (c) => c.charCodeAt(0));
 const ramp = (length: number) => Uint8Array.from({ length }, (_, i) => i & 0xff);
@@ -274,6 +275,46 @@ describe("HexEditor", () => {
     rerender(<HexEditor data={ramp(4)} {...size} />);
     expect(screen.getByText("Unmodified")).toBeInTheDocument();
     expect(hexCell(3)).toHaveTextContent("03");
+  });
+
+  it("carries on from its memory after being taken down and put back", () => {
+    const data = ramp(32);
+    const memory = createEditorMemory();
+    const onChange = vi.fn();
+    const first = render(<HexEditor data={data} memory={memory} onChange={onChange} {...size} />);
+    fireEvent.mouseDown(hexCell(5), { button: 0 });
+    keys("A", "B");
+    fireEvent.mouseDown(hexCell(9), { button: 0 });
+    first.unmount();
+    onChange.mockClear();
+
+    render(<HexEditor data={data} memory={memory} onChange={onChange} {...size} />);
+    // The edit, the count and the cursor are where they were left.
+    expect(hexCell(5)).toHaveTextContent("AB");
+    expect(hexCell(5)).toHaveClass("hv-edited");
+    expect(screen.getByText("1 byte edited")).toBeInTheDocument();
+    expect(hexCell(9)).toHaveClass("hv-cursor");
+    // Bytes it already reported aren't reported again.
+    expect(onChange).not.toHaveBeenCalled();
+
+    // The undo history came back too.
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(hexCell(5)).toHaveTextContent("05");
+    expect(screen.getByText("Unmodified")).toBeInTheDocument();
+    expect(onChange).toHaveBeenLastCalledWith(data, { dirty: false });
+  });
+
+  it("starts over when its memory is of another buffer", () => {
+    const memory = createEditorMemory();
+    const first = render(<HexEditor data={new Uint8Array(4)} memory={memory} {...size} />);
+    fireEvent.mouseDown(hexCell(0), { button: 0 });
+    keys("1", "1");
+    first.unmount();
+
+    render(<HexEditor data={ramp(4)} memory={memory} {...size} />);
+    expect(screen.getByText("Unmodified")).toBeInTheDocument();
+    expect(hexCell(0)).toHaveTextContent("00");
+    expect(hexCell(0)).toHaveClass("hv-cursor");
   });
 
   it("edits a 16 MiB buffer, rendering only the rows in view", () => {

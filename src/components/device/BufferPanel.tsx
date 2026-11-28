@@ -2,7 +2,7 @@ import { memo, useCallback, useRef } from "react";
 import { isSizeMismatch, sizeCheckText, type SizeCheck } from "../../lib/device/chip";
 import { fileName, formatByteCount } from "../../lib/device/format";
 import type { BufferState, DiffState, InspectState, Unsaved } from "../../lib/device/state";
-import { HexDiffView, HexEditor, type HexEditorHandle } from "../hexview";
+import { HexDiffView, HexEditor, type EditorMemory, type HexEditorHandle } from "../hexview";
 import { InspectPanel } from "./InspectPanel";
 
 export interface BufferPanelProps {
@@ -25,6 +25,8 @@ export interface BufferPanelProps {
   inspect: InspectState | null;
   /** Keep the strings a scan found off the screen: the window is on a live stream. */
   coverStrings?: boolean;
+  /** Holds the editor's edits, undo history and cursor while this panel is off screen. */
+  editorMemory?: EditorMemory;
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
@@ -58,6 +60,7 @@ export const BufferPanel = memo(function BufferPanel({
   diff,
   inspect,
   coverStrings = false,
+  editorMemory,
   onOpen,
   onSave,
   onSaveAs,
@@ -150,6 +153,7 @@ export const BufferPanel = memo(function BufferPanel({
               ref={editor}
               data={buffer.original}
               onChange={onChange}
+              memory={editorMemory}
               readOnly={busy}
               height="auto"
               aria-label="Buffer bytes"

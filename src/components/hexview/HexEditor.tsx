@@ -25,6 +25,7 @@ import {
   editorReducer,
   keyToAction,
   selectionRange,
+  type EditorMemory,
   type EditorState,
   type UiCommand,
 } from "./editor";
@@ -81,6 +82,12 @@ export interface HexEditorProps
    * treat it as read-only) and whether it differs from `data`.
    */
   onChange?: (bytes: Uint8Array, info: { dirty: boolean }) => void;
+  /**
+   * Keeps the edits, undo history and cursor while the editor is off screen.
+   * Given the same memory and the same `data` again, the editor carries on
+   * from where it was instead of starting over from `data`.
+   */
+  memory?: EditorMemory;
   ref?: Ref<HexEditorHandle>;
 }
 
@@ -94,6 +101,7 @@ export function HexEditor({
   readOnly = false,
   history,
   onChange,
+  memory,
   baseAddress = 0,
   bytesPerRow = 16,
   addressDigits,
@@ -102,8 +110,10 @@ export function HexEditor({
   ref,
   ...viewProps
 }: HexEditorProps) {
-  const [state, dispatch] = useReducer(editorReducer, data, (d) =>
-    createEditor(d, history),
+  const [state, dispatch] = useReducer(
+    editorReducer,
+    data,
+    (d) => memory?.recall(d) ?? createEditor(d, history),
   );
   // A new buffer means a new document. (Adjusting state during render is
   // React's recommended alternative to an effect here.)
@@ -134,7 +144,12 @@ export function HexEditor({
     viewRef.current?.revealIndex(cursor);
   }, [cursor, bytes]);
 
-  // Report edits. The first render reports nothing: `data` is unchanged.
+  useEffect(() => {
+    memory?.keep(state);
+  }, [memory, state]);
+
+  // Report edits. The first render reports nothing: `data` is unchanged, or
+  // the bytes are ones recalled from `memory` and reported the first time.
   const reported = useRef(bytes);
   useEffect(() => {
     if (reported.current === bytes) return;

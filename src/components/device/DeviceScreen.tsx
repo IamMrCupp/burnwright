@@ -14,6 +14,7 @@ import {
   type OpKind,
 } from "../../lib/device/state";
 import { useMasked } from "../../lib/stream/useMasked";
+import type { EditorMemory } from "../hexview";
 import { BufferPanel } from "./BufferPanel";
 import { ChipPicker } from "./ChipPicker";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -28,6 +29,11 @@ export interface DeviceScreenProps {
   footer?: ReactNode;
   /** Draw every file path as "[hidden]": the window is on a live stream. */
   hidePaths?: boolean;
+  /**
+   * Holds the hex editor's edits, undo history and cursor while this screen
+   * is off screen, so they're still there when it comes back.
+   */
+  editorMemory?: EditorMemory;
 }
 
 const MASK_SKIP = ["chip"] as const;
@@ -48,10 +54,16 @@ function operationsFocus(): HTMLElement | null {
 
 /**
  * The screen where a chip is picked and worked on: programmer and chip on
- * the left; operations, the buffer and the log on the right. All of its
- * state lives in the controller; this only lays it out.
+ * the left; operations, the buffer and the log on the right. Its state lives
+ * in the controller, bar what the hex editor is in the middle of, which is
+ * kept in `editorMemory`; this only lays it out.
  */
-export function DeviceScreen({ controller, footer, hidePaths = false }: DeviceScreenProps) {
+export function DeviceScreen({
+  controller,
+  footer,
+  hidePaths = false,
+  editorMemory,
+}: DeviceScreenProps) {
   const real = useSyncExternalStore(controller.subscribe, controller.getState);
   // Only what's drawn is masked: the controller works on the real state.
   // The chip picker is left alone. Its names come from the chip list, and
@@ -140,6 +152,7 @@ export function DeviceScreen({ controller, footer, hidePaths = false }: DeviceSc
             diff={state.diff}
             inspect={state.inspect}
             coverStrings={hidePaths}
+            editorMemory={editorMemory}
             onOpen={controller.openFile}
             onSave={controller.save}
             onSaveAs={controller.saveAs}

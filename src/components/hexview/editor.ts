@@ -61,6 +61,27 @@ export function createEditor(data: Uint8Array, limits?: HistoryLimits): EditorSt
   };
 }
 
+/**
+ * Where an editor's state waits while the editor is off screen: its edits,
+ * undo history, cursor and selection. Whoever takes the editor down and puts
+ * it back holds one and hands it to HexEditor both times.
+ */
+export interface EditorMemory {
+  /** What was kept, if `data` is the buffer it was kept for. */
+  recall(data: Uint8Array): EditorState | null;
+  keep(state: EditorState): void;
+}
+
+export function createEditorMemory(): EditorMemory {
+  let kept: EditorState | null = null;
+  return {
+    recall: (data) => (kept?.edit.original === data ? kept : null),
+    keep: (state) => {
+      kept = state;
+    },
+  };
+}
+
 /** The selection as a half-open [start, end) range. Never empty for a non-empty buffer. */
 export function selectionRange(s: EditorState): { start: number; end: number } {
   if (s.edit.bytes.length === 0) return { start: 0, end: 0 };
