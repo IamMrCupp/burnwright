@@ -101,6 +101,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::detect,
             commands::check_chip,
+            commands::detect_spi,
             commands::read,
             commands::write,
             commands::verify,

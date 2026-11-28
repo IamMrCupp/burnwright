@@ -4,6 +4,7 @@ import type { DeviceController } from "../../lib/device/controller";
 import { confirmCopy } from "../../lib/device/messages";
 import {
   activeProgrammer,
+  autoAvailability,
   bufferSizeCheck,
   needsAlgorithmFile,
   operationAvailability,
@@ -74,6 +75,7 @@ export function DeviceScreen({
   const info = selectedInfo(state);
   const size = bufferSizeCheck(state);
   const chipName = state.chip.selected?.name ?? null;
+  const autoBlocked = autoAvailability(state).reason;
 
   // Kept stable between renders that don't change it, so a progress tick
   // doesn't re-render the panels it has nothing to do with.
@@ -126,9 +128,12 @@ export function DeviceScreen({
             programmer={programmer}
             recent={recent}
             busy={busy}
+            autoBlocked={autoBlocked}
             onQuery={controller.setQuery}
             onSelect={controller.selectChip}
             onClear={controller.clearChip}
+            onAuto={controller.autoDetect}
+            onCloseAuto={controller.closeAuto}
           />
           {footer && <footer className="device-footer">{footer}</footer>}
         </div>

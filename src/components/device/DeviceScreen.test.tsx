@@ -334,6 +334,114 @@ describe("chip picker", () => {
   });
 });
 
+describe("auto", () => {
+  /** Two parts that share FLASH32@SOIC8's ID, as W25Q32BV, FV and JV do. */
+  const TWINS: FakeChip[] = [
+    ...CHIPS,
+    { info: fakeChip("FLASH32B@SOIC8", 32), id: "0xEF4016" },
+    { info: fakeChip("FLASH32@SOIC16", 32), id: "0xEF4016" },
+  ];
+  const autoPanel = () => screen.getByRole("region", { name: "Auto" });
+
+  async function detect() {
+    click(/^Detect/);
+    await screen.findByText(/firmware 01\.1\.32$/);
+  }
+
+  it("lists the parts that answer with the chip's ID, and picks the one chosen", async () => {
+    const { fake } = setup({
+      chips: TWINS,
+      socket: { chip: "FLASH32B@SOIC8", memory: ramp(32) },
+    });
+    await detect();
+    click("Auto");
+    const panel = await screen.findByRole("region", { name: "Auto" });
+    expect(fake.calls[fake.calls.length - 1]).toEqual({ command: "detectSpi", pins: 8 });
+    expect(within(panel).getByRole("status")).toHaveTextContent(
+      "The chip answers 0xEF4016. 2 parts in minipro's list do: pick the one marked on the chip.",
+    );
+    // The 16-pin part shares the ID but not the layout.
+    const parts = within(panel).getAllByRole("button", { name: /^FLASH32/ });
+    expect(parts.map((b) => b.textContent)).toEqual(["FLASH32@SOIC8", "FLASH32B@SOIC8"]);
+
+    const log = within(screen.getByRole("region", { name: "Log" })).getByRole("log");
+    expect(within(log).getByText("Auto (8-pin SPI flash)")).toBeInTheDocument();
+    expect(within(log).getByText("$ minipro -a 8")).toBeInTheDocument();
+    expect(within(log).getByText("Autodetecting device (ID:0xEF4016)")).toBeInTheDocument();
+
+    fireEvent.click(within(panel).getByRole("button", { name: "FLASH32B@SOIC8" }));
+    await screen.findByRole("heading", { name: "FLASH32B@SOIC8" });
+    expect(screen.queryByRole("region", { name: "Auto" })).toBeNull();
+    await waitFor(() => expect(button("Check chip")).toBeEnabled());
+  });
+
+  it("asks in the pin count chosen", async () => {
+    const { fake } = setup({
+      chips: TWINS,
+      socket: { chip: "FLASH32@SOIC16", memory: ramp(32) },
+    });
+    await detect();
+    fireEvent.change(screen.getByRole("combobox", { name: "Pins on the SPI flash" }), {
+      target: { value: "16" },
+    });
+    click("Auto");
+    await screen.findByRole("region", { name: "Auto" });
+    expect(fake.calls[fake.calls.length - 1]).toEqual({ command: "detectSpi", pins: 16 });
+    expect(within(autoPanel()).getByRole("heading")).toHaveTextContent("Auto, 16 pins");
+    expect(within(autoPanel()).getByRole("status")).toHaveTextContent(
+      "The chip answers 0xEF4016. One part in minipro's list does.",
+    );
+  });
+
+  it("says nothing answered when the ID reads all ones, and closes", async () => {
+    setup({ socket: null });
+    await detect();
+    click("Auto");
+    const panel = await screen.findByRole("region", { name: "Auto" });
+    expect(within(panel).getByRole("status")).toHaveTextContent(
+      "Nothing answered: the ID reads 0xFFFFFF. Check the chip is in the socket or adapter the right way round",
+    );
+    expect(within(panel).queryAllByRole("button", { name: /^FLASH/ })).toEqual([]);
+    fireEvent.click(within(panel).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("region", { name: "Auto" })).toBeNull();
+  });
+
+  it("needs a programmer, and keeps the chip operations off while it reads", async () => {
+    const { fake } = setup({ socket: { chip: "FLASH32@SOIC8", memory: ramp(32) } });
+    expect(button("Auto")).toBeDisabled();
+    expect(button("Auto")).toHaveAttribute("title", "Detect a programmer first.");
+    await pick("FLASH32@SOIC8");
+    expect(button("Auto")).toBeEnabled();
+
+    fake.hold();
+    click("Auto");
+    expect(await screen.findByRole("button", { name: "Reading ID…" })).toBeDisabled();
+    expect(button("Read")).toBeDisabled();
+    act(() => fake.release());
+    await screen.findByRole("region", { name: "Auto" });
+    expect(button("Read")).toBeEnabled();
+  });
+
+  it("says why it failed, as the T76 does with no algorithm file", async () => {
+    setup({
+      programmer: {
+        programmer: "T76",
+        firmware: "00.1.17",
+        chip: null,
+        firmware_status: null,
+        firmware_expected: null,
+        support_warning: "T76 support is experimental!",
+      },
+      socket: { chip: "FLASH32@SOIC8", memory: ramp(32) },
+    });
+    click("Detect");
+    await screen.findByText(/firmware 00\.1\.17$/);
+    click("Auto");
+    const panel = await screen.findByRole("region", { name: "Auto" });
+    expect(within(panel).getByRole("alert")).toHaveTextContent("algorithm file");
+  });
+});
+
 describe("the whole flow", () => {
   it("reads a chip, writes it back after a confirmation that names it, and verifies", async () => {
     const { fake, controller } = setup({

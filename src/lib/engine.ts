@@ -74,6 +74,23 @@ export type ChipId =
     }
   | { status: "no_chip_id" };
 
+/** What `detectSpi` found (mirrors `engine::SpiDetect`). */
+export interface SpiDetect {
+  /** The programmer that ran the detect. */
+  device: DeviceInfo;
+  /**
+   * The ID the chip answered with, as six hex digits ("0xEF4016").
+   * "0xFFFFFF" or "0x000000" usually means nothing answered. `null` if
+   * minipro didn't print one.
+   */
+  id: string | null;
+  /** Every part in minipro's list for this programmer that answers with `id`. Often several. */
+  chips: ChipEntry[];
+}
+
+/** The 25-series SPI flash layouts minipro can auto-detect. */
+export type SpiPins = 8 | 16;
+
 /** What `checkChip` found (mirrors `engine::ChipCheck`). */
 export interface ChipCheck {
   device: DeviceInfo;
@@ -853,6 +870,12 @@ export const engine = {
     options?: OperationOptions,
   ): Promise<ChipCheck> =>
     deviceOp("check_chip", { part, pinCheck }, options),
+  /**
+   * Read the ID of the 25-series SPI flash in the socket and list every
+   * part that answers with it (minipro `-a 8` / `-a 16`). Needs no part.
+   */
+  detectSpi: (pins: SpiPins, options?: OperationOptions): Promise<SpiDetect> =>
+    deviceOp("detect_spi", { pins }, options),
   /** Read `kind` memory from `part`. */
   read: (
     part: string,

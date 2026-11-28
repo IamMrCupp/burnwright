@@ -23,7 +23,7 @@ use engine::{
     Bench, ChipCatalog, ChipCheck, ChipId, ChipKind, ChipSocket, DeviceInfo, DeviceState, Engine,
     EngineError, FirmwareStatus, MemoryKind, MiniproBackend, MiniproBinary, MiniproBuild,
     MiniproEngine, MiniproRoutes, OpContext, Operation, Overrides, PinCheck, Probe, Programmer,
-    ProgressEvent, Stage, WaiveReason,
+    ProgressEvent, SpiPins, Stage, WaiveReason,
 };
 
 mod common;
@@ -84,6 +84,18 @@ fn main() {
         (
             "check_chip_without_a_programmer",
             check_chip_without_a_programmer,
+        ),
+        (
+            "detect_spi_lists_the_parts_with_the_id",
+            detect_spi_lists_the_parts_with_the_id,
+        ),
+        (
+            "detect_spi_when_nothing_answers",
+            detect_spi_when_nothing_answers,
+        ),
+        (
+            "detect_spi_without_a_programmer",
+            detect_spi_without_a_programmer,
         ),
         (
             "read_returns_stdout_and_streams_progress",
@@ -580,6 +592,55 @@ fn check_chip_without_a_programmer() {
     assert_eq!(err, EngineError::NoProgrammer);
 }
 
+/// The stdout fixture for `-a 8` with a W25Q32 in the socket.
+fn autodetect_stdout() -> Vec<u8> {
+    let path = format!(
+        "{}/fixtures/minipro/t48_spi_autodetect_8.stdout",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    fs::read(&path).unwrap_or_else(|e| panic!("fixture {path}: {e}"))
+}
+
+fn detect_spi_lists_the_parts_with_the_id() {
+    let fake = Fake::new("spi-auto")
+        .fixture("t48_spi_autodetect.stderr")
+        .stdout(&autodetect_stdout());
+    let found = fake.engine().detect_spi(SpiPins::Eight, &ctx()).unwrap();
+    assert_eq!(fake.calls(), vec![args(&["-a", "8"])]);
+    assert_eq!(found.device.programmer, "T48");
+    assert_eq!(found.device.chip, None);
+    assert_eq!(found.id.as_deref(), Some("0xEF4016"));
+    assert_eq!(found.chips.len(), 23);
+    // Not only Winbond answers with Winbond's ID.
+    assert_eq!(found.chips[0].name, "S25FL032K@SOIC8");
+    let jv = found
+        .chips
+        .iter()
+        .find(|c| c.name == "W25Q32JV@SOIC8")
+        .expect("W25Q32JV@SOIC8 in the list");
+    assert_eq!(jv.package.as_deref(), Some("SOIC8"));
+    assert!(found.chips.iter().any(|c| c.name == "W25Q32BV(OTP)"));
+}
+
+fn detect_spi_when_nothing_answers() {
+    let fake = Fake::new("spi-auto-none").fixture("t48_spi_autodetect_nothing.stderr");
+    let found = fake.engine().detect_spi(SpiPins::Sixteen, &ctx()).unwrap();
+    assert_eq!(fake.calls(), vec![args(&["-a", "16"])]);
+    assert_eq!(found.id.as_deref(), Some("0xFFFFFF"));
+    assert!(found.chips.is_empty());
+}
+
+fn detect_spi_without_a_programmer() {
+    let fake = Fake::new("spi-auto-noprog")
+        .fixture("no_programmer.stderr")
+        .exit("1");
+    let err = fake
+        .engine()
+        .detect_spi(SpiPins::Eight, &ctx())
+        .unwrap_err();
+    assert_eq!(err, EngineError::NoProgrammer);
+}
+
 fn read_returns_stdout_and_streams_progress() {
     // Binary-hostile bytes: NUL, CR/LF, 0xFF, a ':' that isn't HEX.
     let chip: Vec<u8> = (0..=255u8).chain(*b"\r\n:\x00\xff").collect();
@@ -785,6 +846,13 @@ fn a_t76_without_an_algorithm_file_says_so_for_every_operation() {
     let f = fake("alg-check");
     assert_eq!(
         f.engine().check_chip(PART, false, &ctx()).unwrap_err(),
+        missing()
+    );
+    // `-a` loads its SPI bitstream from the same file (t76_spi_autodetect in
+    // the T76 build). Not captured for `-a` itself.
+    let f = fake("alg-spi-auto");
+    assert_eq!(
+        f.engine().detect_spi(SpiPins::Eight, &ctx()).unwrap_err(),
         missing()
     );
     let f = fake("alg-read");

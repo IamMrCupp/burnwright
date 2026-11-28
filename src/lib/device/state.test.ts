@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { recentStore } from "./recent";
 import {
+  autoAvailability,
+  autoSummary,
   initialState,
   LOG_LIMIT,
   logText,
@@ -173,6 +175,64 @@ describe("reducer", () => {
     expect(visibleRecent(onT56)).toEqual(visibleRecent(state));
     const onT76 = reducer(state, { type: "programmer_chosen", programmer: "t76" });
     expect(visibleRecent(onT76).every((chip) => chip.programmer === "t76")).toBe(true);
+  });
+});
+
+describe("auto", () => {
+  const found = (state: DeviceState): DeviceState =>
+    reducer(state, {
+      type: "detect_found",
+      device: {
+        programmer: "T48",
+        firmware: "01.1.32",
+        chip: null,
+        firmware_status: null,
+        firmware_expected: null,
+        support_warning: null,
+      },
+    });
+
+  it("says what the ID means", () => {
+    expect(autoSummary("0xEF4016", 23)).toBe(
+      "The chip answers 0xEF4016. 23 parts in minipro's list do: pick the one marked on the chip.",
+    );
+    expect(autoSummary("0xEF4016", 1)).toBe(
+      "The chip answers 0xEF4016. One part in minipro's list does.",
+    );
+    expect(autoSummary("0x1C3016", 0)).toMatch(/^The chip answers 0x1C3016, and nothing in minipro's list does\./);
+    // All ones and all zeroes are what a socket reads with nothing answering.
+    expect(autoSummary("0xFFFFFF", 0)).toMatch(/^Nothing answered: the ID reads 0xFFFFFF\./);
+    expect(autoSummary("0x000000", 3)).toMatch(/^Nothing answered: the ID reads 0x000000\./);
+    expect(autoSummary(null, 0)).toBe("minipro didn't say what ID the chip answered with.");
+  });
+
+  it("needs a programmer and nothing else running, and keeps operations off while it runs", () => {
+    expect(autoAvailability(initialState())).toEqual({
+      enabled: false,
+      reason: "Detect a programmer first.",
+    });
+    let state = found(initialState());
+    expect(autoAvailability(state).enabled).toBe(true);
+    expect(autoAvailability(running(state)).reason).toBe("An operation is running.");
+
+    state = reducer(state, { type: "auto_started", pins: 8 });
+    expect(autoAvailability(state).reason).toBe("Auto is reading the chip's ID.");
+    state = reducer(state, {
+      type: "auto_done",
+      pins: 8,
+      id: "0xEF4016",
+      chips: [{ name: "W25Q32BV@SOIC8", package: "SOIC8", custom: false }],
+    });
+    expect(state.chip.auto).toMatchObject({ status: "done", id: "0xEF4016" });
+    expect(autoAvailability(state).enabled).toBe(true);
+
+    // Picking a part settles it.
+    state = reducer(state, {
+      type: "chip_selected",
+      chip: { name: "W25Q32BV@SOIC8", package: "SOIC8" },
+      programmer: "t48",
+    });
+    expect(state.chip.auto).toBeNull();
   });
 });
 

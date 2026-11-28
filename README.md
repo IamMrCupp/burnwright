@@ -8,7 +8,9 @@ macOS · Linux · Windows. No closed-source vendor software required.
 
 > **Status: early, and short on real chips.** The screen is all there: pick a
 > chip, then read, verify, blank-check, erase or write it, with a hex editor
-> for the image and a log of every minipro command. Main (code) memory only
+> for the image and a log of every minipro command. For a 25-series SPI flash,
+> **Auto** reads its ID and lists the parts that answer with it, so you pick
+> from those instead of typing the part number. Main (code) memory only
 > for now: no EEPROM data memory, no fuses. When it can't find a programmer it
 > says why (USB permissions, out-of-date firmware, a T76 on a USB 3 link).
 >

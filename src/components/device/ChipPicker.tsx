@@ -1,5 +1,5 @@
 import { memo, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
-import type { ChipInfo, Programmer } from "../../lib/engine";
+import type { ChipInfo, Programmer, SpiPins } from "../../lib/engine";
 import {
   availabilityWarning,
   memoryDescription,
@@ -9,6 +9,7 @@ import {
 } from "../../lib/device/chip";
 import { formatByteCount, formatCount, joinList } from "../../lib/device/format";
 import {
+  autoSummary,
   lookupKey,
   type ChipLookup,
   type ChipRef,
@@ -24,10 +25,17 @@ export interface ChipPickerProps {
   recent: RecentChip[];
   /** An operation is running: the chip can't change under it. */
   busy: boolean;
+  /** Why Auto can't run now, or `null` when it can. */
+  autoBlocked: string | null;
   onQuery: (query: string) => void;
   onSelect: (chip: ChipRef) => void;
   onClear: () => void;
+  onAuto: (pins: SpiPins) => void;
+  onCloseAuto: () => void;
 }
+
+const AUTO_HINT =
+  "For a 25-series SPI flash: reads the chip's ID and lists the parts that answer with it.";
 
 function sizeText(lookup: ChipLookup | undefined): string {
   if (!lookup) return "";
@@ -46,15 +54,19 @@ export const ChipPicker = memo(function ChipPicker({
   programmer,
   recent,
   busy,
+  autoBlocked,
   onQuery,
   onSelect,
   onClear,
+  onAuto,
+  onCloseAuto,
 }: ChipPickerProps) {
   const inputId = useId();
   const listId = useId();
   const statusId = useId();
   const listRef = useRef<HTMLUListElement>(null);
-  const { query, search, selected, lookups } = chip;
+  const [pins, setPins] = useState<SpiPins>(8);
+  const { query, search, selected, lookups, auto } = chip;
   const results = search.results;
   const open = query.trim() !== "" && search.status === "ready" && results.length > 0;
 
@@ -170,6 +182,28 @@ export const ChipPicker = memo(function ChipPicker({
         </ul>
       )}
 
+      <div className="chip-auto-bar">
+        <button
+          type="button"
+          onClick={() => onAuto(pins)}
+          disabled={autoBlocked !== null}
+          title={autoBlocked ?? AUTO_HINT}
+        >
+          {auto?.status === "running" ? "Reading ID…" : "Auto"}
+        </button>
+        <select
+          aria-label="Pins on the SPI flash"
+          value={pins}
+          disabled={autoBlocked !== null}
+          onChange={(event) => setPins(Number(event.target.value) as SpiPins)}
+        >
+          <option value={8}>8 pins</option>
+          <option value={16}>16 pins</option>
+        </select>
+      </div>
+      {!auto && <p className="hint">{AUTO_HINT}</p>}
+      {auto && <AutoResult auto={auto} busy={busy} onSelect={onSelect} onClose={onCloseAuto} />}
+
       {query.trim() === "" && recent.length > 0 && (
         <div className="chip-recent">
           <h3>Recent</h3>
@@ -217,6 +251,63 @@ export const ChipPicker = memo(function ChipPicker({
     </section>
   );
 });
+
+/** What Auto found: the ID, and the parts to pick from. */
+function AutoResult({
+  auto,
+  busy,
+  onSelect,
+  onClose,
+}: {
+  auto: NonNullable<ChipState["auto"]>;
+  busy: boolean;
+  onSelect: (chip: ChipRef) => void;
+  onClose: () => void;
+}) {
+  if (auto.status === "running") {
+    return (
+      <p className="hint" role="status">
+        Reading the ID of the {auto.pins}-pin SPI flash in the socket…
+      </p>
+    );
+  }
+  return (
+    <section className="chip-auto" aria-label="Auto">
+      <div className="panel-bar">
+        <h3>Auto, {auto.pins} pins</h3>
+        <button type="button" className="button-quiet" onClick={onClose}>
+          Close
+        </button>
+      </div>
+      {auto.status === "failed" ? (
+        <p className="notice notice-error" role="alert">
+          {auto.message}
+        </p>
+      ) : (
+        <>
+          <p role="status">{autoSummary(auto.id, auto.chips.length)}</p>
+          {auto.chips.length > 0 && (
+            <ul className="chip-auto-list">
+              {auto.chips.map((entry) => (
+                <li key={entry.name}>
+                  <button
+                    type="button"
+                    className="button-quiet"
+                    disabled={busy}
+                    onClick={() => onSelect(entry)}
+                  >
+                    <span className="chip-result-name">{entry.name}</span>
+                    {entry.custom && <span className="chip-tag">custom</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
 
 function ChipDetails({ info, programmer }: { info: ChipInfo; programmer: Programmer }) {
   const socket = socketDescription(info);
