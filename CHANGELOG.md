@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.0](https://github.com/IamMrCupp/burnwright/compare/v0.23.1...v0.24.0) (2026-11-28)
+
+
+### Features
+
+* **app:** add Auto to the Chip panel, which reads a 25-series SPI flash's ID and lists the parts that answer with it ([22b3395](https://github.com/IamMrCupp/burnwright/commit/22b33959c4fc2e80bfa0df32042eeb82bb370580))
+
 ## [0.23.1](https://github.com/IamMrCupp/burnwright/compare/v0.23.0...v0.23.1) (2026-11-28)
 
 
