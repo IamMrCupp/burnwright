@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.23.1](https://github.com/IamMrCupp/burnwright/compare/v0.23.0...v0.23.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* **hexview:** keep unsaved edits, undo history and the cursor when the bench is switched and switched back ([bc49d39](https://github.com/IamMrCupp/burnwright/commit/bc49d39c0c054b83e222e4d47caf39ed74adc718))
+
 ## [0.23.0](https://github.com/IamMrCupp/burnwright/compare/v0.22.0...v0.23.0) (2026-11-26)
 
 
