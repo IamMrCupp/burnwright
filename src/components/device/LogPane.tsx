@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
 import { logText, type LogLine } from "../../lib/device/state";
 
 export interface LogPaneProps {
@@ -19,8 +19,13 @@ export const LogPane = memo(function LogPane({ log, onClear, tool = "minipro" }:
   const linesRef = useRef<HTMLDivElement>(null);
   const [copy, setCopy] = useState<CopyState>("idle");
 
-  // Follow the newest line.
-  useEffect(() => {
+  // Follow the newest line, before the browser paints, so a change and the
+  // scroll that goes with it are drawn together. With the scroll after the
+  // paint, the app's WebKit could leave the whole box undrawn until it was
+  // scrolled by hand, after an update that rewrote every line and moved the
+  // log at once: turning "Hide file paths" on or off with Inspect's strings
+  // open. Chromium never did it.
+  useLayoutEffect(() => {
     const lines = linesRef.current;
     if (lines) lines.scrollTop = lines.scrollHeight;
   }, [log]);
