@@ -49,6 +49,28 @@ function hidden(path: string): string {
   return ext && ext.index > 0 ? `${HIDDEN}${ext[0]}` : HIDDEN;
 }
 
+/** What can follow a known path and still be part of it: the same run `PATH` takes. */
+const PATH_REST = /^[^\s"'`<>|]*/;
+
+/**
+ * `text` with every `path` in it hidden, along with whatever runs on from
+ * it: a known folder is usually the start of a longer path. Hiding just the
+ * folder would leave `[hidden]/bin/minipro`, and the rest would then be
+ * hidden again as a path of its own: `[hidden][hidden]`.
+ */
+function hideKnown(text: string, path: string): string {
+  let out = "";
+  let from = 0;
+  for (let at = text.indexOf(path); at !== -1; at = text.indexOf(path, from)) {
+    const rest = PATH_REST.exec(text.slice(at + path.length))?.[0] ?? "";
+    const tail = TRAILING.exec(rest)?.[0] ?? "";
+    const end = at + path.length + rest.length - tail.length;
+    out += text.slice(from, at) + hidden(text.slice(at, end));
+    from = end;
+  }
+  return out + text.slice(from);
+}
+
 /**
  * `text` with every path in it hidden. `known` are paths to hide wherever
  * they appear whole: that's what catches one with a space in it, which
@@ -57,7 +79,7 @@ function hidden(path: string): string {
 export function maskPaths(text: string, known: readonly string[] = []): string {
   let masked = text;
   for (const path of known) {
-    if (masked.includes(path)) masked = masked.split(path).join(hidden(path));
+    if (path !== "" && masked.includes(path)) masked = hideKnown(masked, path);
   }
   return masked.replace(PATH, (_match, before: string, found: string) => {
     const tail = TRAILING.exec(found)?.[0] ?? "";
