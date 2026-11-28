@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.24.1](https://github.com/IamMrCupp/burnwright/compare/v0.24.0...v0.24.1) (2026-11-28)
+
+
+### Bug Fixes
+
+* **stream:** hide a path inside a known folder as one path, not [hidden][hidden] ([bacc66e](https://github.com/IamMrCupp/burnwright/commit/bacc66eac223bbc5388956d93df60adf487ea7a2))
+
 ## [0.24.0](https://github.com/IamMrCupp/burnwright/compare/v0.23.1...v0.24.0) (2026-11-28)
 
 
